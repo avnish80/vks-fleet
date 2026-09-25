@@ -1,5 +1,5 @@
 import { describeError, SupervisorClient } from './api/client';
-import { scopedList } from './api/scopedList';
+import { ListResult, scopedList } from './api/scopedList';
 import { KubeObject, PATHS, toFleetClusters } from './capi/v1beta1';
 import { labelTenantResolver, readNamespaces } from './tenancy';
 import { SupervisorConfig, SupervisorResult } from './types';
@@ -17,7 +17,7 @@ export async function fetchSupervisor(
   const list = (p: { prefix: string; plural: string }, namespaces: string[]) =>
     scopedList<KubeObject>(client, p.prefix, p.plural, namespaces);
 
-  let clusters;
+let clusters: ListResult<KubeObject>;
   try {
     clusters = await list(PATHS.clusters, supervisor.namespaces);
   } catch (err) {
