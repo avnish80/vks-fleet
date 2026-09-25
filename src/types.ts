@@ -52,6 +52,8 @@ export interface ClusterCondition {
 
 export interface NodePool {
   name: string;
+  /** Position in the Cluster's spec.topology.workers.machineDeployments; needed to change the pool. */
+  topologyIndex?: number;
   className?: string;
   ready: number;
   available: number;
@@ -199,6 +201,8 @@ export interface ServiceHealth {
   name: string;
   pods: number;
   problems: PodIssue[];
+  /** Failed pods already replaced by a running pod of the same owner: left-overs, safe to delete. */
+  leftovers: number;
 }
 
 export type Severity = 'critical' | 'warning' | 'info';

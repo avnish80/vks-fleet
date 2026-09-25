@@ -50,6 +50,7 @@ export function FleetView() {
   const [tenant, setTenant] = React.useState(ALL);
   const [attentionOnly, setAttentionOnly] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
+  const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
 
   const multiSupervisor = config.supervisors.length > 1;
   const supervisorNames = new Map(config.supervisors.map(s => [s.id, supervisorLabel(s)]));
@@ -59,6 +60,9 @@ export function FleetView() {
   const versions = React.useMemo(() => versionSpread(allClusters), [allClusters]);
   const workload = useWorkloadHealth(allClusters, config.refreshSeconds);
   const findings = React.useMemo(() => fleetFindings(results ?? []), [results]);
+  const findingCounts = countBySeverity(findings);
+  // Collapsed by default; open by default only when something is critical.
+  const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
   const services: ServiceRow[] = (results ?? []).flatMap(r =>
     (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
   );
@@ -135,7 +139,14 @@ export function FleetView() {
     <>
       <SectionBox title="VKS fleet" headerProps={{ actions }}>
         <SupervisorBanners results={results} />
-        <Typography sx={{ mb: 2 }}>{summarySentence(allClusters)}</Typography>
+        <Typography sx={{ mb: 2 }}>
+          {summarySentence(allClusters)}
+          {findingCounts.critical + findingCounts.warning > 0
+            ? ` Findings below: ${findingCounts.critical} critical, ${findingCounts.warning} ${
+                findingCounts.warning === 1 ? 'warning' : 'warnings'
+              }.`
+            : ''}
+        </Typography>
 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
           <TextField
@@ -167,8 +178,6 @@ export function FleetView() {
           />
         </Box>
       </SectionBox>
-
-      <FindingsSection findings={findings} showInfo={showInfo} setShowInfo={setShowInfo} />
 
       {multiTenant && tenant === ALL && (
         <SectionBox title="Tenants">
@@ -253,6 +262,14 @@ export function FleetView() {
           );
         })}
 
+      <FindingsSection
+        findings={findings}
+        showInfo={showInfo}
+        setShowInfo={setShowInfo}
+        open={findingsOpen}
+        setOpen={setFindingsOpen}
+      />
+
       {services.length > 0 && tenant === ALL && (
         <SectionBox title="Supervisor services">
           <SimpleTable
@@ -263,11 +280,17 @@ export function FleetView() {
               {
                 label: 'Pods',
                 getter: (s: ServiceRow) =>
-                  s.problems.length ? (
-                    <StatusLabel status="warning">{`${s.problems.length} of ${s.pods} with problems`}</StatusLabel>
-                  ) : (
-                    <StatusLabel status="success">{`${s.pods} OK`}</StatusLabel>
-                  ),
+                  <Box>
+                    {s.problems.length ? (
+                      <StatusLabel status="warning">{`${s.problems.length} with problems`}</StatusLabel>
+                    ) : (
+                      <StatusLabel status="success">OK</StatusLabel>
+                    )}
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {`${s.pods - s.leftovers} running`}
+                      {s.leftovers ? `, ${s.leftovers} old failed ${s.leftovers === 1 ? 'pod' : 'pods'} to clean up` : ''}
+                    </Typography>
+                  </Box>,
               },
               {
                 label: 'Logs',
@@ -288,10 +311,14 @@ function FindingsSection({
   findings,
   showInfo,
   setShowInfo,
+  open,
+  setOpen,
 }: {
   findings: ReturnType<typeof fleetFindings>;
   showInfo: boolean;
   setShowInfo: (v: boolean) => void;
+  open: boolean;
+  setOpen: (v: boolean) => void;
 }) {
   const counts = countBySeverity(findings);
   const shown = showInfo ? findings : findings.filter(x => x.severity !== 'info');
@@ -299,20 +326,25 @@ function FindingsSection({
     counts.critical + counts.warning === 0
       ? 'Nothing needs action.'
       : `${counts.critical} critical, ${counts.warning} ${counts.warning === 1 ? 'warning' : 'warnings'}.`;
+  const toggle = [
+    <Button key="toggle" size="small" variant="outlined" onClick={() => setOpen(!open)}>
+      {open ? 'Hide findings' : 'Show findings'}
+    </Button>,
+  ];
   return (
-    <SectionBox title="Findings">
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 1 }}>
+    <SectionBox title="Findings" headerProps={{ actions: toggle }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: open ? 1 : 0 }}>
         <Typography>
           {summary} {counts.info ? `${counts.info} for information.` : ''}
         </Typography>
-        {counts.info > 0 && (
+        {open && counts.info > 0 && (
           <FormControlLabel
             control={<Switch checked={showInfo} onChange={e => setShowInfo(e.target.checked)} />}
             label="Show information findings"
           />
         )}
       </Box>
-      {shown.length > 0 && <FindingsTable findings={shown} />}
+      {open && shown.length > 0 && <FindingsTable findings={shown} />}
     </SectionBox>
   );
 }

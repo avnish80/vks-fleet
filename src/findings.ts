@@ -42,7 +42,7 @@ export function clusterFindings(c: FleetCluster, now: Date, fleetZones: number):
         'warning',
         issue,
         stuckDelete
-          ? 'Usually a node drain blocked by a PodDisruptionBudget, or a VM deletion stuck in vSphere. Check the machine\'s events below; sign in to the cluster to see pods that cannot be evicted.'
+          ? 'Usually a node drain blocked by a PodDisruptionBudget, or a VM deletion stuck in vSphere. Check the machine\'s events on the cluster page, and sign in to the cluster to see pods that can\'t be evicted. If the blocker can\'t be fixed, use Skip drain on the machine.'
           : 'Check the machine\'s conditions and the Supervisor events for this cluster.'
       )
     );
@@ -78,13 +78,15 @@ export function clusterFindings(c: FleetCluster, now: Date, fleetZones: number):
           `${c.healthCheck.healthy} of ${c.healthCheck.expected} nodes healthy`
         )
       );
-    } else if (unhealthy > 0) {
+    } else if (unhealthy - c.machines.filter(m => m.deletingSince).length > 0) {
+      // Machines already being deleted are covered by their own finding.
+      const repairing = unhealthy - c.machines.filter(m => m.deletingSince).length;
       out.push(
         f(
           c,
           'mhc-repairing',
           'warning',
-          `${unhealthy} node${unhealthy === 1 ? ' is' : 's are'} unhealthy and being repaired`,
+          `${repairing} node${repairing === 1 ? ' is' : 's are'} unhealthy and being repaired`,
           'No action needed unless it persists. The health check replaces unhealthy nodes automatically.'
         )
       );
@@ -242,7 +244,21 @@ export function namespaceFindings(c: FleetCluster): Finding[] {
 }
 
 export function serviceFindings(supervisorId: string, services: ServiceHealth[]): Finding[] {
-  return services
+  const leftovers = services.filter(s => s.leftovers > 0);
+  const cleanup: Finding[] = leftovers.length
+    ? [
+        {
+          id: `${supervisorId}#svc-leftovers`,
+          severity: 'info',
+          scope: 'supervisor',
+          supervisorId,
+          title: `${leftovers.reduce((n, s) => n + s.leftovers, 0)} old failed pods left behind in Supervisor services`,
+          detail: leftovers.map(s => `${s.name}: ${s.leftovers}`).join('; '),
+          fix: 'They were already replaced by running pods, so they are safe to delete, e.g. kubectl delete pod -n <namespace> --field-selector=status.phase=Failed.',
+        },
+      ]
+    : [];
+  const problems: Finding[] = services
     .filter(s => s.problems.length > 0)
     .map(s => ({
       id: `${supervisorId}#svc-${s.namespace}`,
@@ -257,6 +273,7 @@ export function serviceFindings(supervisorId: string, services: ServiceHealth[])
         .join('; '),
       fix: 'Open the service\'s pods in Headlamp and check their logs and events. Problems here can affect every cluster on the Supervisor.',
     }));
+  return [...problems, ...cleanup];
 }
 
 export function fleetFindings(results: SupervisorResult[], now: Date = new Date()): Finding[] {

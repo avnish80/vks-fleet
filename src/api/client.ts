@@ -7,6 +7,20 @@ export interface SupervisorClient {
   get<T = unknown>(path: string): Promise<T>;
 }
 
+/** One write to the Supervisor. Actions are short lists of these, applied in order. */
+export interface WriteRequest {
+  method: 'PATCH' | 'DELETE';
+  path: string;
+  body?: unknown;
+  /** For PATCH: application/merge-patch+json or application/json-patch+json. */
+  contentType?: string;
+}
+
+export interface SupervisorWriter {
+  /** With dryRun, the Supervisor validates the change (RBAC, admission webhooks) without applying it. */
+  send(req: WriteRequest, dryRun: boolean): Promise<unknown>;
+}
+
 export function statusOf(err: unknown): number | undefined {
   const status = (err as { status?: unknown } | null)?.status;
   return typeof status === 'number' ? status : undefined;

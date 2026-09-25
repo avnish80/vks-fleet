@@ -48,6 +48,25 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Actions
+
+The cluster page can make changes on the Supervisor:
+
+- **Pause / Resume:** stop or restart reconciliation, for example during maintenance.
+- **Scale** a node pool: blocked for autoscaled pools.
+- **Replace** a node: delete its machine and let Cluster API rebuild it. Blocked for the only control-plane node, or while the cluster is paused.
+- **Skip drain**, on machines stuck deleting: a break-glass action that lets the deletion finish without evicting pods, optionally without waiting for volumes to detach.
+
+Every action works the same way:
+
+1. Its checks are shown, and any blocking check disables it.
+2. A server-side dry run shows whether the Supervisor (RBAC and VKS admission webhooks) would accept it.
+3. Risky actions need a reason, and destructive ones need the cluster name typed to confirm.
+4. It runs with the signed-in user's own credentials, so tenants can only act on their own clusters.
+5. It stamps the Cluster with a `vks-fleet/last-action` annotation: the time, what was done and why.
+
+All action rules live in `src/actions.ts` as plain data (checks plus the exact writes), separate from the UI.
+
 ## Seeing inside a cluster
 
 Headlamp's own features (workloads, logs, shell, events, YAML editing, map) work on any cluster Headlamp can reach. The plugin doesn't copy them. It links to them, and it reads a small health summary through the same connection.
@@ -151,6 +170,7 @@ src/
   releases.ts           Kubernetes releases and upgrade detection
   supervisor.ts         Node VMs, VM class sizes, capacity, quotas, class currency, Supervisor services
   findings.ts           Findings rules: severity, what's wrong, what to do
+  actions.ts            Action plans: checks, confirmations and the exact writes
   quantity.ts           Kubernetes quantity parsing
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
   contexts.ts           Match fleet clusters to Headlamp contexts by API endpoint
@@ -194,7 +214,12 @@ These Headlamp and VKS details were checked in CI or against a real Supervisor:
 - `noAuthRequired` on the home routes (without it the page stays blank)
 - VCFA's `vmware-system-vcf/organization-id` namespace label, and the CAPI and VKS resource names
 
-New in v0.3.0 and still to confirm on a live system:
+New in v0.4.0 and still to confirm on a live system:
+
+- writes through `ApiProxy.request` with `method`, `headers` and `body` (PATCH merge and JSON patches, DELETE), and `?dryRun=All`
+- VKS admission webhooks accepting changes to `spec.topology.workers.machineDeployments[].replicas` and `spec.paused` through `cluster.x-k8s.io/v1beta1`
+
+From v0.3.0, still to confirm:
 
 - the Headlamp link formats: pod list filtered by namespace (`/c/<cluster>/pods?namespace=<ns>`) and custom-resource pages (`/c/<cluster>/customresources/clusters.cluster.x-k8s.io/<ns>/<name>`)
 - MachineHealthCheck status fields and the VM class `spec.hardware` sizes

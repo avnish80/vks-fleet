@@ -172,8 +172,9 @@ function nodePools(cluster: KubeObject, mds: KubeObject[], clusterVars: Map<stri
 
   if (Array.isArray(topoMds) && topoMds.length > 0) {
     return topoMds
-      .filter(t => t && typeof t.name === 'string')
-      .map(t => {
+      .map((t, topologyIndex) => ({ t, topologyIndex }))
+      .filter(({ t }) => t && typeof t.name === 'string')
+      .map(({ t, topologyIndex }) => {
         const md = mdForTopo(t.name);
         const overrides = variables(t.variables?.overrides);
         const ann: Record<string, string> = t.metadata?.annotations ?? {};
@@ -181,6 +182,7 @@ function nodePools(cluster: KubeObject, mds: KubeObject[], clusterVars: Map<stri
         const max = optNum(ann[AUTOSCALER_MAX]);
         return {
           name: t.name,
+          topologyIndex,
           className: str(t.class),
           ready: num(md?.status?.readyReplicas),
           available: num(md?.status?.availableReplicas),

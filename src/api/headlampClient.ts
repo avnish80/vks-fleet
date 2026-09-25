@@ -1,6 +1,6 @@
 import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 import { HeadlampClusterInfo, parseHeadlampConfig } from '../contexts';
-import { SupervisorClient } from './client';
+import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
 
 /**
  * SupervisorClient backed by Headlamp's API proxy, targeting one Headlamp
@@ -33,4 +33,30 @@ export async function listHeadlampClusters(): Promise<HeadlampClusterInfo[]> {
   } catch {
     return [];
   }
+}
+
+function withDryRun(path: string, dryRun: boolean): string {
+  if (!dryRun) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}dryRun=All`;
+}
+
+/**
+ * Writes to one Headlamp cluster with the signed-in user's own credentials,
+ * so the Supervisor's RBAC decides what's allowed.
+ */
+export function headlampWriter(headlampCluster: string): SupervisorWriter {
+  return {
+    send(req: WriteRequest, dryRun: boolean): Promise<unknown> {
+      const params: Record<string, unknown> = {
+        method: req.method,
+        cluster: headlampCluster,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': req.contentType ?? 'application/json',
+        },
+      };
+      if (req.body !== undefined) params.body = JSON.stringify(req.body);
+      return ApiProxy.request(withDryRun(req.path, dryRun), params, false);
+    },
+  };
 }

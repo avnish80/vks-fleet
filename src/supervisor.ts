@@ -191,6 +191,32 @@ export function serviceName(namespace: string): string {
   return SERVICE_NAMES[short] ?? short;
 }
 
+function ownerOf(pod: any): string | undefined {
+  const refs: any[] = pod?.metadata?.ownerReferences ?? [];
+  const ref = refs.find(o => o?.controller) ?? refs[0];
+  return ref?.uid ?? (ref ? `${ref.kind}/${ref.name}` : undefined);
+}
+
+/**
+ * Splits a service's pod problems into real ones and left-overs: a Failed pod
+ * whose owner (ReplicaSet, StatefulSet, ...) already has a Running pod was
+ * replaced and is just waiting to be cleaned up.
+ */
+export function servicePodHealth(pods: any[], now: Date): { problems: PodIssue[]; leftovers: number } {
+  const runningOwners = new Set(pods.filter(p => p?.status?.phase === 'Running').map(ownerOf).filter(Boolean));
+  let leftovers = 0;
+  const live: any[] = [];
+  for (const p of pods) {
+    const owner = ownerOf(p);
+    if (p?.status?.phase === 'Failed' && owner && runningOwners.has(owner)) {
+      leftovers += 1;
+    } else {
+      live.push(p);
+    }
+  }
+  return { problems: podIssues(live, now), leftovers };
+}
+
 export async function fetchServices(
   client: SupervisorClient,
   namespaceNames: string[],
@@ -205,8 +231,8 @@ export async function fetchServices(
   settled.forEach((r, i) => {
     if (r.status === 'fulfilled') {
       const pods = r.value?.items ?? [];
-      const problems: PodIssue[] = podIssues(pods, now);
-      services.push({ namespace: svc[i], name: serviceName(svc[i]), pods: pods.length, problems });
+      const { problems, leftovers } = servicePodHealth(pods, now);
+      services.push({ namespace: svc[i], name: serviceName(svc[i]), pods: pods.length, problems, leftovers });
     } else {
       warnings.push(`Couldn't read Supervisor service ${svc[i]}: ${describeError(r.reason)}`);
     }

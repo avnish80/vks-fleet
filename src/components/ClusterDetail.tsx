@@ -5,9 +5,11 @@ import {
   SimpleTable,
   StatusLabel,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Box, Typography } from '@mui/material';
+import { Alert, Box, Button, Typography } from '@mui/material';
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { pausePlan, replacePlan } from '../actions';
+import { headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
 import { AddonInfo } from '../extras';
@@ -31,7 +33,15 @@ import {
 import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
+import { ActionDialog, ScaleDialog, SkipDrainDialog } from './ActionDialog';
 import { capacityText, FindingsTable, HealthLabel, replicas, SupervisorBanners, WorkloadCell } from './common';
+
+type OpenAction =
+  | { kind: 'pause' }
+  | { kind: 'resume' }
+  | { kind: 'scale'; pool: NodePool }
+  | { kind: 'replace'; machine: MachineInfo }
+  | { kind: 'skip-drain'; machine: MachineInfo };
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
 
@@ -239,7 +249,13 @@ export function ClusterDetail() {
 
   // Only read the Supervisor this cluster lives on.
   const scoped = React.useMemo(() => (supervisor ? [supervisor] : []), [supervisor]);
-  const { results } = useFleet(scoped, config.refreshSeconds);
+  const { results, refresh } = useFleet(scoped, config.refreshSeconds);
+  const writer = React.useMemo(
+    () => (supervisor ? headlampWriter(supervisor.headlampCluster) : null),
+    [supervisor?.headlampCluster]
+  );
+  const [action, setAction] = React.useState<OpenAction | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const key = clusterKey(params.supervisor, params.namespace, params.name);
   const cluster = results?.flatMap(r => r.clusters).find(c => c.key === key);
 
@@ -296,10 +312,31 @@ export function ClusterDetail() {
       ? [{ role: 'Networking (CNI)', name: cluster.cni }]
       : [];
 
+  const closeAction = () => setAction(null);
+  const applied = (message: string) => {
+    setNotice(message);
+    refresh();
+  };
+  const actionButtons = [
+    <Button
+      key="pause"
+      size="small"
+      variant="outlined"
+      onClick={() => setAction(cluster.paused ? { kind: 'resume' } : { kind: 'pause' })}
+    >
+      {cluster.paused ? 'Resume' : 'Pause'}
+    </Button>,
+  ];
+
   return (
     <>
-      <SectionBox title={cluster.name}>
+      <SectionBox title={cluster.name} headerProps={{ actions: actionButtons }}>
         {back}
+        {notice && (
+          <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2 }}>
+            {notice}
+          </Alert>
+        )}
         <SupervisorBanners results={results} />
         {findings.length > 0 && (
           <Box sx={{ mb: 2 }}>
@@ -389,6 +426,14 @@ export function ClusterDetail() {
               { label: 'Storage class', getter: (p: NodePool) => p.storageClass ?? '—' },
               { label: 'Zone', getter: (p: NodePool) => p.failureDomain ?? '—' },
               { label: 'Autoscaling', getter: (p: NodePool) => autoscaling(p) },
+              {
+                label: 'Actions',
+                getter: (p: NodePool) => (
+                  <Button size="small" onClick={() => setAction({ kind: 'scale', pool: p })}>
+                    Scale
+                  </Button>
+                ),
+              },
             ]}
             data={cluster.nodePools}
           />
@@ -438,6 +483,19 @@ export function ClusterDetail() {
               { label: 'IP', getter: (m: MachineInfo) => m.internalIP ?? '—' },
               { label: 'Zone', getter: (m: MachineInfo) => m.failureDomain ?? m.vm?.zone ?? '—' },
               { label: 'Age', getter: (m: MachineInfo) => ageOf(m.createdAt) },
+              {
+                label: 'Actions',
+                getter: (m: MachineInfo) =>
+                  m.deletingSince ? (
+                    <Button size="small" color="error" onClick={() => setAction({ kind: 'skip-drain', machine: m })}>
+                      Skip drain
+                    </Button>
+                  ) : (
+                    <Button size="small" onClick={() => setAction({ kind: 'replace', machine: m })}>
+                      Replace
+                    </Button>
+                  ),
+              },
             ]}
             data={cluster.machines}
           />
@@ -543,6 +601,33 @@ export function ClusterDetail() {
           <EventsTable events={extras.events} />
         )}
       </SectionBox>
+
+      {writer && action?.kind === 'pause' && (
+        <ActionDialog plan={pausePlan(cluster, true)} writer={writer} onClose={closeAction} onApplied={applied} />
+      )}
+      {writer && action?.kind === 'resume' && (
+        <ActionDialog plan={pausePlan(cluster, false)} writer={writer} onClose={closeAction} onApplied={applied} />
+      )}
+      {writer && action?.kind === 'scale' && (
+        <ScaleDialog cluster={cluster} pool={action.pool} writer={writer} onClose={closeAction} onApplied={applied} />
+      )}
+      {writer && action?.kind === 'replace' && (
+        <ActionDialog
+          plan={replacePlan(cluster, action.machine)}
+          writer={writer}
+          onClose={closeAction}
+          onApplied={applied}
+        />
+      )}
+      {writer && action?.kind === 'skip-drain' && (
+        <SkipDrainDialog
+          cluster={cluster}
+          machine={action.machine}
+          writer={writer}
+          onClose={closeAction}
+          onApplied={applied}
+        />
+      )}
 
       {extras?.raw !== undefined && (
         <SectionBox title="Cluster object">
