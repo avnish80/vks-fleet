@@ -1,0 +1,77 @@
+# Builds the Headlamp plugin on GitHub's runners (which can reach npm) and
+# publishes a ready-to-install tarball.
+#
+#   push to main  -> build + downloadable workflow artifact
+#   push tag v*   -> build + GitHub release with vks-fleet.tar.gz attached
+#   manual run    -> Actions tab -> build -> Run workflow
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create releases on tags
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Generates package.json/tsconfig matching the current Headlamp release,
+      # in build/vks-fleet (ignored by git).
+      - name: Scaffold Headlamp plugin project
+        run: |
+          mkdir -p build
+          cd build
+          npx --yes @kinvolk/headlamp-plugin create vks-fleet
+
+      - name: Add plugin source
+        working-directory: build/vks-fleet
+        run: |
+          rm -rf src
+          cp -r "$GITHUB_WORKSPACE/src" ./src
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            npm pkg set version="${GITHUB_REF_NAME#v}"
+          fi
+          npm install
+
+      # Type-check against the real Headlamp types. Non-blocking so you still
+      # get a build to try; if this step shows red, send the log output.
+      - name: Type-check
+        working-directory: build/vks-fleet
+        continue-on-error: true
+        run: npm run tsc
+
+      - name: Build
+        working-directory: build/vks-fleet
+        run: npm run build
+
+      - name: Package
+        working-directory: build/vks-fleet
+        run: |
+          mkdir -p out/vks-fleet
+          cp dist/main.js package.json out/vks-fleet/
+          tar -czf "$GITHUB_WORKSPACE/vks-fleet.tar.gz" -C out vks-fleet
+          tar -tzf "$GITHUB_WORKSPACE/vks-fleet.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vks-fleet
+          path: vks-fleet.tar.gz
+
+      - name: Create release (tags only)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" vks-fleet.tar.gz \
+            --title "vks-fleet $GITHUB_REF_NAME" \
+            --notes "Extract into the Headlamp plugins folder: tar -xzf vks-fleet.tar.gz -C <plugins-dir>"

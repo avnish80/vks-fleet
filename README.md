@@ -9,7 +9,24 @@ The same plugin serves both audiences. What each person sees is decided by their
 
 Phase 1 reads one Supervisor. The code is built for several (see "Extending to multiple Supervisors").
 
-## Setup
+## Build with GitHub Actions (no local npm needed)
+
+`.github/workflows/build.yml` scaffolds, type-checks and builds the plugin on GitHub's runners:
+
+- A push to `main` produces a `vks-fleet` artifact on the workflow run.
+- Pushing a `v*` tag creates a release with `vks-fleet.tar.gz` attached.
+
+Install the release on the machine running Headlamp:
+
+```bash
+curl -LO https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet.tar.gz
+tar -xzf vks-fleet.tar.gz -C ~/headlamp-plugins/     # creates ~/headlamp-plugins/vks-fleet/
+docker restart headlamp
+```
+
+The type-check step doesn't block the build. If it shows red, the log lists what to fix.
+
+## Setup (local build)
 
 This folder holds only `src/`. Scaffold the plugin so you get the `package.json` and `tsconfig.json` that match your Headlamp release, then drop the source in:
 
