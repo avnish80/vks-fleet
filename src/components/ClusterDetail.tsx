@@ -27,13 +27,14 @@ import {
   NodePool,
   PodIssue,
   QuotaItem,
+  SandboxFailure,
   supervisorLabel,
   WorkloadHealth,
 } from '../types';
 import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
-import { ActionDialog, DrainTimeoutDialog, ScaleDialog, SkipDrainDialog } from './ActionDialog';
+import { ActionDialog, ScaleDialog, TimeoutDialog } from './ActionDialog';
 import {
   capacityText,
   FindingsTable,
@@ -48,9 +49,8 @@ type OpenAction =
   | { kind: 'pause' }
   | { kind: 'resume' }
   | { kind: 'scale'; pool: NodePool }
-  | { kind: 'drain-timeout'; pool: NodePool }
-  | { kind: 'replace'; machine: MachineInfo }
-  | { kind: 'skip-drain'; machine: MachineInfo };
+  | { kind: 'timeouts'; pool: NodePool; context?: string }
+  | { kind: 'replace'; machine: MachineInfo };
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
 
@@ -164,6 +164,20 @@ function InsideCluster({
       />
       {health.partial.length > 0 && (
         <Typography variant="body2">Couldn't read: {health.partial.join('; ')}</Typography>
+      )}
+      {health.sandboxFailures.length > 0 && (
+        <>
+          <Typography variant="h6">Pod network setup failures in the last hour</Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Node', getter: (f: SandboxFailure) => f.node },
+              { label: 'Pods', getter: (f: SandboxFailure) => f.pods },
+              { label: 'Attempts', getter: (f: SandboxFailure) => f.attempts },
+              { label: 'Latest error', getter: (f: SandboxFailure) => f.error },
+            ]}
+            data={health.sandboxFailures}
+          />
+        </>
       )}
       {health.podIssues.length > 0 && (
         <>
@@ -407,7 +421,18 @@ export function ClusterDetail() {
               { label: 'Storage class', getter: (p: NodePool) => p.storageClass ?? '—' },
               { label: 'Zone', getter: (p: NodePool) => p.failureDomain ?? '—' },
               { label: 'Autoscaling', getter: (p: NodePool) => autoscaling(p) },
-              { label: 'Drain timeout', getter: (p: NodePool) => p.nodeDrainTimeout ?? 'None' },
+              {
+                label: 'Timeouts',
+                getter: (p: NodePool) =>
+                  p.nodeDrainTimeout || p.nodeVolumeDetachTimeout
+                    ? [
+                        p.nodeDrainTimeout ? `drain ${p.nodeDrainTimeout}` : '',
+                        p.nodeVolumeDetachTimeout ? `volumes ${p.nodeVolumeDetachTimeout}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join(', ')
+                    : 'None',
+              },
               {
                 label: 'Actions',
                 getter: (p: NodePool) => (
@@ -415,8 +440,8 @@ export function ClusterDetail() {
                     <Button size="small" onClick={() => setAction({ kind: 'scale', pool: p })}>
                       Scale
                     </Button>
-                    <Button size="small" onClick={() => setAction({ kind: 'drain-timeout', pool: p })}>
-                      Drain timeout
+                    <Button size="small" onClick={() => setAction({ kind: 'timeouts', pool: p })}>
+                      Timeouts
                     </Button>
                   </Box>
                 ),
@@ -477,9 +502,26 @@ export function ClusterDetail() {
                 label: 'Actions',
                 getter: (m: MachineInfo) =>
                   m.deletingSince ? (
-                    <Button size="small" color="error" onClick={() => setAction({ kind: 'skip-drain', machine: m })}>
-                      Skip drain
-                    </Button>
+                    (() => {
+                      const pool = cluster.nodePools.find(p => p.name === m.pool);
+                      return pool ? (
+                        <Button
+                          size="small"
+                          color="warning"
+                          onClick={() =>
+                            setAction({
+                              kind: 'timeouts',
+                              pool,
+                              context: `${m.nodeName ?? m.name} is stuck deleting. Its machine page shows which stage it's stuck in.`,
+                            })
+                          }
+                        >
+                          Unblock deletion
+                        </Button>
+                      ) : (
+                        '—'
+                      );
+                    })()
                   ) : (
                     <Button size="small" onClick={() => setAction({ kind: 'replace', machine: m })}>
                       Replace
@@ -601,21 +643,19 @@ export function ClusterDetail() {
       {writer && action?.kind === 'scale' && (
         <ScaleDialog cluster={cluster} pool={action.pool} writer={writer} onClose={closeAction} onApplied={applied} />
       )}
-      {writer && action?.kind === 'drain-timeout' && (
-        <DrainTimeoutDialog cluster={cluster} pool={action.pool} writer={writer} onClose={closeAction} onApplied={applied} />
-      )}
-      {writer && action?.kind === 'replace' && (
-        <ActionDialog
-          plan={replacePlan(cluster, action.machine)}
+      {writer && action?.kind === 'timeouts' && (
+        <TimeoutDialog
+          cluster={cluster}
+          pool={action.pool}
+          context={action.context}
           writer={writer}
           onClose={closeAction}
           onApplied={applied}
         />
       )}
-      {writer && action?.kind === 'skip-drain' && (
-        <SkipDrainDialog
-          cluster={cluster}
-          machine={action.machine}
+      {writer && action?.kind === 'replace' && (
+        <ActionDialog
+          plan={replacePlan(cluster, action.machine)}
           writer={writer}
           onClose={closeAction}
           onApplied={applied}

@@ -4,7 +4,7 @@
  * away in Headlamp's own views of that cluster.
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
-import { DeploymentIssue, EventInfo, PodIssue, WorkloadHealth } from './types';
+import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, WorkloadHealth } from './types';
 
 export const POD_PAGE = 1000;
 const LIST_CAP = 50;
@@ -75,6 +75,7 @@ export function eventTime(e: any): string | undefined {
 export function toEventInfo(e: any): EventInfo {
   const obj = e?.involvedObject ?? e?.regarding ?? {};
   return {
+    host: e?.source?.host ?? e?.reportingInstance ?? e?.deprecatedSource?.host,
     type: e?.type,
     namespace: e?.metadata?.namespace,
     object: [obj.kind, obj.name].filter(Boolean).join('/'),
@@ -92,6 +93,37 @@ export function recentEvents(events: any[], now: Date, windowMs = WARNING_WINDOW
     .sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
 }
 
+/** Trims a CNI error to the part that says what went wrong. */
+export function sandboxError(message: string): string {
+  const m = message.replace(/\s+/g, ' ');
+  const markers = ['failed (add): ', 'error adding container to network', 'desc = '];
+  for (const k of markers) {
+    const i = m.lastIndexOf(k);
+    if (i >= 0) {
+      const rest = m.slice(i + (k.endsWith(' ') ? k.length : 0)).replace(/':?\s*StdinData.*$/, '').trim();
+      if (rest) return rest.length > 220 ? `${rest.slice(0, 217)}...` : rest;
+    }
+  }
+  return m.length > 220 ? `${m.slice(0, 217)}...` : m;
+}
+
+/** FailedCreatePodSandBox warnings grouped by the node that reported them. */
+export function sandboxFailures(events: EventInfo[]): SandboxFailure[] {
+  const byNode = new Map<string, { pods: Set<string>; attempts: number; latest?: EventInfo }>();
+  for (const e of events) {
+    if (e.reason !== 'FailedCreatePodSandBox') continue;
+    const node = e.host ?? 'unknown node';
+    const g = byNode.get(node) ?? { pods: new Set<string>(), attempts: 0 };
+    g.pods.add(`${e.namespace}/${e.object}`);
+    g.attempts += e.count ?? 1;
+    if (!g.latest || (e.lastSeen ?? '') > (g.latest.lastSeen ?? '')) g.latest = e;
+    byNode.set(node, g);
+  }
+  return Array.from(byNode.entries())
+    .map(([node, g]) => ({ node, pods: g.pods.size, attempts: g.attempts, error: sandboxError(g.latest?.message ?? '') }))
+    .sort((a, b) => b.attempts - a.attempts);
+}
+
 function emptyHealth(status: WorkloadHealth['status'], contextName?: string, error?: string): WorkloadHealth {
   return {
     status,
@@ -102,6 +134,7 @@ function emptyHealth(status: WorkloadHealth['status'], contextName?: string, err
     deploymentIssues: [],
     recentWarnings: [],
     recentWarningCount: 0,
+    sandboxFailures: [],
     partial: [],
   };
 }
@@ -167,6 +200,7 @@ export async function fetchWorkloadHealth(
     const recent = recentEvents(events, now);
     health.recentWarningCount = recent.length;
     health.recentWarnings = recent.slice(0, LIST_CAP);
+    health.sandboxFailures = sandboxFailures(recent);
   }
 
   const nodesShort = !!health.nodes && health.nodes.ready < health.nodes.total;

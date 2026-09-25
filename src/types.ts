@@ -64,6 +64,8 @@ export interface NodePool {
   failureDomain?: string;
   /** From the topology, e.g. "5m0s". Unset means drains wait indefinitely. */
   nodeDrainTimeout?: string;
+  /** From the topology. Unset means deletion waits for volumes to detach indefinitely. */
+  nodeVolumeDetachTimeout?: string;
   autoscaler?: { min?: number; max?: number };
 }
 
@@ -94,6 +96,8 @@ export interface MachineInfo {
   certificatesExpiry?: string;
   /** The node's VirtualMachine on the Supervisor, when readable. */
   vm?: VmInfo;
+  /** A MachineHealthCheck covers this machine, so it can be replaced with the remediate-machine annotation. */
+  healthChecked?: boolean;
 }
 
 export interface HealthCheckSummary {
@@ -157,6 +161,8 @@ export interface FleetCluster {
   /** Newer ClusterClass of the same family, when one exists. */
   classUpdate?: string;
   paused: boolean;
+  /** Last action taken through this plugin, from the vks-fleet/last-action stamp. */
+  lastAction?: { time: string; text: string };
   /** Earliest control-plane certificate expiry. */
   certificatesExpiry?: string;
   certificateRotation?: { enabled: boolean; renewalDaysBeforeExpiry?: number };
@@ -243,7 +249,17 @@ export interface DeploymentIssue {
   desired: number;
 }
 
+export interface SandboxFailure {
+  node: string;
+  pods: number;
+  attempts: number;
+  /** The most telling part of the latest error message. */
+  error: string;
+}
+
 export interface EventInfo {
+  /** Node that reported it (kubelet events). */
+  host?: string;
   type?: string;
   namespace?: string;
   object: string;
@@ -267,6 +283,8 @@ export interface WorkloadHealth {
   deploymentIssues: DeploymentIssue[];
   recentWarnings: EventInfo[];
   recentWarningCount: number;
+  /** Pods whose network couldn't be set up in the last hour, grouped by node. */
+  sandboxFailures: SandboxFailure[];
   /** Parts that couldn't be read (e.g. "pods: Access denied (403)"). */
   partial: string[];
   error?: string;

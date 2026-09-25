@@ -42,7 +42,7 @@ export function clusterFindings(c: FleetCluster, now: Date, fleetZones: number):
         'warning',
         issue,
         stuckDelete
-          ? 'Usually a node drain blocked by a PodDisruptionBudget, or a VM deletion stuck in vSphere. Check the machine\'s events on the cluster page, and sign in to the cluster to see pods that can\'t be evicted. If the blocker can\'t be fixed, use Skip drain on the machine.'
+          ? 'Usually a node drain blocked by a PodDisruptionBudget, or a VM deletion stuck in vSphere. Check the machine\'s events on the cluster page, and sign in to the cluster to see pods that can\'t be evicted. If the blocker can\'t be fixed, use Unblock deletion on the machine.'
           : 'Check the machine\'s conditions and the Supervisor events for this cluster.'
       )
     );

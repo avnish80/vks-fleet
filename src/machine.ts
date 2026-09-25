@@ -5,6 +5,9 @@
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { parseConditions } from './capi/v1beta1';
+import { matchesSelector } from './selector';
+
+export { matchesSelector };
 import { VMOP_VERSIONS } from './supervisor';
 import { ClusterCondition, EventInfo } from './types';
 import { eventTime, toEventInfo } from './workload';
@@ -57,6 +60,19 @@ export function machineStatusNotes(d: MachineDetail): string[] {
   add('Node', find(d.conditions, 'NodeHealthy', 'False'));
   add('VM', d.vm?.conditions.find(c => c.status === 'False'));
   return Array.from(new Set(notes));
+}
+
+/** Which stage a deleting machine is stuck in, from its conditions. */
+export function deletionStage(d: MachineDetail): 'drain' | 'volume' | undefined {
+  const deleting = d.detailedConditions.find(c => c.type === 'Deleting' && c.status === 'True');
+  const msg = `${deleting?.message ?? ''} ${deleting?.reason ?? ''}`;
+  if (/volume/i.test(msg) || d.conditions.some(c => c.type === 'VolumeDetachSucceeded' && c.status === 'False')) {
+    return 'volume';
+  }
+  if (/drain/i.test(msg) || d.conditions.some(c => c.type === 'DrainingSucceeded' && c.status === 'False')) {
+    return 'drain';
+  }
+  return undefined;
 }
 
 async function getVm(client: SupervisorClient, ns: string, name: string): Promise<any> {
@@ -157,46 +173,14 @@ export interface NodePod {
   blockingPdb?: string;
   /** PDB that protects the pod but still allows a disruption. */
   protectedBy?: string;
+  /** Why the pod keeps landing on this node even though it's being drained, if it does. */
+  pinned?: string;
 }
 
 export interface NodeView {
   node?: NodeDetail;
   pods: NodePod[];
   warnings: string[];
-}
-
-interface LabelSelector {
-  matchLabels?: Record<string, string>;
-  matchExpressions?: Array<{ key: string; operator: string; values?: string[] }>;
-}
-
-/** Kubernetes label selector matching. An empty selector matches everything; a missing one matches nothing. */
-export function matchesSelector(selector: LabelSelector | null | undefined, labels: Record<string, string> = {}): boolean {
-  if (!selector) return false;
-  for (const [k, v] of Object.entries(selector.matchLabels ?? {})) {
-    if (labels[k] !== v) return false;
-  }
-  for (const e of selector.matchExpressions ?? []) {
-    const has = e.key in labels;
-    const vals = e.values ?? [];
-    switch (e.operator) {
-      case 'In':
-        if (!has || !vals.includes(labels[e.key])) return false;
-        break;
-      case 'NotIn':
-        if (has && vals.includes(labels[e.key])) return false;
-        break;
-      case 'Exists':
-        if (!has) return false;
-        break;
-      case 'DoesNotExist':
-        if (has) return false;
-        break;
-      default:
-        return false;
-    }
-  }
-  return true;
 }
 
 export function nodeDetail(n: any): NodeDetail {
@@ -217,7 +201,29 @@ export function nodeDetail(n: any): NodeDetail {
   };
 }
 
-export function nodePods(pods: any[], pdbs: any[]): NodePod[] {
+/**
+ * Why a pod is tied to this node. A hostname nodeSelector or required affinity
+ * is visible on the pod. A nodeName in the owner's template isn't, but it
+ * shows up as a (non-DaemonSet) pod created after the node started draining:
+ * the scheduler would never have put it on a cordoned node.
+ */
+export function pinReason(p: any, nodeName: string, drainStarted?: string): string | undefined {
+  if (p?.spec?.nodeSelector?.['kubernetes.io/hostname'] === nodeName) return 'nodeSelector on kubernetes.io/hostname';
+  const terms: any[] = p?.spec?.affinity?.nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms ?? [];
+  const byHost = terms.some(t =>
+    (t?.matchExpressions ?? []).some(
+      (e: any) => e?.key === 'kubernetes.io/hostname' && e?.operator === 'In' && (e?.values ?? []).includes(nodeName)
+    )
+  );
+  if (byHost) return 'required node affinity on kubernetes.io/hostname';
+  const created = p?.metadata?.creationTimestamp;
+  if (drainStarted && created && new Date(created).getTime() > new Date(drainStarted).getTime()) {
+    return 'recreated on this node after the drain started (likely nodeName in its owner\'s template)';
+  }
+  return undefined;
+}
+
+export function nodePods(pods: any[], pdbs: any[], nodeName = '', drainStarted?: string): NodePod[] {
   return pods
     .map(p => {
       const statuses: any[] = p?.status?.containerStatuses ?? [];
@@ -243,17 +249,23 @@ export function nodePods(pods: any[], pdbs: any[]): NodePod[] {
         daemonSet: staysOnNode,
         blockingPdb: blocking?.metadata?.name,
         protectedBy: blocking ? undefined : matching[0]?.metadata?.name,
+        pinned: staysOnNode ? undefined : pinReason(p, nodeName, drainStarted),
       };
     })
     .sort(
       (a, b) =>
+        Number(!!b.pinned) - Number(!!a.pinned) ||
         Number(!!b.blockingPdb) - Number(!!a.blockingPdb) ||
         a.namespace.localeCompare(b.namespace) ||
         a.name.localeCompare(b.name)
     );
 }
 
-export async function fetchNodeView(client: SupervisorClient, nodeName: string): Promise<NodeView> {
+export async function fetchNodeView(
+  client: SupervisorClient,
+  nodeName: string,
+  drainStarted?: string
+): Promise<NodeView> {
   const [node, pods, pdbs] = await Promise.allSettled([
     client.get<any>(`/api/v1/nodes/${encodeURIComponent(nodeName)}`),
     client.get<any>(`/api/v1/pods?fieldSelector=${encodeURIComponent(`spec.nodeName=${nodeName}`)}`),
@@ -271,7 +283,7 @@ export async function fetchNodeView(client: SupervisorClient, nodeName: string):
   const pdbList = pdbs.status === 'fulfilled' ? pdbs.value?.items ?? [] : [];
   if (pdbs.status === 'rejected') warnings.push(`PodDisruptionBudgets unavailable: ${describeError(pdbs.reason)}`);
   if (pods.status === 'fulfilled') {
-    view.pods = nodePods(pods.value?.items ?? [], pdbList);
+    view.pods = nodePods(pods.value?.items ?? [], pdbList, nodeName, drainStarted);
   } else {
     warnings.push(`Pods unavailable: ${describeError(pods.reason)}`);
   }

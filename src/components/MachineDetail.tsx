@@ -12,7 +12,7 @@ import { replacePlan } from '../actions';
 import { headlampClient, headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
-import { fetchMachineDetail, fetchNodeView, machineStatusNotes, NodePod } from '../machine';
+import { deletionStage, fetchMachineDetail, fetchNodeView, machineStatusNotes, NodePod } from '../machine';
 import { formatBytes } from '../quantity';
 import { clusterPath, headlampNodePath, headlampPodPath } from '../routes';
 import { usePluginConfig } from '../settings/store';
@@ -20,7 +20,7 @@ import { ClusterCondition, clusterKey, EventInfo } from '../types';
 import { useFleet } from '../useFleet';
 import { usePolling } from '../usePolling';
 import { useWorkloadHealth } from '../useWorkload';
-import { ActionDialog, DrainTimeoutDialog, SkipDrainDialog } from './ActionDialog';
+import { ActionDialog, TimeoutDialog } from './ActionDialog';
 import { LoginHint, SupervisorBanners } from './common';
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
@@ -83,14 +83,15 @@ export function MachineDetail() {
     config.refreshSeconds
   );
   const nodeName = machine?.nodeName;
+  const drainStarted = detail?.drainStarted;
   const nodeView = usePolling(
-    contextName && nodeName ? `${contextName}/${nodeName}` : null,
-    () => fetchNodeView(headlampClient(contextName as string), nodeName as string),
+    contextName && nodeName ? `${contextName}/${nodeName}/${drainStarted ?? ''}` : null,
+    () => fetchNodeView(headlampClient(contextName as string), nodeName as string, drainStarted),
     config.refreshSeconds
   );
 
   const writer = React.useMemo(() => (target ? headlampWriter(target) : null), [target]);
-  const [action, setAction] = React.useState<'replace' | 'skip-drain' | 'drain-timeout' | null>(null);
+  const [action, setAction] = React.useState<'replace' | 'unblock' | 'timeouts' | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
 
   const back = cluster ? (
@@ -128,26 +129,30 @@ export function MachineDetail() {
     refresh();
   };
 
+  const stage = detail ? deletionStage(detail) : undefined;
   const buttons = [
     machine.deletingSince ? (
-      <Button key="skip" size="small" color="error" variant="outlined" onClick={() => setAction('skip-drain')}>
-        Skip drain
-      </Button>
+      pool ? (
+        <Button key="unblock" size="small" color="warning" variant="outlined" onClick={() => setAction('unblock')}>
+          Unblock deletion
+        </Button>
+      ) : null
     ) : (
       <Button key="replace" size="small" variant="outlined" onClick={() => setAction('replace')}>
         Replace
       </Button>
     ),
-    ...(pool
+    ...(pool && !machine.deletingSince
       ? [
-          <Button key="timeout" size="small" variant="outlined" onClick={() => setAction('drain-timeout')}>
-            Drain timeout
+          <Button key="timeouts" size="small" variant="outlined" onClick={() => setAction('timeouts')}>
+            Pool timeouts
           </Button>,
         ]
       : []),
-  ];
+  ].filter(Boolean);
 
   const blockers = nodeView?.pods.filter(p => p.blockingPdb) ?? [];
+  const pinned = nodeView?.pods.filter(p => p.pinned) ?? [];
 
   return (
     <>
@@ -165,6 +170,13 @@ export function MachineDetail() {
                 <li key={n}>{n}</li>
               ))}
             </Box>
+          </Alert>
+        )}
+        {machine.deletingSince && pinned.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {pinned.length} pod{pinned.length === 1 ? ' keeps' : 's keep'} coming back to this node:{' '}
+            {pinned.map(p => `${p.namespace}/${p.name} (${p.pinned})`).join('; ')}. Remove the pin from its owner (for
+            example nodeName in a Deployment) or scale it down, or the drain and volume detach can't finish.
           </Alert>
         )}
         {machine.deletingSince && blockers.length > 0 && (
@@ -306,7 +318,9 @@ export function MachineDetail() {
                 {
                   label: 'Drain',
                   getter: (p: NodePod) =>
-                    p.blockingPdb ? (
+                    p.pinned ? (
+                      <StatusLabel status="error">Pinned to this node</StatusLabel>
+                    ) : p.blockingPdb ? (
                       <StatusLabel status="error">{`Blocked by ${p.blockingPdb}`}</StatusLabel>
                     ) : p.daemonSet ? (
                       'Stays on node'
@@ -387,11 +401,24 @@ export function MachineDetail() {
       {writer && action === 'replace' && (
         <ActionDialog plan={replacePlan(cluster, machine)} writer={writer} onClose={() => setAction(null)} onApplied={applied} />
       )}
-      {writer && action === 'skip-drain' && (
-        <SkipDrainDialog cluster={cluster} machine={machine} writer={writer} onClose={() => setAction(null)} onApplied={applied} />
-      )}
-      {writer && action === 'drain-timeout' && pool && (
-        <DrainTimeoutDialog cluster={cluster} pool={pool} writer={writer} onClose={() => setAction(null)} onApplied={applied} />
+      {writer && (action === 'unblock' || action === 'timeouts') && pool && (
+        <TimeoutDialog
+          cluster={cluster}
+          pool={pool}
+          initialKind={action === 'unblock' ? stage ?? 'drain' : 'drain'}
+          context={
+            action === 'unblock'
+              ? stage === 'volume'
+                ? 'This machine is stuck waiting for volumes to detach. Force-remove the stuck pod first if you can; the timeout is the last resort.'
+                : stage === 'drain'
+                ? "This machine is stuck draining: pods on it can't be evicted."
+                : 'This machine is stuck deleting.'
+              : undefined
+          }
+          writer={writer}
+          onClose={() => setAction(null)}
+          onApplied={applied}
+        />
       )}
     </>
   );

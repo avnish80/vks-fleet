@@ -16,6 +16,7 @@ import {
   NodePool,
   ReplicaCount,
 } from '../types';
+import { matchesSelector } from '../selector';
 
 export const API_VERSION = 'cluster.x-k8s.io/v1beta1';
 
@@ -195,6 +196,7 @@ function nodePools(cluster: KubeObject, mds: KubeObject[], clusterVars: Map<stri
           storageClass: str(overrides.get('storageClass')) ?? str(clusterVars.get('storageClass')),
           failureDomain: str(t.failureDomain) ?? str(md?.spec?.template?.spec?.failureDomain),
           nodeDrainTimeout: str(t.nodeDrainTimeout),
+          nodeVolumeDetachTimeout: str(t.nodeVolumeDetachTimeout),
           autoscaler: min !== undefined || max !== undefined ? { min, max } : undefined,
         };
       });
@@ -230,6 +232,16 @@ function machineInfo(m: KubeObject, poolOfMd: Map<string, string>): MachineInfo 
     deletingSince: m.metadata.deletionTimestamp,
     certificatesExpiry: str(m.status?.certificatesExpiryDate),
   };
+}
+
+const LAST_ACTION_ANNOTATION = 'vks-fleet/last-action';
+
+/** "2026-09-25T06:00:00.000Z scaled np-1 to 4: reason" → { time, text } */
+export function parseLastAction(value: string | undefined): { time: string; text: string } | undefined {
+  if (!value) return undefined;
+  const m = /^(\S+)\s+(.*)$/.exec(value.trim());
+  if (!m || Number.isNaN(Date.parse(m[1]))) return { time: '', text: value.trim() };
+  return { time: m[1], text: m[2] };
 }
 
 /** Sums the cluster's MachineHealthChecks. Repair counts as blocked if any check has stopped remediating. */
@@ -377,8 +389,12 @@ export function toFleetClusters(
       const topoName = md.metadata.labels?.[TOPOLOGY_MD_LABEL];
       if (topoName) poolOfMd.set(md.metadata.name, topoName);
     }
+    const clusterMhcs = mhcsByCluster.get(nsName(namespace, name)) ?? [];
     const machines = rawMachines
-      .map(m => machineInfo(m, poolOfMd))
+      .map(m => ({
+        ...machineInfo(m, poolOfMd),
+        healthChecked: clusterMhcs.some(h => matchesSelector(h.spec?.selector, m.metadata.labels ?? {})),
+      }))
       .sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'control-plane' ? -1 : 1));
     const issues = machineIssues(rawMachines, now);
 
@@ -417,7 +433,8 @@ export function toFleetClusters(
         rotation && typeof rotation === 'object'
           ? { enabled: rotation.enabled === true, renewalDaysBeforeExpiry: optNum(rotation.renewalDaysBeforeExpiry) }
           : undefined,
-      healthCheck: healthCheckSummary(mhcsByCluster.get(nsName(namespace, name)) ?? []),
+      healthCheck: healthCheckSummary(clusterMhcs),
+      lastAction: parseLastAction(c.metadata.annotations?.[LAST_ACTION_ANNOTATION]),
       controlPlane: cp,
       workers,
       upgrading: upgradePending || cpBehind || workersBehind,

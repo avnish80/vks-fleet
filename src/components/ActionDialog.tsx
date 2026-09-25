@@ -9,11 +9,12 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   TextField,
   Typography,
 } from '@mui/material';
 import React, { ReactNode } from 'react';
-import { ActionPlan, blocked, CheckLevel, drainTimeoutPlan, scalePlan, skipDrainPlan } from '../actions';
+import { ActionPlan, blocked, CheckLevel, currentTimeout, scalePlan, TimeoutKind, timeoutPlan } from '../actions';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
 import { FleetCluster, MachineInfo, NodePool } from '../types';
 
@@ -185,57 +186,51 @@ export function ScaleDialog(props: {
   );
 }
 
-export function SkipDrainDialog(props: {
-  cluster: FleetCluster;
-  machine: MachineInfo;
-  writer: SupervisorWriter;
-  onClose: () => void;
-  onApplied: (message: string) => void;
-}) {
-  const [skipVolumes, setSkipVolumes] = React.useState(false);
-  const plan = skipDrainPlan(props.cluster, props.machine, skipVolumes);
-  const hint = props.machine.pool
-    ? `If VKS doesn't allow editing machines directly, close this and use "Drain timeout" on node pool ${props.machine.pool} instead. It changes only the cluster and unblocks the same deletion.`
-    : undefined;
-  return (
-    <ActionDialog
-      plan={plan}
-      writer={props.writer}
-      onClose={props.onClose}
-      onApplied={props.onApplied}
-      rejectedHint={hint}
-    >
-      <FormControlLabel
-        control={<Checkbox checked={skipVolumes} onChange={e => setSkipVolumes(e.target.checked)} />}
-        label="Also stop waiting for volumes to detach"
-      />
-    </ActionDialog>
-  );
-}
-
-export function DrainTimeoutDialog(props: {
+/**
+ * Sets or clears a pool's drain or volume-detach timeout. Opened as
+ * "Unblock deletion" on a stuck machine (with the stage it's stuck in
+ * pre-selected) or as "Timeouts" on a node pool.
+ */
+export function TimeoutDialog(props: {
   cluster: FleetCluster;
   pool: NodePool;
+  initialKind?: TimeoutKind;
+  /** Why the dialog was opened, e.g. what the machine is stuck on. */
+  context?: string;
   writer: SupervisorWriter;
   onClose: () => void;
   onApplied: (message: string) => void;
 }) {
-  const hasTimeout = !!props.pool.nodeDrainTimeout;
-  const [mode, setMode] = React.useState<'set' | 'clear'>('set');
+  const [kind, setKind] = React.useState<TimeoutKind>(props.initialKind ?? 'drain');
+  const existing = currentTimeout(props.pool, kind);
+  const [clear, setClear] = React.useState(false);
   const [text, setText] = React.useState('60s');
-  const plan = drainTimeoutPlan(props.cluster, props.pool, mode === 'clear' ? null : text);
+  const plan = timeoutPlan(props.cluster, props.pool, kind, clear && existing ? null : text);
   return (
     <ActionDialog plan={plan} writer={props.writer} onClose={props.onClose} onApplied={props.onApplied}>
-      <Typography variant="body2">
-        Current drain timeout: {props.pool.nodeDrainTimeout ?? 'none (drains wait for every pod)'}
-      </Typography>
-      {hasTimeout && (
+      {props.context && <Alert severity="info">{props.context}</Alert>}
+      <TextField
+        select
+        size="small"
+        label="Stage"
+        value={kind}
+        onChange={e => {
+          setKind(e.target.value as TimeoutKind);
+          setClear(false);
+        }}
+        sx={{ maxWidth: 360 }}
+      >
+        <MenuItem value="drain">Drain: pods that can't be evicted</MenuItem>
+        <MenuItem value="volume">Volume detach: disks still attached</MenuItem>
+      </TextField>
+      <Typography variant="body2">Current timeout: {existing ?? 'none (waits indefinitely)'}</Typography>
+      {existing && (
         <FormControlLabel
-          control={<Checkbox checked={mode === 'clear'} onChange={e => setMode(e.target.checked ? 'clear' : 'set')} />}
+          control={<Checkbox checked={clear} onChange={e => setClear(e.target.checked)} />}
           label="Clear the timeout instead"
         />
       )}
-      {mode === 'set' && (
+      {!(clear && existing) && (
         <TextField
           label="Timeout (for example 60s, 5m, 1h)"
           value={text}

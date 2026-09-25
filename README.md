@@ -11,6 +11,16 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 
 ## What it shows
 
+**Overview** (top of the fleet page, follows the tenant filter):
+
+- headline tiles: clusters, nodes ready, node capacity, tenants, findings, upgrades
+- cluster health (donut) and clusters by tenant (stacked bars; click a tenant to filter)
+- Kubernetes versions in use and node capacity by tenant
+- days left on control-plane certificates
+- recent changes made through the plugin, from the `vks-fleet/last-action` stamps
+
+The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
+
 **Findings:** things an operator should know or do, each with what to do about it. They're computed from everything below, fleet-wide and per cluster:
 
 - node VMs powered off
@@ -40,14 +50,14 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 - what's happening, in plain words, from the machine's conditions. For a stuck deletion, this is usually the drain message naming the pods and PodDisruptionBudget.
 - machine details, drain start time and certificate expiry
 - the VM: power, class and size, image, IP, zone, and its conditions
-- when signed in to the cluster: the node (ready, cordoned, pressure, taints, capacity) and every pod on it, with which ones a PodDisruptionBudget blocks from draining, and links to the node and pods in Headlamp
+- when signed in to the cluster: the node (ready, cordoned, pressure, taints, capacity) and every pod on it, flagging pods a PodDisruptionBudget blocks from draining and pods **pinned** to the node (a hostname selector or affinity, or recreated on it after the drain started, which usually means `nodeName` in the owner's template), with links to the node and pods in Headlamp
 - machine conditions (including the detailed newer form), events and the raw object
-- actions: Replace or Skip drain, and Drain timeout on its pool
+- actions: Replace, or Unblock deletion when it's stuck, and the pool's timeouts
 
 **Cluster page:**
 
 - summary: tenant, versions, upgrade, class (and whether a newer one exists), OS, VM and storage class, API endpoint, pod and service networks, certificate expiry and rotation, automatic node repair status, node capacity
-- inside the cluster: problem pods, deployments not fully available, warnings from the last hour
+- inside the cluster: problem pods, deployments not fully available, pod network-setup failures grouped by node (with the actual CNI error), warnings from the last hour
 - node pools, including autoscaling limits
 - machines, each with its VM's power state, class and size
 - namespace quota usage
@@ -63,9 +73,8 @@ The cluster page can make changes on the Supervisor:
 
 - **Pause / Resume:** stop or restart reconciliation, for example during maintenance.
 - **Scale** a node pool: blocked for autoscaled pools.
-- **Replace** a node: delete its machine and let Cluster API rebuild it. Blocked for the only control-plane node, or while the cluster is paused.
-- **Skip drain**, on machines stuck deleting: a break-glass action that lets the deletion finish without evicting pods, optionally without waiting for volumes to detach. It annotates the Machine; if VKS doesn't allow editing Machines, the dialog shows the Supervisor's message and points to the drain timeout instead.
-- **Drain timeout** on a node pool: set or clear `nodeDrainTimeout` in the cluster's topology. Cluster API passes it down to the pool's machines, so it also unblocks a deletion that's already stuck. It only writes to the Cluster.
+- **Replace** a node. VKS only lets users change one thing on a Machine, the `cluster.x-k8s.io/remediate-machine` annotation, so machines covered by a MachineHealthCheck are replaced through it. The health check drains, deletes and recreates the node within its own limits. Other machines fall back to deleting the Machine. Blocked for the only control-plane node, while paused, or while automatic repair has stopped.
+- **Unblock deletion**, on machines stuck deleting: sets a drain or volume-detach timeout on the machine's pool (`nodeDrainTimeout` / `nodeVolumeDetachTimeout` in the cluster's topology). The machine page detects which stage it's stuck in and pre-selects it. Cluster API passes the timeout down to the pool's machines, so it unblocks a deletion that's already stuck. It only writes to the Cluster. Clear it afterwards; the pool row shows it until you do.
 
 Every action works the same way:
 
@@ -181,7 +190,9 @@ src/
   supervisor.ts         Node VMs, VM class sizes, capacity, quotas, class currency, Supervisor services
   findings.ts           Findings rules: severity, what's wrong, what to do
   actions.ts            Action plans: checks, confirmations and the exact writes
-  machine.ts            Machine page data: machine, VM, events; node, pods and drain blockers
+  machine.ts            Machine page data: machine, VM, events; node, pods, drain blockers, pinned pods
+  overview.ts           Numbers behind the overview tiles and charts
+  selector.ts           Kubernetes label selector matching
   quantity.ts           Kubernetes quantity parsing
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
   contexts.ts           Match fleet clusters to Headlamp contexts by API endpoint
@@ -191,7 +202,7 @@ src/
   useFleet.ts, useWorkload.ts, useClusterExtras.ts   Polling hooks
   routes.ts             URLs built from supervisor/namespace/name
   settings/             ConfigStore wrapper and settings form
-  components/           FleetView, ClusterDetail, shared bits
+  components/           FleetView, Overview, charts, ClusterDetail, MachineDetail, ActionDialog, shared bits
   index.tsx             Sidebar, routes, settings registration
 ```
 

@@ -10,8 +10,8 @@ import { WriteRequest } from './api/client';
 import { FleetCluster, MachineInfo, NodePool } from './types';
 
 export const ACTION_ANNOTATION = 'vks-fleet/last-action';
-export const SKIP_DRAIN_ANNOTATION = 'machine.cluster.x-k8s.io/exclude-node-draining';
-export const SKIP_VOLUME_WAIT_ANNOTATION = 'machine.cluster.x-k8s.io/exclude-wait-for-node-volume-detach';
+/** The one Machine change VKS lets users make: asks the MachineHealthCheck to replace the machine. */
+export const REMEDIATE_ANNOTATION = 'cluster.x-k8s.io/remediate-machine';
 const CAPI_PAUSED_ANNOTATION = 'cluster.x-k8s.io/paused';
 
 const CAPI = '/apis/cluster.x-k8s.io/v1beta1';
@@ -193,15 +193,23 @@ export function scalePlan(c: FleetCluster, pool: NodePool, replicas: number): Ac
 
 /* ---------------- Replace a node ---------------- */
 
+/**
+ * Replaces a node. On VKS users may not edit Machines except for the
+ * remediate-machine annotation, so machines covered by a MachineHealthCheck
+ * are replaced through it: the health check drains, deletes and recreates the
+ * node within its own safety limits. Machines no health check covers fall
+ * back to deleting the Machine (the dry run shows whether that's allowed).
+ */
 export function replacePlan(c: FleetCluster, m: MachineInfo): ActionPlan {
   const checks: Check[] = [];
+  const viaHealthCheck = m.healthChecked === true;
   if (m.deletingSince) checks.push({ level: 'block', text: 'This machine is already being deleted.' });
-  if (c.paused) checks.push({ level: 'block', text: 'The cluster is paused, so nothing would create the replacement. Resume it first.' });
+  if (c.paused) checks.push({ level: 'block', text: 'The cluster is paused, so nothing would replace the node. Resume it first.' });
   if (m.role === 'control-plane') {
     if ((c.controlPlane?.desired ?? 1) <= 1) {
       checks.push({
         level: 'block',
-        text: "This is the only control-plane node. Deleting it takes the cluster's API down. Scale the control plane to 3 first.",
+        text: "This is the only control-plane node. Replacing it takes the cluster's API down. Scale the control plane to 3 first.",
       });
     } else {
       checks.push({ level: 'warn', text: 'A control-plane node is replaced. The API stays up on the other control-plane nodes.' });
@@ -215,6 +223,12 @@ export function replacePlan(c: FleetCluster, m: MachineInfo): ActionPlan {
       });
     }
   }
+  if (viaHealthCheck && c.healthCheck && !c.healthCheck.remediationAllowed) {
+    checks.push({
+      level: 'block',
+      text: "Automatic repair has stopped on this cluster (too many unhealthy nodes), so the health check wouldn't act. Fix the cause first.",
+    });
+  }
   const others = c.machines.filter(x => x.name !== m.name && (x.deletingSince || x.ready === false));
   if (others.length) {
     checks.push({
@@ -222,72 +236,45 @@ export function replacePlan(c: FleetCluster, m: MachineInfo): ActionPlan {
       text: `${others.length} other node${others.length === 1 ? ' is' : 's are'} already unhealthy or being deleted.`,
     });
   }
-  if (c.healthCheck && !c.healthCheck.remediationAllowed) {
-    checks.push({ level: 'warn', text: 'Automatic repair has stopped on this cluster. Find out why before replacing more nodes.' });
+  checks.push(
+    viaHealthCheck
+      ? {
+          level: 'ok',
+          text: "The cluster's health check replaces it: the node is drained, its VM deleted and a new one created with the same settings.",
+        }
+      : {
+          level: 'warn',
+          text: 'No health check covers this machine, so the Machine is deleted directly. VKS may not allow that; the dry run will say.',
+        }
+  );
+  const pool = c.nodePools.find(p => p.name === m.pool);
+  if (pool?.nodeDrainTimeout) {
+    checks.push({
+      level: 'warn',
+      text: `This pool has a drain timeout of ${pool.nodeDrainTimeout}, so pods that can't be evicted in time are stopped.`,
+    });
   }
-  checks.push({
-    level: 'ok',
-    text: 'The node is drained, its VM deleted, and a replacement created with the same settings.',
-  });
   return {
-    id: `${c.key}#replace#${m.name}`,
+    id: `${c.key}#replace#${m.name}#${viaHealthCheck}`,
     title: `Replace node ${nodeLabel(m)}`,
-    summary: 'Deletes this machine. Cluster API then builds a new node in its place.',
+    summary: viaHealthCheck
+      ? 'Asks the cluster\'s health check to replace this node.'
+      : 'Deletes this machine. Cluster API then builds a new node in its place.',
     checks,
     reasonRequired: true,
     confirmText: c.name,
     applyLabel: 'Replace node',
     requests: (reason, now) => [
       stampCluster(c, `replaced node ${nodeLabel(m)}`, reason, now),
-      { method: 'DELETE', path: machineUrl(c, m) },
+      viaHealthCheck
+        ? {
+            method: 'PATCH',
+            path: machineUrl(c, m),
+            contentType: MERGE,
+            body: { metadata: { annotations: { [REMEDIATE_ANNOTATION]: '' } } },
+          }
+        : { method: 'DELETE', path: machineUrl(c, m) },
     ],
-  };
-}
-
-/* ---------------- Skip drain on a stuck deletion ---------------- */
-
-export function skipDrainPlan(c: FleetCluster, m: MachineInfo, skipVolumeWait: boolean): ActionPlan {
-  const checks: Check[] = [];
-  if (!m.deletingSince) {
-    checks.push({ level: 'block', text: 'Only for machines that are already being deleted.' });
-  }
-  checks.push({
-    level: 'warn',
-    text: 'Pods still on the node are stopped without being evicted, and PodDisruptionBudgets are ignored. Their controllers recreate them elsewhere.',
-  });
-  if (skipVolumeWait) {
-    checks.push({
-      level: 'warn',
-      text: "Not waiting for volumes to detach risks data corruption if a workload is still writing. Use this only if the volumes are known to be safe.",
-    });
-  }
-  return {
-    id: `${c.key}#skipdrain#${m.name}#${skipVolumeWait}`,
-    title: `Skip drain for ${nodeLabel(m)}`,
-    summary: 'Lets a stuck deletion finish by skipping the node drain. This is a break-glass action.',
-    checks,
-    reasonRequired: true,
-    confirmText: c.name,
-    applyLabel: 'Skip drain',
-    requests: (reason, now) => {
-      const value = stamp('skip drain', reason, now);
-      return [
-        {
-          method: 'PATCH',
-          path: machineUrl(c, m),
-          contentType: MERGE,
-          body: {
-            metadata: {
-              annotations: {
-                [SKIP_DRAIN_ANNOTATION]: value,
-                ...(skipVolumeWait ? { [SKIP_VOLUME_WAIT_ANNOTATION]: value } : {}),
-              },
-            },
-          },
-        },
-        stampCluster(c, `skipped drain for ${nodeLabel(m)}`, reason, now),
-      ];
-    },
   };
 }
 
@@ -300,49 +287,79 @@ export function parseDuration(text: string): number | undefined {
   return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
 }
 
+export type TimeoutKind = 'drain' | 'volume';
+
+const TIMEOUT_FIELD: Record<TimeoutKind, 'nodeDrainTimeout' | 'nodeVolumeDetachTimeout'> = {
+  drain: 'nodeDrainTimeout',
+  volume: 'nodeVolumeDetachTimeout',
+};
+
+export function currentTimeout(pool: NodePool, kind: TimeoutKind): string | undefined {
+  return kind === 'drain' ? pool.nodeDrainTimeout : pool.nodeVolumeDetachTimeout;
+}
+
 /**
- * Sets (or clears, with timeout null) how long Cluster API keeps draining a
- * node in this pool before deleting it anyway. Written on the Cluster's
- * topology, which Cluster API passes down to the pool's existing machines,
- * so it also unblocks a deletion that's already stuck in drain.
+ * Sets (or clears, with timeout null) how long Cluster API waits on a
+ * deleting node in this pool: for the drain, or for its volumes to detach.
+ * Written on the Cluster's topology, which Cluster API passes down to the
+ * pool's existing machines, so it also unblocks a deletion that's already
+ * stuck. Only writes to the Cluster, which VKS allows.
  */
-export function drainTimeoutPlan(c: FleetCluster, pool: NodePool, timeout: string | null): ActionPlan {
+export function timeoutPlan(c: FleetCluster, pool: NodePool, kind: TimeoutKind, timeout: string | null): ActionPlan {
   const checks: Check[] = [];
+  const field = TIMEOUT_FIELD[kind];
+  const existing = currentTimeout(pool, kind);
+  const what = kind === 'drain' ? 'drain timeout' : 'volume-detach timeout';
   const seconds = timeout === null ? undefined : parseDuration(timeout);
   if (pool.topologyIndex === undefined) {
     checks.push({ level: 'block', text: "This pool isn't managed through the cluster's topology." });
   }
   if (timeout === null) {
-    if (!pool.nodeDrainTimeout) checks.push({ level: 'block', text: 'This pool has no drain timeout to clear.' });
-    checks.push({ level: 'ok', text: 'Drains go back to waiting until every pod has been evicted.' });
+    if (!existing) checks.push({ level: 'block', text: `This pool has no ${what} to clear.` });
+    checks.push({
+      level: 'ok',
+      text:
+        kind === 'drain'
+          ? 'Drains go back to waiting until every pod has been evicted.'
+          : 'Deletions go back to waiting until every volume has detached.',
+    });
   } else if (seconds === undefined || seconds < 1) {
     checks.push({ level: 'block', text: 'Enter a duration such as 60s, 5m or 1h.' });
   } else {
     const stuck = c.machines.filter(m => m.pool === pool.name && m.deletingSince);
-    checks.push({
-      level: 'warn',
-      text: `After ${timeout}, pods still on a draining node are stopped without eviction, and PodDisruptionBudgets are ignored.`,
-    });
+    checks.push(
+      kind === 'drain'
+        ? {
+            level: 'warn',
+            text: `After ${timeout}, pods still on a draining node are stopped without eviction, and PodDisruptionBudgets are ignored.`,
+          }
+        : {
+            level: 'warn',
+            text: `After ${timeout}, the VM is deleted even if volumes haven't detached cleanly. If a workload was still writing, data may be lost. Force-remove the stuck pod first if you can.`,
+          }
+    );
     if (stuck.length) {
       checks.push({
         level: 'ok',
-        text: `${stuck.length} machine${stuck.length === 1 ? ' is' : 's are'} stuck deleting in this pool. Their drain stops once the timeout has passed.`,
+        text: `${stuck.length} machine${stuck.length === 1 ? ' is' : 's are'} stuck deleting in this pool and will continue once the timeout has passed.`,
       });
     }
     checks.push({
       level: 'ok',
-      text: 'Once the stuck deletion finishes, clear the timeout again if this pool should normally wait for every pod.',
+      text: 'Once the stuck deletion finishes, clear the timeout so this pool goes back to waiting normally.',
     });
   }
   const i = pool.topologyIndex ?? -1;
   const base = `/spec/topology/workers/machineDeployments/${i}`;
   const clearing = timeout === null;
   return {
-    id: `${c.key}#draintimeout#${pool.name}#${timeout ?? 'clear'}`,
-    title: clearing ? `Clear drain timeout on ${pool.name}` : `Set drain timeout on ${pool.name}`,
+    id: `${c.key}#timeout#${kind}#${pool.name}#${timeout ?? 'clear'}`,
+    title: clearing ? `Clear ${what} on ${pool.name}` : `Set ${what} on ${pool.name}`,
     summary: clearing
-      ? `Removes the drain timeout (${pool.nodeDrainTimeout ?? 'none'}) from node pool ${pool.name}.`
-      : `Cluster API stops draining a node in ${pool.name} after ${timeout} and deletes it anyway.`,
+      ? `Removes the ${what} (${existing ?? 'none'}) from node pool ${pool.name}.`
+      : kind === 'drain'
+      ? `Cluster API stops draining a node in ${pool.name} after ${timeout} and carries on deleting it.`
+      : `Cluster API stops waiting for volumes to detach from a node in ${pool.name} after ${timeout} and deletes it.`,
     checks,
     reasonRequired: !clearing,
     confirmText: clearing ? undefined : c.name,
@@ -354,12 +371,11 @@ export function drainTimeoutPlan(c: FleetCluster, pool: NodePool, timeout: strin
         contentType: JSON_PATCH,
         body: [
           { op: 'test', path: `${base}/name`, value: pool.name },
-          clearing
-            ? { op: 'remove', path: `${base}/nodeDrainTimeout` }
-            : { op: 'add', path: `${base}/nodeDrainTimeout`, value: timeout },
+          clearing ? { op: 'remove', path: `${base}/${field}` } : { op: 'add', path: `${base}/${field}`, value: timeout },
         ],
       },
-      stampCluster(c, clearing ? `cleared drain timeout on ${pool.name}` : `set drain timeout ${timeout} on ${pool.name}`, reason, now),
+      stampCluster(c, clearing ? `cleared ${what} on ${pool.name}` : `set ${what} ${timeout} on ${pool.name}`, reason, now),
     ],
   };
 }
+

@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { countBySeverity, fleetFindings } from '../findings';
 import { clusterPath, headlampClusterPath, headlampPodsPath } from '../routes';
 import { usePluginConfig } from '../settings/store';
-import { fleetTotals, needsAttention, rollupByTenant, TenantRollup, versionSpread } from '../summary';
+import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
@@ -19,10 +19,10 @@ import {
   VersionCell,
   WorkloadCell,
 } from './common';
+import { Overview } from './Overview';
 
 const ALL = '__all__';
 
-type VersionCount = { version: string; count: number };
 type ServiceRow = ServiceHealth & { supervisor: SupervisorConfig };
 
 function plural(n: number, one: string, many: string): string {
@@ -57,12 +57,24 @@ export function FleetView() {
 
   const allClusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const rollups = React.useMemo(() => rollupByTenant(allClusters), [allClusters]);
-  const versions = React.useMemo(() => versionSpread(allClusters), [allClusters]);
   const workload = useWorkloadHealth(allClusters, config.refreshSeconds);
   const findings = React.useMemo(() => fleetFindings(results ?? []), [results]);
   const findingCounts = countBySeverity(findings);
   // Collapsed by default; open by default only when something is critical.
   const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
+  const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
+  const tenantKeys = new Set(tenantClusters.map(c => c.key));
+  const tenantNamespaces = new Set(tenantClusters.map(c => `${c.supervisorId}/${c.namespace}`));
+  const tenantFindings =
+    tenant === ALL
+      ? findings
+      : findings.filter(f =>
+          f.scope === 'cluster'
+            ? !!f.clusterKey && tenantKeys.has(f.clusterKey)
+            : f.scope === 'namespace'
+            ? tenantNamespaces.has(`${f.supervisorId}/${f.namespace}`)
+            : false
+        );
   const services: ServiceRow[] = (results ?? []).flatMap(r =>
     (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
   );
@@ -179,6 +191,15 @@ export function FleetView() {
         </Box>
       </SectionBox>
 
+      {allClusters.length > 0 && (
+        <Overview
+          clusters={tenantClusters}
+          findings={tenantFindings}
+          title={tenant === ALL ? 'Overview' : `Overview: ${tenantById.get(tenant)?.tenantName ?? tenant}`}
+          onTenant={multiTenant ? setTenant : undefined}
+        />
+      )}
+
       {multiTenant && tenant === ALL && (
         <SectionBox title="Tenants">
           <SimpleTable
@@ -208,18 +229,6 @@ export function FleetView() {
                 : []),
             ]}
             data={rollups}
-          />
-        </SectionBox>
-      )}
-
-      {versions.length > 1 && tenant === ALL && (
-        <SectionBox title="Kubernetes versions in use">
-          <SimpleTable
-            columns={[
-              { label: 'Version', getter: (v: VersionCount) => v.version },
-              { label: 'Clusters', getter: (v: VersionCount) => v.count },
-            ]}
-            data={versions}
           />
         </SectionBox>
       )}
@@ -263,7 +272,7 @@ export function FleetView() {
         })}
 
       <FindingsSection
-        findings={findings}
+        findings={tenantFindings}
         showInfo={showInfo}
         setShowInfo={setShowInfo}
         open={findingsOpen}
