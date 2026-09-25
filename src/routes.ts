@@ -1,4 +1,6 @@
 export const FLEET_PATH = '/vks-fleet';
+export const PACKAGES_PATH = '/vks-fleet/packages';
+export const SEARCH_ROUTE = '/vks-fleet/search';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

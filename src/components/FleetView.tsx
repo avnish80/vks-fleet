@@ -4,7 +4,9 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { scorecard } from '../checks';
 import { buildIssues, countIssues } from '../issues';
-import { clusterPath, headlampClusterPath, headlampPodsPath } from '../routes';
+import { packageDrift } from '../packages';
+import { clusterPath, headlampClusterPath, headlampPodsPath, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
+import { usePackages } from '../usePackages';
 import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
@@ -71,7 +73,14 @@ export function FleetView() {
     () => (results ?? []).filter(r => supervisorFilter === ALL || r.supervisor.id === supervisorFilter),
     [results, supervisorFilter]
   );
-  const issues = React.useMemo(() => buildIssues(scopedResults, workload.byKey), [scopedResults, workload.byKey]);
+  const packageTargets = allClusters
+    .map(c => ({ key: c.key, contextName: workload.byKey.get(c.key)?.contextName }))
+    .filter((t): t is { key: string; contextName: string } => !!t.contextName);
+  const packages = usePackages(packageTargets);
+  const issues = React.useMemo(
+    () => buildIssues(scopedResults, workload.byKey, new Date(), packages ?? undefined),
+    [scopedResults, workload.byKey, packages]
+  );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
   const tenantNamespaces = new Set(tenantClusters.map(c => `${c.supervisorId}/${c.namespace}`));
@@ -89,7 +98,18 @@ export function FleetView() {
   // Collapsed by default; open by default only when something is critical.
   const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
   const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
-  const scores = tenantClusters.map(c => ({ cluster: c, card: scorecard(c, workload.byKey.get(c.key), fleetZones) }));
+  const scores = tenantClusters.map(c => ({
+    cluster: c,
+    card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key)),
+  }));
+  const tenantPackages = packages ? tenantClusters.map(c => packages.get(c.key)).filter((p): p is NonNullable<typeof p> => !!p) : [];
+  const packageStats = tenantPackages.length
+    ? {
+        failing: tenantPackages.reduce((n, cp) => n + cp.items.filter(p => p.state === 'failed').length, 0),
+        updates: tenantPackages.reduce((n, cp) => n + cp.items.filter(p => p.update).length, 0),
+        drift: packageDrift(tenantPackages).filter(d => d.distinct > 1),
+      }
+    : undefined;
   const clusterByKey = new Map(allClusters.map(c => [c.key, c]));
   const services: ServiceRow[] = (results ?? []).flatMap(r =>
     (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
@@ -110,6 +130,12 @@ export function FleetView() {
   }
 
   const actions = [
+    <Button key="search" size="small" variant="outlined" component={Link} to={SEARCH_ROUTE}>
+      Search the fleet
+    </Button>,
+    <Button key="packages" size="small" variant="outlined" component={Link} to={PACKAGES_PATH}>
+      Packages
+    </Button>,
     <Button key="refresh" variant="contained" size="small" onClick={refresh} disabled={refreshing}>
       {refreshing ? 'Refreshing' : 'Refresh'}
     </Button>,
@@ -232,6 +258,7 @@ export function FleetView() {
           clusters={tenantClusters}
           findings={tenantIssues}
           scores={scores}
+          packageStats={packageStats}
           title={tenant === ALL ? 'Overview' : `Overview: ${tenantById.get(tenant)?.tenantName ?? tenant}`}
           onTenant={multiTenant ? setTenant : undefined}
           supervisors={

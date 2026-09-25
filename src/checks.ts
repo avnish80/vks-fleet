@@ -3,6 +3,7 @@
  * always run; workload checks need the user to be signed in to the cluster
  * and show as "unknown" otherwise, without counting against the score.
  */
+import { ClusterPackages, shortPackage } from './packages';
 import { CheckCategory, CheckResult, CheckStatus, FleetCluster, Scorecard, WorkloadHealth } from './types';
 
 const DAY = 86400000;
@@ -27,7 +28,8 @@ export function scorecard(
   c: FleetCluster,
   workload: WorkloadHealth | undefined,
   fleetZones: number,
-  now: Date = new Date()
+  now: Date = new Date(),
+  packages?: ClusterPackages
 ): Scorecard {
   const checks: CheckResult[] = [];
   const cp = c.controlPlane?.desired;
@@ -213,6 +215,33 @@ export function scorecard(
       !signedIn ? 'unknown' : wc!.unprotectedDeployments.length ? 'warn' : 'pass',
       !signedIn ? unknownDetail : wc!.unprotectedDeployments.length ? `No PodDisruptionBudget: ${list(wc!.unprotectedDeployments)}.` : 'Replicated deployments are covered.',
       'Add a PodDisruptionBudget (e.g. maxUnavailable: 1) so node drains and upgrades keep them available.',
+      1
+    )
+  );
+
+  // Packages (inside the cluster)
+  const pk = packages && !packages.error ? packages.items : undefined;
+  const failed = pk?.filter(p => p.state === 'failed') ?? [];
+  const updates = pk?.filter(p => p.update) ?? [];
+  checks.push(
+    check(
+      'packages-ok',
+      'Operations',
+      'Packages reconcile',
+      !pk ? 'unknown' : failed.length ? 'fail' : 'pass',
+      !pk ? packages?.error ?? 'Sign in to the cluster to check.' : failed.length ? `Failing: ${list(failed.map(p => shortPackage(p.refName)))}.` : `${pk.length} packages reconciled.`,
+      "Read kapp-controller's error on the package install and fix its cause.",
+      2
+    )
+  );
+  checks.push(
+    check(
+      'packages-current',
+      'Lifecycle',
+      'Packages up to date',
+      !pk ? 'unknown' : updates.length ? 'warn' : 'pass',
+      !pk ? packages?.error ?? 'Sign in to the cluster to check.' : updates.length ? `Updates for ${list(updates.map(p => `${shortPackage(p.refName)} ${p.update}`))}.` : 'No newer versions in the package repositories.',
+      'Update the packages, ideally together with the cluster upgrade that brings them.',
       1
     )
   );

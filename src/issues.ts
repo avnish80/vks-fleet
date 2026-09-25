@@ -9,6 +9,7 @@ import { formatDuration, STUCK_AFTER_MS } from './capi/v1beta1';
 import { fleetFindings } from './findings';
 import { clusterDeepLink, clusterPath, headlampNodePath, machinePath } from './routes';
 import { FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
+import { ClusterPackages, isCorePackage, shortPackage } from './packages';
 import { isPlatformNamespace } from './workload';
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
@@ -210,16 +211,38 @@ function passthrough(f: Finding, clusters: Map<string, FleetCluster>, now: Date)
   };
 }
 
+function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date): Issue | undefined {
+  const failed = cp.items.filter(p => p.state === 'failed');
+  if (!failed.length) return undefined;
+  const core = failed.filter(p => isCorePackage(p.refName));
+  const issue: Issue = {
+    ...base(c, 'packages', core.length ? 'critical' : 'warning', now),
+    title: `${failed.length} package${failed.length === 1 ? '' : 's'} failing to reconcile in ${c.name}: ${failed.map(p => shortPackage(p.refName)).join(', ')}`,
+    cause: failed[0].message ?? 'kapp-controller reports the reconcile failed.',
+    fix: "Open the package installs in Headlamp and read kapp-controller's error; common causes are image pulls, values that don't validate, or a repository that no longer offers the version.",
+  };
+  for (const p of failed) issue.evidence.push(`${p.namespace}/${p.name} (${p.version ?? 'no version'}): ${p.message ?? 'failed'}`);
+  if (core.length) issue.evidence.push('Core platform packages are affected, so networking, storage or sign-in may be impacted.');
+  issue.primary = { label: 'Packages', path: clusterDeepLink(c, { hash: 'packages' }) };
+  return issue;
+}
+
 /** All issues for the fleet, most severe first. */
 export function buildIssues(
   results: SupervisorResult[],
   workload: Map<string, WorkloadHealth>,
-  now: Date = new Date()
+  now: Date = new Date(),
+  packages?: Map<string, ClusterPackages>
 ): Issue[] {
   const findings = fleetFindings(results, now);
   const clusters = new Map(results.flatMap(r => r.clusters).map(c => [c.key, c]));
   const issues: Issue[] = [];
-  for (const c of clusters.values()) issues.push(...clusterIssues(c, workload.get(c.key), findings, now));
+  for (const c of clusters.values()) {
+    issues.push(...clusterIssues(c, workload.get(c.key), findings, now));
+    const cp = packages?.get(c.key);
+    const pi = cp ? packageIssue(c, cp, now) : undefined;
+    if (pi) issues.push(pi);
+  }
   const explained = new Set(issues.flatMap(i => i.findingIds));
   for (const r of results) {
     for (const f of findings.filter(x => x.supervisorId === r.supervisor.id && /#svc-(?!leftovers)/.test(x.id))) {

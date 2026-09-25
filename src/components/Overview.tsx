@@ -12,7 +12,8 @@ import {
   tenantHealth,
 } from '../overview';
 import { formatBytes } from '../quantity';
-import { clusterPath } from '../routes';
+import { clusterPath, PACKAGES_PATH } from '../routes';
+import { DriftRow, shortPackage } from '../packages';
 import { rollupByTenant, versionSpread } from '../summary';
 import { FleetCluster, Health, Scorecard, Severity } from '../types';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
@@ -42,12 +43,15 @@ export function Overview({
   supervisors,
   onSupervisor,
   scores,
+  packageStats,
 }: {
   clusters: FleetCluster[];
   /** Issues (or findings): anything with a severity. */
   findings: Array<{ severity: Severity }>;
   /** Checks scorecards for the clusters shown. */
   scores?: Array<{ cluster: FleetCluster; card: Scorecard }>;
+  /** Package inventory across signed-in clusters, when read. */
+  packageStats?: { failing: number; updates: number; drift: DriftRow[] };
   title: string;
   /** Called when a tenant bar is clicked; omit to make bars inert. */
   onTenant?: (tenantId: string) => void;
@@ -248,6 +252,26 @@ export function Overview({
             <FleetActivity lanes={fleetTimeline(clusters, now)} clusters={clusters} now={now} />
           </ChartCard>
         </Box>
+
+        {packageStats && (
+          <ChartCard
+            title="Packages"
+            caption={`${packageStats.failing} failing, ${packageStats.updates} update${packageStats.updates === 1 ? '' : 's'} available. Bars: packages at different versions across clusters.`}
+          >
+            {packageStats.drift.length ? (
+              <BarList
+                rows={packageStats.drift.slice(0, 6).map(d => ({
+                  key: d.refName,
+                  label: <Link to={PACKAGES_PATH}>{shortPackage(d.refName)}</Link>,
+                  parts: [{ label: 'Versions', value: d.distinct, tone: 'warning' as Tone }],
+                  valueText: `${d.distinct} versions`,
+                }))}
+              />
+            ) : (
+              <EmptyChart text="Every package is at the same version wherever it's installed." />
+            )}
+          </ChartCard>
+        )}
 
         <ChartCard title="Recent changes" caption="Actions taken through this plugin">
           {changes.length ? (

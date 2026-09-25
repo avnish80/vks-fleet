@@ -87,6 +87,24 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 
 **Timeline:** rebuilt from what the Supervisor records (creation, nodes added and deleting, condition changes, plugin actions, Supervisor events) with no storage needed. The cluster page lists it by day; the overview shows the last 7 days as one lane per cluster, with every dot clickable.
 
+**Packages** (sidebar: VKS fleet, then Packages): the Carvel PackageInstalls in every signed-in cluster, which is how VKS and users install add-ons (CNI, CSI, sign-in, cert-manager, Velero):
+
+- headline counts: installed, failing, updates available, drifting
+- failing packages with kapp-controller's error
+- a **version matrix** (package × cluster) showing where versions differ, newest in green
+- newer versions offered by each cluster's package repositories
+
+Failing packages become issues (critical for core packages such as the CNI, CSI or sign-in), and the scorecard gains "Packages reconcile" and "Packages up to date". The overview shows failing and drifting packages; each cluster page lists its packages.
+
+**Search** (sidebar: VKS fleet, then Search, or **Search the fleet** on the fleet page): one box across the Supervisor and every signed-in cluster.
+
+- a name or namespace (also matches container images): `nfs`, `nginx`
+- a label selector, sent to the API server: `app=web`, `tier=db,env!=prod`
+- an IP address: pod, service, load balancer, node, machine or cluster API endpoint
+- `kind:pod`, `kind:machine` and so on to narrow
+
+Results link to the plugin's cluster and machine pages, or to Headlamp's own page for the object. The query stays in the URL, so searches can be shared.
+
 **Cluster page:**
 
 - summary: tenant, versions, upgrade, class (and whether a newer one exists), OS, VM and storage class, API endpoint, pod and service networks, certificate expiry and rotation, automatic node repair status, node capacity
@@ -230,6 +248,8 @@ src/
   issues.ts             Issues: findings and signals folded into causes; Copy diagnosis
   checks.ts             Best-practice scorecard per cluster
   timeline.ts           History rebuilt from timestamps
+  packages.ts           Package inventory, updates and fleet drift
+  search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes
   machine.ts            Machine page data: machine, VM, events; node, pods, drain blockers, pinned pods
   overview.ts           Numbers behind the overview tiles and charts
@@ -291,5 +311,6 @@ From v0.2.0, still to confirm:
 - **CAPI version:** the plugin reads `cluster.x-k8s.io/v1beta1`. Current Supervisors prefer v1beta2 but still serve v1beta1. A v1beta2 translator can be added next to `capi/v1beta1.ts`.
 - **Leftover timeouts:** a drain timeout under 5 minutes, or any volume-detach timeout, left on a pool with nothing deleting becomes a warning finding, so an unblocking fix isn't forgotten.
 - **Upgrade availability:** read from `tanzukubernetesreleases` (falling back to `kubernetesreleases`), skipping releases marked not ready or incompatible. The next minor version is preferred, since VKS upgrades one minor at a time.
+- **Packages and search** also fan out from the browser: packages every 3 minutes per signed-in cluster, search once per query across nine kinds (up to 50 hits per kind per cluster).
 - **Inside-cluster checks:** these fan out from the browser, at half the fleet refresh rate. Fine for tens of clusters; a larger fleet should use the server-side aggregator. Pod checks read at most 1000 pods per cluster.
 - **Tokens expire:** tokens from `kubectl vsphere login` last about a working day. Expired ones show as "Sign-in expired".

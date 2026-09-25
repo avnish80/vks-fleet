@@ -16,6 +16,8 @@ import { AddonInfo } from '../extras';
 import { scorecard } from '../checks';
 import { buildIssues } from '../issues';
 import { clusterTimeline } from '../timeline';
+import { shortPackage, PackageInstallInfo } from '../packages';
+import { usePackages } from '../usePackages';
 import { formatBytes } from '../quantity';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import { usePluginConfig } from '../settings/store';
@@ -41,6 +43,7 @@ import { BarList, ChartStyles } from './charts';
 import { AnatomyDiagram } from './Anatomy';
 import { ChecksPanel } from './ChecksPanel';
 import { ClusterTimeline } from './Timeline';
+import { PackageStateLabel, pkgiPath } from './PackagesPage';
 import { IssuesList } from './IssuesList';
 import {
   capacityText,
@@ -269,6 +272,9 @@ export function ClusterDetail() {
   const single = React.useMemo(() => (cluster ? [cluster] : []), [cluster]);
   const workload = useWorkloadHealth(single, config.refreshSeconds);
   const extras = useClusterExtras(supervisor, params.namespace, params.name, config.refreshSeconds);
+  const ctxName = cluster ? workload.byKey.get(cluster.key)?.contextName : undefined;
+  const pkgMap = usePackages(cluster && ctxName ? [{ key: cluster.key, contextName: ctxName }] : []);
+  const clusterPackages = cluster ? pkgMap?.get(cluster.key) : undefined;
 
   // Deep links from issues: ?focus=<row>&action=<dialog>&pool=<pool>#<section>
   const location = useLocation();
@@ -342,10 +348,10 @@ export function ClusterDetail() {
   const fleetZones = new Set(
     results.flatMap(r => r.clusters.flatMap(c => c.machines.map(m => m.failureDomain))).filter(Boolean)
   ).size;
-  const clusterIssues = buildIssues(results, workload.byKey).filter(
+  const clusterIssues = buildIssues(results, workload.byKey, new Date(), pkgMap ?? undefined).filter(
     i => i.clusterKey === cluster.key || (!i.clusterKey && i.namespace === cluster.namespace && i.supervisorId === cluster.supervisorId)
   );
-  const card = scorecard(cluster, health, fleetZones);
+  const card = scorecard(cluster, health, fleetZones, new Date(), clusterPackages);
   const clusterMap = new Map([[cluster.key, cluster]]);
   const supervisorNames = new Map([[supervisor.id, supervisorLabel(supervisor)]]);
   const vksNamespace = results.flatMap(r => r.services ?? []).find(s => s.namespace.startsWith('svc-tkg-'))?.namespace;
@@ -672,6 +678,32 @@ export function ClusterDetail() {
               },
             ]}
             data={cluster.quota}
+          />
+        )}
+      </SectionBox>
+
+      <Box id="packages" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Packages">
+        {!ctxName ? (
+          <Typography color="text.secondary">Sign in to the cluster to see its packages.</Typography>
+        ) : !clusterPackages ? (
+          <Typography>Loading…</Typography>
+        ) : clusterPackages.error ? (
+          <Typography color="text.secondary">Couldn't read packages: {clusterPackages.error}</Typography>
+        ) : (
+          <SimpleTable
+            columns={[
+              {
+                label: 'Package',
+                getter: (p: PackageInstallInfo) => <Link to={pkgiPath(ctxName, p)}>{shortPackage(p.refName)}</Link>,
+              },
+              { label: 'Namespace', getter: (p: PackageInstallInfo) => p.namespace },
+              { label: 'Version', getter: (p: PackageInstallInfo) => p.version ?? '—' },
+              { label: 'Status', getter: (p: PackageInstallInfo) => <PackageStateLabel state={p.state} /> },
+              { label: 'Update', getter: (p: PackageInstallInfo) => p.update ?? '—' },
+              { label: 'Message', getter: (p: PackageInstallInfo) => (p.state === 'ok' ? '—' : p.message ?? '—') },
+            ]}
+            data={clusterPackages.items}
           />
         )}
       </SectionBox>
