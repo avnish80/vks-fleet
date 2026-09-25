@@ -9,7 +9,9 @@
  */
 import { describeError, SupervisorClient } from './api/client';
 import { clusterPath, machinePath } from './routes';
-import { FleetCluster } from './types';
+import { cidrContains } from './ip';
+import { namespacePath, vmPath } from './inventoryIssues';
+import { FleetCluster, Inventory } from './types';
 
 export interface SearchHit {
   clusterKey: string;
@@ -180,3 +182,41 @@ export function searchSupervisor(clusters: FleetCluster[], q: ParsedQuery): Sear
   }
   return hits;
 }
+
+/** VMs, load balancer VIPs and subnets (including "which subnet holds this IP"). */
+export function searchInventory(invs: Inventory[], q: ParsedQuery): SearchHit[] {
+  const hits: SearchHit[] = [];
+  const wantKind = (k: string) => !q.kind || k.toLowerCase().startsWith(q.kind);
+  const t = q.text;
+  for (const inv of invs) {
+    if (wantKind('vm')) {
+      for (const v of inv.vms.filter(x => !x.cluster)) {
+        const why = q.ip ? (v.ip === q.ip ? `IP ${q.ip}` : undefined) : t && v.name.toLowerCase().includes(t) ? 'name' : t && (v.image ?? '').toLowerCase().includes(t) ? `image ${v.image}` : undefined;
+        if (why) hits.push({ clusterKey: '', clusterName: v.namespace, where: 'supervisor', kind: 'VM', namespace: v.namespace, name: v.name, match: why, path: vmPath(v.supervisorId, v.namespace, v.name) });
+      }
+    }
+    if (wantKind('loadbalancer') || wantKind('lb') || wantKind('vip')) {
+      for (const l of inv.lbs) {
+        const why = q.ip ? (l.vip === q.ip ? `VIP ${q.ip}` : undefined) : t && l.name.toLowerCase().includes(t) ? 'name' : t && (l.guestService ?? '').toLowerCase().includes(t) ? `serves ${l.guestService}` : undefined;
+        if (why) {
+          const serves = l.kind === 'guest-service' ? `${l.guestService} in ${l.cluster}` : l.kind === 'cluster-api' ? `${l.cluster} API` : l.vms.join(', ') || l.name;
+          hits.push({ clusterKey: '', clusterName: l.namespace, where: 'supervisor', kind: 'LoadBalancer', namespace: l.namespace, name: `${l.vip ?? 'no IP'} → ${serves}`, match: why, path: namespacePath(l.supervisorId, l.namespace, 'lbs') });
+        }
+      }
+    }
+    if (wantKind('subnet')) {
+      for (const s of inv.subnets) {
+        const why = q.ip
+          ? s.cidrs.some(c => cidrContains(c, q.ip!))
+            ? `contains ${q.ip} (${s.cidrs.join(', ')}, VPC of ${s.namespace})`
+            : undefined
+          : t && s.name.toLowerCase().includes(t)
+          ? 'name'
+          : undefined;
+        if (why) hits.push({ clusterKey: '', clusterName: s.namespace, where: 'supervisor', kind: s.kind, namespace: s.namespace, name: s.name, match: why, path: namespacePath(s.supervisorId, s.namespace, 'network') });
+      }
+    }
+  }
+  return hits;
+}
+

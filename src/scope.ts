@@ -1,4 +1,4 @@
-import { SupervisorResult } from './types';
+import { Inventory, SupervisorResult } from './types';
 
 export const ALL_ORGS = '__all__';
 
@@ -10,10 +10,14 @@ export function scopeResults(results: SupervisorResult[], org: string): Supervis
   if (org === ALL_ORGS) return results;
   return results.map(r => {
     const clusters = r.clusters.filter(c => c.tenantId === org);
-    const namespaces = new Set(clusters.map(c => c.namespace));
+    const namespaces = new Set([
+      ...clusters.map(c => c.namespace),
+      ...(r.namespaces ?? []).filter(n => n.tenantId === org).map(n => n.name),
+    ]);
     return {
       ...r,
       clusters,
+      namespaces: (r.namespaces ?? []).filter(n => n.tenantId === org),
       cleanup: (r.cleanup ?? []).filter(i => namespaces.has(i.namespace)),
       services: undefined,
       events: (r.events ?? []).filter(e => !e.namespace || namespaces.has(e.namespace)),
@@ -33,3 +37,21 @@ export function orgsOf(results: SupervisorResult[]): Array<{ id: string; name: s
   }
   return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** Narrows an inventory to the namespaces of one org. */
+export function scopeInventory(inv: Inventory, namespaces: Set<string> | undefined): Inventory {
+  if (!namespaces) return inv;
+  const keep = <T extends { namespace?: string }>(xs: T[]) => xs.filter(x => !x.namespace || namespaces.has(x.namespace));
+  return {
+    ...inv,
+    vms: keep(inv.vms),
+    lbs: keep(inv.lbs),
+    subnets: keep(inv.subnets),
+    vpcs: keep(inv.vpcs),
+    nsx: inv.nsx.filter(x => x.namespace && namespaces.has(x.namespace)),
+    quotas: keep(inv.quotas),
+    volumes: keep(inv.volumes),
+    supervisorNodes: undefined,
+  };
+}
+

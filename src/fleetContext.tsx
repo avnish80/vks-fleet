@@ -5,11 +5,12 @@
  */
 import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 import React, { createContext, ReactNode, useContext } from 'react';
-import { listHeadlampClusters, supervisorWriter } from './api/headlampClient';
+import { listHeadlampClusters, supervisorClient, supervisorWriter } from './api/headlampClient';
+import { fetchInventory } from './inventory';
 import { detectPersona, PersonaInfo, whoAmI } from './persona';
-import { ALL_ORGS, orgsOf, scopeResults } from './scope';
+import { ALL_ORGS, orgsOf, scopeInventory, scopeResults } from './scope';
 import { usePluginConfig } from './settings/store';
-import { PluginConfig, SupervisorConfig, SupervisorResult } from './types';
+import { Inventory, PluginConfig, SupervisorConfig, SupervisorResult } from './types';
 import { useFleet } from './useFleet';
 import { usePolling } from './usePolling';
 import { discoverVcfaOrgs } from './vcfa';
@@ -44,6 +45,8 @@ export interface FleetData {
   canSwitchIdentity: boolean;
   /** User name per identity, when the API server says. */
   userNames: Map<string, string>;
+  /** VMs, networking and storage per Supervisor, narrowed to the selected org (null while loading). */
+  inventory: Map<string, Inventory> | null;
 }
 
 const Ctx = createContext<FleetData | null>(null);
@@ -91,6 +94,42 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const wanted = view?.org ?? ALL_ORGS;
   const org = tenantView || !orgs.some(o => o.id === wanted) ? ALL_ORGS : wanted;
 
+  // Namespace inventory: fetched once for every page, refreshed every minute.
+  const invKey = (results ?? [])
+    .filter(r => !r.error)
+    .map(r => `${r.supervisor.id}:${r.scope}:${(r.namespaces ?? []).map(n => n.name).join(',')}`)
+    .join('|');
+  const inventoryAll = usePolling(
+    invKey || null,
+    async () =>
+      new Map(
+        await Promise.all(
+          (results ?? [])
+            .filter(r => !r.error)
+            .map(async r => {
+              const clusterNames = new Map<string, string[]>();
+              for (const c of r.clusters) clusterNames.set(c.namespace, [...(clusterNames.get(c.namespace) ?? []), c.name]);
+              const inv = await fetchInventory(
+                supervisorClient(r.supervisor),
+                r.supervisor,
+                (r.namespaces ?? []).map(n => n.name),
+                r.scope === 'cluster',
+                clusterNames
+              );
+              return [r.supervisor.id, inv] as [string, Inventory];
+            })
+        )
+      ),
+    60
+  );
+  const scopedNs =
+    org === ALL_ORGS
+      ? undefined
+      : new Set((results ?? []).flatMap(r => (r.namespaces ?? []).filter(n => n.tenantId === org).map(n => n.name)));
+  const inventory = inventoryAll
+    ? new Map(Array.from(inventoryAll.entries()).map(([k, v]) => [k, scopeInventory(v, scopedNs)] as [string, Inventory]))
+    : null;
+
   const value: FleetData = {
     config,
     all: results,
@@ -109,6 +148,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     setIdentity: id => viewStore.update({ identity: id, org: ALL_ORGS }),
     canSwitchIdentity,
     userNames,
+    inventory,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

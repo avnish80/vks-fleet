@@ -8,7 +8,7 @@
  */
 import { WriteRequest } from './api/client';
 import { upgradeKind } from './releases';
-import { FleetCluster, MachineInfo, NodePool } from './types';
+import { FleetCluster, MachineInfo, NodePool, ServiceVm } from './types';
 
 export const ACTION_ANNOTATION = 'vks-fleet/last-action';
 /** The one Machine change VKS lets users make: asks the MachineHealthCheck to replace the machine. */
@@ -591,3 +591,87 @@ export function certRotationPlan(c: FleetCluster, renewalDays = 90): ActionPlan 
     ],
   };
 }
+
+/* ---------------- VM Service VMs ---------------- */
+
+const MERGE_PATCH = 'application/merge-patch+json';
+const vmUrl = (vm: ServiceVm) =>
+  `/apis/vmoperator.vmware.com/v1alpha5/namespaces/${encodeURIComponent(vm.namespace)}/virtualmachines/${encodeURIComponent(vm.name)}`;
+const vmStamp = (text: string, reason: string, now: Date = new Date()) => ({
+  'vks-fleet/last-action': JSON.stringify({ action: text, reason, at: now.toISOString() }),
+});
+
+function vmChecks(vm: ServiceVm): Check[] {
+  const checks: Check[] = [];
+  if (vm.cluster) checks.push({ level: 'block', text: `This VM is a node of cluster ${vm.cluster}; manage it through the cluster (Replace on the machine page).` });
+  return checks;
+}
+
+export function vmPowerPlan(vm: ServiceVm, state: 'PoweredOn' | 'PoweredOff'): ActionPlan {
+  const checks = vmChecks(vm);
+  if (vm.power === state) checks.push({ level: 'block', text: `The VM is already ${state === 'PoweredOn' ? 'on' : 'off'}.` });
+  if (state === 'PoweredOff') {
+    checks.push({ level: 'warn', text: 'Anything the VM serves stops, including load balancers pointing at it.' });
+    checks.push({ level: 'ok', text: 'Shuts down through the guest OS when VMware Tools answers (TrySoft), otherwise powers off.' });
+  }
+  const verb = state === 'PoweredOn' ? 'power on' : 'power off';
+  return {
+    id: `vm#${vm.namespace}/${vm.name}#${state}`,
+    title: `${verb[0].toUpperCase()}${verb.slice(1)} ${vm.name}`,
+    summary: `Sets the VM's power state to ${state}; VM Operator does the rest.`,
+    checks,
+    reasonRequired: state === 'PoweredOff',
+    confirmText: state === 'PoweredOff' ? vm.name : undefined,
+    applyLabel: verb[0].toUpperCase() + verb.slice(1),
+    requests: (reason, now) => [
+      { method: 'PATCH', path: vmUrl(vm), contentType: MERGE_PATCH, body: { metadata: { annotations: vmStamp(verb, reason, now) }, spec: { powerState: state } } },
+    ],
+  };
+}
+
+export function vmRestartPlan(vm: ServiceVm): ActionPlan {
+  const checks = vmChecks(vm);
+  if (vm.power !== 'PoweredOn') checks.push({ level: 'block', text: 'The VM is not powered on.' });
+  checks.push({ level: 'warn', text: 'The VM restarts now; anything it serves is briefly unavailable.' });
+  return {
+    id: `vm#${vm.namespace}/${vm.name}#restart`,
+    title: `Restart ${vm.name}`,
+    summary: 'Asks VM Operator to restart the VM now (spec.nextRestartTime), through the guest OS when possible.',
+    checks,
+    reasonRequired: true,
+    confirmText: vm.name,
+    applyLabel: 'Restart',
+    requests: (reason, now) => [
+      { method: 'PATCH', path: vmUrl(vm), contentType: MERGE_PATCH, body: { metadata: { annotations: vmStamp('restart', reason, now) }, spec: { nextRestartTime: 'now' } } },
+    ],
+  };
+}
+
+export function vmSnapshotPlan(vm: ServiceVm, name: string): ActionPlan {
+  const checks = vmChecks(vm);
+  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) checks.push({ level: 'block', text: 'Snapshot names use lower-case letters, digits and dashes.' });
+  checks.push({ level: 'ok', text: 'A crash-consistent snapshot of the disks (without memory). It counts against the storage quota.' });
+  checks.push({ level: 'warn', text: "Snapshots aren't backups, and old ones slow the VM down; delete them when done." });
+  return {
+    id: `vm#${vm.namespace}/${vm.name}#snapshot`,
+    title: `Snapshot ${vm.name}`,
+    summary: `Creates VirtualMachineSnapshot ${name}.`,
+    checks,
+    reasonRequired: true,
+    applyLabel: 'Take snapshot',
+    requests: reason => [
+      {
+        method: 'POST',
+        path: `/apis/vmoperator.vmware.com/v1alpha5/namespaces/${encodeURIComponent(vm.namespace)}/virtualmachinesnapshots`,
+        contentType: 'application/json',
+        body: {
+          apiVersion: 'vmoperator.vmware.com/v1alpha5',
+          kind: 'VirtualMachineSnapshot',
+          metadata: { name, namespace: vm.namespace },
+          spec: { vmRef: { apiVersion: 'vmoperator.vmware.com/v1alpha5', kind: 'VirtualMachine', name: vm.name }, description: reason, memory: false },
+        },
+      },
+    ],
+  };
+}
+

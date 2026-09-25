@@ -61,7 +61,7 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const { config, results, refreshing, refresh } = useFleetData();
+  const { config, results, refreshing, refresh, inventory } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.
@@ -124,8 +124,16 @@ export function FleetView() {
   const backups = useBackups(packageTargets);
   const issues = React.useMemo(
     () =>
-      buildIssues(scopedResults, workload.byKey, new Date(), packages ?? undefined, backups ?? undefined, config.baseline?.backupWithinHours),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours]
+      buildIssues(
+        scopedResults,
+        workload.byKey,
+        new Date(),
+        packages ?? undefined,
+        backups ?? undefined,
+        config.baseline?.backupWithinHours,
+        inventory ?? undefined
+      ),
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
@@ -336,6 +344,7 @@ export function FleetView() {
             setFindingsOpen(true);
             jump('issues');
           }}
+          subnets={inventory ? Array.from(inventory.values()).flatMap(i => i.subnets).filter(s => s.capacity > 0) : undefined}
           baseline={baselineRows}
           backups={backupRows}
           busiest={tenantClusters

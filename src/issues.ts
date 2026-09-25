@@ -25,7 +25,8 @@ import {
   unreachableRunbook,
 } from './runbooks';
 import { hoursSinceSuccess } from './backups';
-import { BackupStatus, EventInfo, FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
+import { inventoryIssues } from './inventoryIssues';
+import { BackupStatus, EventInfo, Inventory, FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
 import { ClusterPackages, isCorePackage, shortPackage } from './packages';
 import { isPlatformNamespace } from './workload';
 
@@ -391,7 +392,8 @@ export function buildIssues(
   now: Date = new Date(),
   packages?: Map<string, ClusterPackages>,
   backups?: Map<string, BackupStatus>,
-  backupWithinHours = 26
+  backupWithinHours = 26,
+  inventories?: Map<string, Inventory>
 ): Issue[] {
   const findings = fleetFindings(results, now);
   const clusters = new Map(results.flatMap(r => r.clusters).map(c => [c.key, c]));
@@ -467,6 +469,10 @@ export function buildIssues(
         detectedAt: now.toISOString(),
       });
     }
+  }
+  for (const r of results) {
+    const inv = inventories?.get(r.supervisor.id);
+    if (inv) issues.push(...inventoryIssues(inv, r.supervisor.headlampCluster, now));
   }
   for (const f of findings) if (!explained.has(f.id)) issues.push(passthrough(f, clusters, now));
   return issues.sort(

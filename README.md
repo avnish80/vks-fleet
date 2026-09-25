@@ -186,6 +186,32 @@ A compliance matrix shows every cluster against every rule. Safe fixes are appli
 
 **Backups** (cluster page, and an overview card): Velero schedules, recent backups, and the last success and failure per signed-in cluster. A failed latest backup, or no success within the baseline's window while backups are scheduled, becomes an issue with a runbook. The scorecard's backup check now uses this.
 
+**Namespaces** (sidebar: Namespaces): everything in each org's Supervisor namespaces, not just clusters, grouped by org. For operators it opens with a **Supervisor** panel: control-plane nodes (a single one is flagged as not highly available), ESXi hosts, versions. Each namespace page has:
+
+- **A network map:** the VPC (private ranges, outbound NAT), each subnet with its range, usage and what's attached, and the public addresses in use.
+- **The namespace's clusters, VMs and load balancers.**
+- **Subnets and subnet sets** with address usage, counted from what's actually using addresses in that namespace (private ranges repeat across VPCs, so usage never mixes namespaces).
+- **Security policies, static routes, NAT bindings and IP allocations,** and whether each applied.
+- **Storage:** the storage policy quota per namespace, split by VM disks, snapshots and volumes, and the volumes with what uses each.
+- **Access,** as on the cluster page.
+
+**VMs** (sidebar: VMs): every VM Service VM, meaning VMs not belonging to a cluster (cluster nodes are on Machines). Each VM page shows state, class, image, IP and zone; interfaces and their subnets; the load balancers exposing it; disks, snapshots and conditions. Actions, with the usual checks and dry run: **Power on/off** (soft shutdown first), **Restart**, **Take snapshot**.
+
+**Network** (sidebar: Network): the **load balancer map**, every VIP and what it serves (a cluster's API, a Service inside a cluster read from VKS's labels, or VMs by selector), plus all subnets by usage, VPCs, network objects, and NSX errors for operators.
+
+New issues, each with a runbook:
+
+- VMs not ready, off, or with snapshots older than a week
+- subnets over 85% or 95% used, or not ready
+- load balancers without an IP after 5 minutes
+- network objects that didn't apply, and NSX errors
+- storage quotas over 85%
+- Supervisor nodes not ready
+
+**Search** covers VMs (name, IP, image) and VIPs. For an IP it also names the subnet containing it, and whose VPC that is. The overview adds a **Subnet usage** card.
+
+VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other networking, the rest still works and the network sections say so. Everything reads through the same routing as the clusters, so VCF Automation tenants see their org's namespaces.
+
 **Machines page:** every machine across the fleet with its state, VM, IP, zone and version; machines that need a look come first.
 
 **Export report:** Markdown (summary, issues needing action, clusters, tenants, versions) or CSV (one row per cluster), for the clusters currently shown.
@@ -364,6 +390,9 @@ src/
   persona.ts            Who is signed in, from SelfSubjectAccessReview
   vcfa.ts               VCF Automation org contexts and per-namespace routing
   scope.ts              Org scoping for the switcher
+  inventory.ts          VMs, load balancers, VPC networking, storage, Supervisor nodes
+  inventoryIssues.ts    Issues and runbooks for those
+  ip.ts                 IPv4 and CIDR helpers
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

@@ -4,13 +4,13 @@ import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
-import { parseQuery, searchCluster, SearchHit, searchSupervisor } from '../search';
+import { parseQuery, searchCluster, SearchHit, searchInventory, searchSupervisor } from '../search';
 import { useWorkloadHealth } from '../useWorkload';
 
 export const SEARCH_PATH = '/vks-fleet/search';
 
 export function SearchPage() {
-  const { config, results } = useFleetData();
+  const { config, results, inventory } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const location = useLocation();
@@ -56,7 +56,8 @@ export function SearchPage() {
   }, [query, targetKey]);
 
   const q = parseQuery(query);
-  const supervisorHits = query.length >= 2 ? searchSupervisor(clusters, q) : [];
+  const supervisorHits =
+    query.length >= 2 ? [...searchSupervisor(clusters, q), ...searchInventory(inventory ? Array.from(inventory.values()) : [], q)] : [];
   const hits = [...supervisorHits, ...live.hits];
   const notSignedIn = clusters.filter(c => !workload.byKey.get(c.key)?.contextName);
 

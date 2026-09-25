@@ -264,6 +264,8 @@ export interface SupervisorResult {
   vmClasses?: VmClassInfo[];
   /** Leftovers on the Supervisor that belong to clusters that no longer exist. */
   cleanup?: CleanupItem[];
+  /** Org namespaces (holding clusters, VMs or other workloads) and their tenant. */
+  namespaces?: Array<{ name: string; tenantId: string; tenantName: string }>;
   fetchedAt: string;
 }
 
@@ -539,3 +541,127 @@ export interface AccessEntry {
   /** Platform identities (controllers, system accounts). */
   system: boolean;
 }
+
+/* ---------------- Namespace inventory (VMs, networking, storage) ---------------- */
+
+export interface VmSnapshotInfo {
+  name: string;
+  createdAt?: string;
+  ready?: boolean;
+}
+
+export interface ServiceVm {
+  supervisorId: string;
+  namespace: string;
+  name: string;
+  power?: string;
+  ready?: boolean;
+  readyMessage?: string;
+  className?: string;
+  image?: string;
+  ip?: string;
+  zone?: string;
+  interfaces: Array<{ name: string; kind?: string; network?: string }>;
+  volumes: string[];
+  storageClass?: string;
+  createdAt?: string;
+  /** The VKS cluster this VM is a node of (then it's shown with the cluster, not as a VM). */
+  cluster?: string;
+  conditions: ClusterCondition[];
+  snapshots: VmSnapshotInfo[];
+}
+
+export type LbKind = 'cluster-api' | 'guest-service' | 'vm' | 'other';
+
+export interface LbInfo {
+  supervisorId: string;
+  namespace: string;
+  name: string;
+  vip?: string;
+  ports: Array<{ name?: string; port: number; protocol?: string }>;
+  kind: LbKind;
+  cluster?: string;
+  /** namespace/name of the Service inside the guest cluster. */
+  guestService?: string;
+  /** VM Service VMs the selector picks. */
+  vms: string[];
+  createdAt?: string;
+}
+
+export interface SubnetInfo {
+  supervisorId: string;
+  namespace: string;
+  name: string;
+  kind: 'Subnet' | 'SubnetSet';
+  accessMode?: string;
+  cidrs: string[];
+  gateways: string[];
+  ready?: boolean;
+  message?: string;
+  /** Addresses in use (counted from ports, VMs and VIPs in this namespace). */
+  used: number;
+  capacity: number;
+  /** What's attached: VMs and clusters. */
+  members: string[];
+}
+
+export interface VpcInfo {
+  namespace: string;
+  name: string;
+  snatIP?: string;
+  lbIP?: string;
+  privateIPs: string[];
+  stack?: string;
+}
+
+export interface NsxObjectInfo {
+  namespace?: string;
+  kind: string;
+  name: string;
+  ready?: boolean;
+  message?: string;
+  detail?: string;
+}
+
+export interface StorageQuotaInfo {
+  namespace: string;
+  policy: string;
+  limit: number;
+  used: number;
+  /** Used bytes by source (VM disks, snapshots, volumes…). */
+  bySource: Record<string, number>;
+}
+
+export interface VolumeInfo {
+  namespace: string;
+  name: string;
+  size?: number;
+  storageClass?: string;
+  phase?: string;
+  usedBy?: string;
+}
+
+export interface SupervisorNodes {
+  controlPlane: number;
+  controlPlaneReady: number;
+  hosts: number;
+  hostsReady: number;
+  version?: string;
+  hostVersion?: string;
+}
+
+export interface Inventory {
+  supervisorId: string;
+  vms: ServiceVm[];
+  lbs: LbInfo[];
+  subnets: SubnetInfo[];
+  vpcs: VpcInfo[];
+  nsx: NsxObjectInfo[];
+  quotas: StorageQuotaInfo[];
+  volumes: VolumeInfo[];
+  supervisorNodes?: SupervisorNodes;
+  /** "vpc" when NSX VPC networking objects are served. */
+  networking: 'vpc' | 'none';
+  warnings: string[];
+}
+

@@ -7,6 +7,11 @@ export const CAPACITY_PATH = '/vks-fleet/capacity';
 export const BASELINE_PATH = '/vks-fleet/baseline';
 export const CLEANUP_PATH = '/vks-fleet/cleanup';
 export const ACCESS_PATH = '/vks-fleet/access';
+export const NAMESPACE_BASE = '/vks-fleet/namespaces';
+export const NAMESPACE_PATH = '/vks-fleet/namespaces/:supervisor/:namespace';
+export const VM_BASE = '/vks-fleet/vms';
+export const VM_PATH = '/vks-fleet/vms/:supervisor/:namespace/:name';
+export const NETWORK_PATH = '/vks-fleet/network';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

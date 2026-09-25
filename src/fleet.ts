@@ -167,6 +167,26 @@ export async function fetchSupervisor(
   fleet = attachClassUpdates(fleet, classNames);
 
   const events = await supervisorWarnings(client, operator, rest, now);
+
+  // Org namespaces: those carrying the tenant label (operator view), the
+  // configured or readable ones otherwise, plus any holding clusters or VMs.
+  const isSystem = (ns: string) => /^(kube-|vmware-system|svc-|default$)/.test(ns);
+  const nsNames = new Set<string>([
+    ...clusters.items.map(c => c.metadata.namespace ?? ''),
+    ...vmObjects.map(v => v.metadata.namespace ?? ''),
+    ...(vcfa ? supervisor.namespaces : []),
+    ...(!vcfa && namespaceList && supervisor.tenantLabelKey
+      ? namespaceList.filter(n => n.metadata.labels?.[supervisor.tenantLabelKey]).map(n => n.metadata.name)
+      : []),
+    ...(!vcfa && !operator ? rest : []),
+  ]);
+  const orgNamespaces = Array.from(nsNames)
+    .filter(ns => ns && !isSystem(ns))
+    .sort()
+    .map(ns => {
+      const t = tenantOf(ns);
+      return { name: ns, tenantId: t.tenantId, tenantName: t.tenantName };
+    });
   const cleanup = findLeftovers(
     supervisor.id,
     supervisor.headlampCluster,
@@ -195,6 +215,7 @@ export async function fetchSupervisor(
     events,
     vmClasses: vmClassInfos(classObjects),
     cleanup,
+    namespaces: orgNamespaces,
     fetchedAt,
   };
 }

@@ -15,7 +15,8 @@ import { formatBytes } from '../quantity';
 import { BASELINE_PATH, CAPACITY_PATH, clusterDeepLink, clusterPath, machinePath, MACHINES_PATH, PACKAGES_PATH, UPGRADES_PATH } from '../routes';
 import { DriftRow, shortPackage } from '../packages';
 import { rollupByTenant, versionSpread } from '../summary';
-import { BackupStatus, FleetCluster, Health, Scorecard, Severity } from '../types';
+import { BackupStatus, FleetCluster, Health, Scorecard, Severity, SubnetInfo } from '../types';
+import { namespacePath } from '../inventoryIssues';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
 import { ActivityHeatmap } from './Timeline';
 import { fleetTimeline } from '../timeline';
@@ -58,6 +59,7 @@ export function Overview({
   busiest,
   baseline,
   backups,
+  subnets,
 }: {
   clusters: FleetCluster[];
   /** Issues (or findings): anything with a severity. */
@@ -84,6 +86,8 @@ export function Overview({
   baseline?: Array<{ cluster: FleetCluster; pct: number }>;
   /** Velero status per signed-in cluster. */
   backups?: Array<{ cluster: FleetCluster; status?: BackupStatus }>;
+  /** VPC subnets with their address usage. */
+  subnets?: SubnetInfo[];
 }) {
   const now = new Date();
   const history = useHistory();
@@ -278,6 +282,28 @@ export function Overview({
             <EmptyChart text="No certificate dates reported." />
           )}
         </ChartCard>
+
+        {subnets && subnets.length > 0 && (
+          <ChartCard title="Subnet usage" caption="Addresses in use per VPC subnet, fullest first. Click to open the namespace's network.">
+            <BarList
+              max={100}
+              rows={[...subnets]
+                .sort((a, b) => b.used / b.capacity - a.used / a.capacity)
+                .slice(0, 6)
+                .map(s => {
+                  const pct = Math.round((s.used / s.capacity) * 100);
+                  return {
+                    key: `${s.namespace}/${s.kind}/${s.name}`,
+                    label: `${s.namespace}: ${s.name}`,
+                    title: `${s.cidrs.join(', ')}: ${s.used} of ${s.capacity} addresses`,
+                    parts: [{ label: 'Used', value: pct, tone: (pct >= 95 ? 'error' : pct >= 85 ? 'warning' : 'success') as Tone }],
+                    valueText: `${pct}%`,
+                    onClick: () => history.push(namespacePath(s.supervisorId, s.namespace, 'network')),
+                  };
+                })}
+            />
+          </ChartCard>
+        )}
 
         {baseline && baseline.length > 0 && (
           <ChartCard title="Baseline compliance" caption="How closely each cluster meets the fleet standard. Click to see what drifts.">

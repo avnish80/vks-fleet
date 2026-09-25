@@ -9,6 +9,7 @@ import { MachineDetail } from './components/MachineDetail';
 import { AccessPage } from './components/AccessPanel';
 import { BaselinePage } from './components/BaselinePage';
 import { CapacityPage } from './components/CapacityPage';
+import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail, VmsPage } from './components/NamespacePages';
 import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
 import { UpgradePlannerPage } from './components/UpgradePlannerPage';
@@ -17,6 +18,7 @@ import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
+import { NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, VM_BASE, VM_PATH } from './routes';
 import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
@@ -40,7 +42,10 @@ registerSidebarEntry({
 for (const child of [
   { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE },
   { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH },
+  { name: 'vks-fleet-namespaces', label: 'Namespaces', url: NAMESPACE_BASE },
   { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
+  { name: 'vks-fleet-vms', label: 'VMs', url: VM_BASE },
+  { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH },
   { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH },
   { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH },
   { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH },
@@ -65,6 +70,11 @@ registerRoute({
 });
 
 for (const page of [
+  { path: NAMESPACE_BASE, name: 'vks-fleet-namespaces', component: () => (<PageFrame><NamespacesPage /></PageFrame>) },
+  { path: NAMESPACE_PATH, name: 'vks-fleet-namespace', item: 'vks-fleet-namespaces', component: () => (<PageFrame><NamespaceDetail /></PageFrame>) },
+  { path: VM_BASE, name: 'vks-fleet-vms', component: () => (<PageFrame><VmsPage /></PageFrame>) },
+  { path: VM_PATH, name: 'vks-fleet-vm', item: 'vks-fleet-vms', component: () => (<PageFrame><VmDetail /></PageFrame>) },
+  { path: NETWORK_PATH, name: 'vks-fleet-network', component: () => (<PageFrame><NetworkPage /></PageFrame>) },
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
     <PageFrame>
       <UpgradePlannerPage />
@@ -93,7 +103,7 @@ for (const page of [
 ]) {
   registerRoute({
     path: page.path,
-    sidebar: { item: page.name, sidebar: 'HOME' },
+    sidebar: { item: (page as { item?: string }).item ?? page.name, sidebar: 'HOME' },
     name: page.name,
     exact: true,
     useClusterURL: false,
