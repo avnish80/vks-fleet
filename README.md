@@ -9,6 +9,49 @@ The same plugin serves both audiences. What each person sees is decided by their
 
 Phase 1 reads one Supervisor. The code is built for several (see "Extending to multiple Supervisors").
 
+## What it shows
+
+**Fleet page:** every VKS cluster, grouped by tenant (VCFA organization by default), with:
+
+- health, including problems the Supervisor can see, such as a machine stuck deleting
+- Kubernetes version, and whether a newer release is available
+- control plane and worker readiness
+- a one-line summary from inside the cluster (nodes, failing pods, unavailable deployments)
+- a link that opens the cluster in Headlamp's own views
+
+With more than one tenant it adds a tenant rollup and the spread of Kubernetes versions.
+
+**Cluster page:**
+
+- summary: tenant, versions, upgrade, class, OS, VM and storage class, API endpoint, pod and service networks
+- inside the cluster: problem pods, deployments not fully available, warnings from the last hour
+- node pools, including autoscaling limits
+- machines
+- add-ons
+- conditions
+- Supervisor events for the cluster and its machines
+- the raw Cluster object
+
+## Seeing inside a cluster
+
+Headlamp's own features (workloads, logs, shell, events, YAML editing, map) work on any cluster Headlamp can reach. The plugin doesn't copy them. It links to them, and it reads a small health summary through the same connection.
+
+To give Headlamp a VKS cluster, sign in to it with your own account on the machine running Headlamp:
+
+```bash
+kubectl vsphere login --server=<supervisor> --vsphere-username <you@domain> \
+  --insecure-skip-tls-verify \
+  --tanzu-kubernetes-cluster-namespace <namespace> \
+  --tanzu-kubernetes-cluster-name <cluster>
+docker restart headlamp   # container setup: reload the kubeconfig
+```
+
+The plugin matches that context to the fleet row by the cluster's API endpoint, so names don't need to be unique. Everything inside the cluster is read with the signed-in user's own permissions.
+
+The admin kubeconfig secrets on the Supervisor are deliberately not used. They would give every viewer cluster-admin and bypass tenant isolation.
+
+**Tenant names:** VCFA labels namespaces with organization IDs only, so the fleet shows a shortened ID until you name it. Add names under Settings → Plugins → vks-fleet → Tenant names, one per line as `<ID> = <name>`. Grouping always uses the ID, so adding or changing a name never regroups clusters.
+
 ## Build with GitHub Actions (no local npm needed)
 
 `.github/workflows/build.yml` scaffolds, type-checks and builds the plugin on GitHub's runners:
@@ -53,13 +96,25 @@ In Headlamp, add the Supervisor as a cluster (the kubeconfig context your VCF CL
 
 ## What it reads
 
-All reads target the Supervisor only:
+**On the Supervisor** (the configured Headlamp cluster):
 
-- `cluster.x-k8s.io/v1beta1` Clusters and MachineDeployments
-- `controlplane.cluster.x-k8s.io/v1beta1` KubeadmControlPlanes
-- Namespaces (only when a tenant label key is set)
+- `cluster.x-k8s.io/v1beta1`: Clusters, MachineDeployments, Machines
+- `controlplane.cluster.x-k8s.io/v1beta1`: KubeadmControlPlanes
+- Kubernetes releases (`tanzukubernetesreleases`, or `kubernetesreleases`), for upgrade availability
+- Namespaces, for tenant labels
+- On the cluster page only: the ClusterBootstrap (add-ons) and the namespace's events
 
-Each list tries cluster-wide first. On a 403 it falls back to the configured namespaces. A denied namespace, a missing MachineDeployment list or unreadable labels become warnings, and the rest of the view still renders. A 401 (expired token) marks that Supervisor as failed without logging the user out of anything else.
+Each list tries cluster-wide first. On a 403 it falls back to the configured namespaces. Anything optional that fails becomes a warning, and the rest of the view still renders. A 401 (expired token) marks that Supervisor as failed without logging the user out of anything else.
+
+**Inside a workload cluster** (only through a context the user signed in with), all read-only:
+
+- `/version`
+- nodes
+- pods (up to 1000)
+- deployments
+- Warning events
+
+The context list itself comes from Headlamp's `/config` endpoint.
 
 ## Code layout
 
@@ -67,23 +122,27 @@ Views never touch raw CAPI objects or Headlamp's API directly.
 
 ```
 src/
-  types.ts              Config and the normalized FleetCluster model; clusterKey()
-  config.ts             Settings normalization = the Supervisor registry
-  api/client.ts         SupervisorClient interface (GET a path on one Supervisor)
-  api/headlampClient.ts The only ApiProxy call in the plugin
+  types.ts              Config, FleetCluster and WorkloadHealth models; clusterKey()
+  config.ts             Settings normalization = the Supervisor registry; tenant names
+  api/client.ts         SupervisorClient interface (GET a path on one cluster)
+  api/headlampClient.ts The only ApiProxy calls in the plugin (cluster requests, /config)
   api/scopedList.ts     Cluster-wide list with per-namespace fallback on 403
-  capi/v1beta1.ts       CAPI v1beta1 → FleetCluster (health, upgrade, replicas)
-  tenancy.ts            Namespace → tenant resolver (swappable)
+  capi/v1beta1.ts       CAPI v1beta1 → FleetCluster (health, issues, pools, machines, network)
+  tenancy.ts            Namespace → tenant ID, and ID → display name
+  releases.ts           Kubernetes releases and upgrade detection
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
+  contexts.ts           Match fleet clusters to Headlamp contexts by API endpoint
+  workload.ts           Health from inside a workload cluster
+  extras.ts             Cluster-page extras: add-ons, events, raw object
   summary.ts            Totals, tenant rollups, version spread
-  useFleet.ts           Polling hook
+  useFleet.ts, useWorkload.ts, useClusterExtras.ts   Polling hooks
   routes.ts             URLs built from supervisor/namespace/name
   settings/             ConfigStore wrapper and settings form
   components/           FleetView, ClusterDetail, shared bits
   index.tsx             Sidebar, routes, settings registration
 ```
 
-Everything above `useFleet.ts` except `api/headlampClient.ts` is plain TypeScript with no Headlamp import, so it can be unit-tested with a fake `SupervisorClient`, or reused later by a server-side aggregator.
+Everything except the hooks, `api/headlampClient.ts`, `settings/` and `components/` is plain TypeScript with no Headlamp import, so it can be unit-tested with a fake `SupervisorClient`, or reused later by a server-side aggregator.
 
 ## Extending to multiple Supervisors
 
@@ -107,17 +166,21 @@ Add `capi/v1beta2.ts` that produces the same `FleetCluster` model, and choose be
 
 ## Verify first
 
-I couldn't compile this against Headlamp's real types in the environment where it was written. The pure logic was type-checked and exercised against fake operator, tenant and expired-token Supervisors. The Headlamp-specific pieces to confirm on your release are:
+These Headlamp and VKS details were checked in CI or against a real Supervisor:
 
-- `ApiProxy.request(path, { cluster }, false)` in `api/headlampClient.ts`
-- `ConfigStore(...).useConfig()` in `settings/store.ts`
-- The `sidebar: 'HOME'` and `useClusterURL: false` options in `index.tsx`
-- The `SectionBox` `headerProps.actions`, `SimpleTable`, `StatusLabel` and `NameValueTable` props used in `components/`
+- `ApiProxy.request`, `ConfigStore`, route and sidebar registration, and the common components (v0.1.x builds)
+- `noAuthRequired` on the home routes (without it the page stays blank)
+- VCFA's `vmware-system-vcf/organization-id` namespace label, and the CAPI and VKS resource names
 
-`npm run tsc` will flag any mismatch.
+New in v0.2.0 and still to confirm on a live system:
 
-## Known limits (phase 1)
+- that Headlamp's `/config` response includes each cluster's `server` (if not, contexts are matched by cluster name, when the name is unique in the fleet)
+- the release objects' version field (`spec.version`)
+- the ClusterBootstrap package fields (`spec.cni.refName` and similar)
 
-- The Supervisor token comes from the kubeconfig and expires. An in-cluster, multi-user deployment needs an OIDC flow; that's deliberately kept out of the plugin code.
-- Workload-level rollups (pods, deployments) need the Layer 2 aggregator and are not included.
-- Upgrade detection compares the topology version with the control plane and MachineDeployment versions, and reads the `TopologyReconciled` condition's `UpgradePending` reasons.
+## Known limits
+
+- **CAPI version:** the plugin reads `cluster.x-k8s.io/v1beta1`. Current Supervisors prefer v1beta2 but still serve v1beta1. A v1beta2 translator can be added next to `capi/v1beta1.ts`.
+- **Upgrade availability:** read from `tanzukubernetesreleases` (falling back to `kubernetesreleases`), skipping releases marked not ready or incompatible. The next minor version is preferred, since VKS upgrades one minor at a time.
+- **Inside-cluster checks:** these fan out from the browser, at half the fleet refresh rate. Fine for tens of clusters; a larger fleet should use the server-side aggregator. Pod checks read at most 1000 pods per cluster.
+- **Tokens expire:** tokens from `kubectl vsphere login` last about a working day. Expired ones show as "Sign-in expired".

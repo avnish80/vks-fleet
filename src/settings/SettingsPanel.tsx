@@ -1,6 +1,14 @@
 import { Box, TextField, Typography } from '@mui/material';
 import React from 'react';
-import { DEFAULT_REFRESH_SECONDS, isValidSupervisorId, MIN_REFRESH_SECONDS, parseNamespaces } from '../config';
+import {
+  DEFAULT_REFRESH_SECONDS,
+  DEFAULT_TENANT_LABEL,
+  formatTenantNames,
+  isValidSupervisorId,
+  MIN_REFRESH_SECONDS,
+  parseNamespaces,
+  parseTenantNames,
+} from '../config';
 import { SupervisorConfig } from '../types';
 import { settingsStore, useRawSettings } from './store';
 
@@ -14,6 +22,7 @@ export function SettingsPanel() {
 
   // Kept as text while editing so typing commas and spaces isn't fought by parsing.
   const [namespacesText, setNamespacesText] = React.useState((current.namespaces ?? []).join(', '));
+  const [namesText, setNamesText] = React.useState(formatTenantNames(current.tenantNames));
 
   function saveSupervisor(patch: Partial<SupervisorConfig>) {
     const next = { ...current, ...patch } as SupervisorConfig;
@@ -66,9 +75,21 @@ export function SettingsPanel() {
       />
       <TextField
         label="Tenant label key"
-        helperText="Namespace label whose value names the tenant. Leave empty to treat each namespace as its own tenant."
-        value={current.tenantLabelKey ?? ''}
+        helperText={`Namespace label whose value identifies the tenant. VCFA sets ${DEFAULT_TENANT_LABEL}. Clear it to treat each namespace as its own tenant.`}
+        value={current.tenantLabelKey ?? DEFAULT_TENANT_LABEL}
         onChange={e => saveSupervisor({ tenantLabelKey: e.target.value.trim() })}
+      />
+      <TextField
+        label="Tenant names"
+        multiline
+        minRows={3}
+        placeholder={'81bc9f2a-8e16-46e0-b7e2-3e94bf215fc1 = org1\n6b9e01e4-8214-4c8a-9378-eae07e9e5dde = org2'}
+        helperText="One per line: tenant ID = name. The fleet view shows each unnamed tenant's ID so you can copy it here."
+        value={namesText}
+        onChange={e => {
+          setNamesText(e.target.value);
+          saveSupervisor({ tenantNames: parseTenantNames(e.target.value) });
+        }}
       />
       <TextField
         label="Refresh every (seconds)"

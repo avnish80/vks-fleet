@@ -1,6 +1,7 @@
 import { describeError, SupervisorClient } from './api/client';
 import { ListResult, scopedList } from './api/scopedList';
 import { KubeObject, PATHS, toFleetClusters } from './capi/v1beta1';
+import { fetchReleaseVersions, findUpgrade } from './releases';
 import { labelTenantResolver, readNamespaces } from './tenancy';
 import { SupervisorConfig, SupervisorResult } from './types';
 
@@ -10,14 +11,15 @@ import { SupervisorConfig, SupervisorResult } from './types';
  */
 export async function fetchSupervisor(
   supervisor: SupervisorConfig,
-  client: SupervisorClient
+  client: SupervisorClient,
+  now: Date = new Date()
 ): Promise<SupervisorResult> {
-  const fetchedAt = new Date().toISOString();
+  const fetchedAt = now.toISOString();
   const warnings: string[] = [];
   const list = (p: { prefix: string; plural: string }, namespaces: string[]) =>
     scopedList<KubeObject>(client, p.prefix, p.plural, namespaces);
 
-let clusters: ListResult<KubeObject>;
+  let clusters: ListResult<KubeObject>;
   try {
     clusters = await list(PATHS.clusters, supervisor.namespaces);
   } catch (err) {
@@ -25,42 +27,56 @@ let clusters: ListResult<KubeObject>;
   }
   warnings.push(...clusters.warnings);
 
-  // Machine deployments and control planes enrich the view; missing them is a
-  // warning, not a failure. When clusters came from a namespaced read, only
-  // revisit the namespaces that worked so a denied namespace is reported once.
+  // Everything else enriches the view; missing it is a warning, not a failure.
+  // When clusters came from a namespaced read, only revisit the namespaces
+  // that worked so a denied namespace is reported once.
   const rest = clusters.scope === 'namespaced' ? clusters.readableNamespaces : supervisor.namespaces;
-  const [mds, kcps] = await Promise.allSettled([
+  const [mds, kcps, machines, releases] = await Promise.allSettled([
     list(PATHS.machineDeployments, rest),
     list(PATHS.controlPlanes, rest),
+    list(PATHS.machines, rest),
+    fetchReleaseVersions(client),
   ]);
-  const machineDeployments = mds.status === 'fulfilled' ? mds.value.items : [];
-  const controlPlanes = kcps.status === 'fulfilled' ? kcps.value.items : [];
-  if (mds.status === 'rejected') {
-    warnings.push(`Worker node counts unavailable: ${describeError(mds.reason)}`);
-  } else {
-    warnings.push(...mds.value.warnings);
-  }
-  if (kcps.status === 'rejected') {
-    warnings.push(`Control plane details unavailable: ${describeError(kcps.reason)}`);
-  } else {
-    warnings.push(...kcps.value.warnings);
+
+  const optional = <T>(
+    r: PromiseSettledResult<ListResult<T>>,
+    what: string
+  ): T[] => {
+    if (r.status === 'rejected') {
+      warnings.push(`${what} unavailable: ${describeError(r.reason)}`);
+      return [];
+    }
+    warnings.push(...r.value.warnings);
+    return r.value.items;
+  };
+  const machineDeployments = optional(mds, 'Node pool details');
+  const controlPlanes = optional(kcps, 'Control plane details');
+  const machineObjects = optional(machines, 'Machine details');
+
+  let versions: string[] = [];
+  if (releases.status === 'fulfilled') {
+    versions = releases.value.versions;
+    if (releases.value.warning) warnings.push(releases.value.warning);
   }
 
-  let tenantOf = labelTenantResolver('', []);
+  let tenantOf = labelTenantResolver('', [], supervisor.tenantNames);
   if (supervisor.tenantLabelKey) {
     const names = Array.from(new Set(clusters.items.map(c => c.metadata.namespace ?? '').filter(Boolean)));
     const ns = await readNamespaces(client, names);
     warnings.push(...ns.warnings);
-    tenantOf = labelTenantResolver(supervisor.tenantLabelKey, ns.namespaces);
+    tenantOf = labelTenantResolver(supervisor.tenantLabelKey, ns.namespaces, supervisor.tenantNames);
   }
+
+  const fleet = toFleetClusters(
+    { clusters: clusters.items, machineDeployments, controlPlanes, machines: machineObjects },
+    supervisor.id,
+    tenantOf,
+    now
+  ).map(c => ({ ...c, availableUpgrade: findUpgrade(c.kubernetesVersion, versions) }));
 
   return {
     supervisor,
-    clusters: toFleetClusters(
-      { clusters: clusters.items, machineDeployments, controlPlanes },
-      supervisor.id,
-      tenantOf
-    ),
+    clusters: fleet,
     scope: clusters.scope,
     warnings: Array.from(new Set(warnings)),
     fetchedAt,

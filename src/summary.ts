@@ -10,45 +10,54 @@ export interface FleetTotals {
   healthy: number;
   attention: number;
   upgrading: number;
+  upgradable: number;
 }
 
 export function fleetTotals(clusters: FleetCluster[]): FleetTotals {
   return {
     clusters: clusters.length,
-    tenants: new Set(clusters.map(c => c.tenant)).size,
+    tenants: new Set(clusters.map(c => c.tenantId)).size,
     healthy: clusters.filter(c => c.health === 'healthy').length,
     attention: clusters.filter(needsAttention).length,
     upgrading: clusters.filter(c => c.upgrading).length,
+    upgradable: clusters.filter(c => !!c.availableUpgrade && !c.upgrading).length,
   };
 }
 
 export interface TenantRollup {
-  tenant: string;
+  tenantId: string;
+  tenantName: string;
+  tenantNamed: boolean;
   clusters: number;
   attention: number;
   upgrading: number;
+  upgradable: number;
   versions: string[];
   supervisorIds: string[];
   /** True if any namespace in this tenant fell back to "namespace as tenant". */
   unmapped: boolean;
 }
 
+/** Groups by tenant ID (never by display name), sorted with the most attention first. */
 export function rollupByTenant(clusters: FleetCluster[]): TenantRollup[] {
   const groups = new Map<string, FleetCluster[]>();
   for (const c of clusters) {
-    groups.set(c.tenant, [...(groups.get(c.tenant) ?? []), c]);
+    groups.set(c.tenantId, [...(groups.get(c.tenantId) ?? []), c]);
   }
   return Array.from(groups.entries())
-    .map(([tenant, cs]) => ({
-      tenant,
+    .map(([tenantId, cs]) => ({
+      tenantId,
+      tenantName: cs[0].tenantName,
+      tenantNamed: cs[0].tenantNamed,
       clusters: cs.length,
       attention: cs.filter(needsAttention).length,
       upgrading: cs.filter(c => c.upgrading).length,
+      upgradable: cs.filter(c => !!c.availableUpgrade && !c.upgrading).length,
       versions: uniqueSorted(cs.map(c => c.kubernetesVersion ?? 'unknown')),
       supervisorIds: uniqueSorted(cs.map(c => c.supervisorId)),
       unmapped: cs.some(c => !c.tenantMapped),
     }))
-    .sort((a, b) => b.attention - a.attention || a.tenant.localeCompare(b.tenant));
+    .sort((a, b) => b.attention - a.attention || a.tenantName.localeCompare(b.tenantName));
 }
 
 export function versionSpread(clusters: FleetCluster[]): Array<{ version: string; count: number }> {

@@ -11,7 +11,10 @@ import { CLUSTER_PATH, FLEET_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
-// routes are not prefixed with /c/<cluster>.
+// routes are not prefixed with /c/<cluster>. noAuthRequired: Headlamp's route
+// auth check is per selected cluster, and these pages have none selected (the
+// check would never finish and the page would stay blank). The plugin does its
+// own per-Supervisor requests and shows auth failures in the view instead.
 const SIDEBAR = { item: 'vks-fleet', sidebar: 'HOME' };
 
 registerSidebarEntry({
