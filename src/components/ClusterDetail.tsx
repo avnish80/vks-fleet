@@ -7,7 +7,7 @@ import {
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Button, Typography } from '@mui/material';
 import React from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { pausePlan, replacePlan, upgradeProgress } from '../actions';
 import { headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
@@ -15,6 +15,7 @@ import { serverHost } from '../contexts';
 import { AddonInfo } from '../extras';
 import { scorecard } from '../checks';
 import { buildIssues } from '../issues';
+import { clusterTimeline } from '../timeline';
 import { formatBytes } from '../quantity';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import { usePluginConfig } from '../settings/store';
@@ -37,7 +38,9 @@ import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog, ScaleDialog, TimeoutDialog, UpgradeDialog } from './ActionDialog';
 import { BarList, ChartStyles } from './charts';
+import { AnatomyDiagram } from './Anatomy';
 import { ChecksPanel } from './ChecksPanel';
+import { ClusterTimeline } from './Timeline';
 import { IssuesList } from './IssuesList';
 import {
   capacityText,
@@ -57,6 +60,9 @@ type OpenAction =
   | { kind: 'replace'; machine: MachineInfo };
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
+
+/** Highlight for a row reached through a deep link. */
+const FOCUSED = { bgcolor: 'action.selected', borderRadius: 1, px: 0.75, mx: -0.75, fontWeight: 600 };
 
 function conditionStatus(c: ClusterCondition): LabelStatus {
   if (c.status === 'True') return 'success';
@@ -255,12 +261,47 @@ export function ClusterDetail() {
   );
   const [action, setAction] = React.useState<OpenAction | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+
+
   const key = clusterKey(params.supervisor, params.namespace, params.name);
   const cluster = results?.flatMap(r => r.clusters).find(c => c.key === key);
 
   const single = React.useMemo(() => (cluster ? [cluster] : []), [cluster]);
   const workload = useWorkloadHealth(single, config.refreshSeconds);
   const extras = useClusterExtras(supervisor, params.namespace, params.name, config.refreshSeconds);
+
+  // Deep links from issues: ?focus=<row>&action=<dialog>&pool=<pool>#<section>
+  const location = useLocation();
+  const handled = React.useRef('');
+  const focus = new URLSearchParams(location.search).get('focus') ?? undefined;
+  React.useEffect(() => {
+    if (!cluster) return;
+    const key = `${location.search}${location.hash}`;
+    if (!key || handled.current === key) return;
+    handled.current = key;
+    const q = new URLSearchParams(location.search);
+    const act = q.get('action');
+    const poolName = q.get('pool');
+    const pool = poolName ? cluster.nodePools.find(p => p.name === poolName) : undefined;
+    if (act === 'upgrade') setAction({ kind: 'upgrade' });
+    else if (act === 'resume' && cluster.paused) setAction({ kind: 'resume' });
+    else if (act === 'pause' && !cluster.paused) setAction({ kind: 'pause' });
+    else if (act === 'timeouts' && pool) setAction({ kind: 'timeouts', pool });
+    else if (act === 'scale' && pool) setAction({ kind: 'scale', pool });
+    const timer = window.setTimeout(() => {
+      const row = q.get('focus') ? document.getElementById(`row-${q.get('focus')}`) : null;
+      const anchor = location.hash ? document.getElementById(location.hash.slice(1)) : null;
+      const scrollTo = row ?? anchor;
+      scrollTo?.scrollIntoView({ behavior: 'smooth', block: row ? 'center' : 'start' });
+      const flash = row ?? (anchor?.nextElementSibling as HTMLElement | null);
+      if (flash) {
+        flash.classList.remove('vksfleet-flash');
+        void flash.offsetWidth;
+        flash.classList.add('vksfleet-flash');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [cluster?.key, location.search, location.hash]);
 
   const back = (
     <Box sx={{ mb: 2 }}>
@@ -344,6 +385,8 @@ export function ClusterDetail() {
 
   return (
     <>
+      <ChartStyles />
+      <Box id="summary" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title={cluster.name} headerProps={{ actions: actionButtons }}>
         {back}
         {notice && (
@@ -409,7 +452,14 @@ export function ClusterDetail() {
             },
             { name: 'Pod network', value: cluster.network?.pods.join(', ') || '—' },
             { name: 'Service network', value: cluster.network?.services.join(', ') || '—' },
-            { name: 'Certificates expire', value: certText(cluster) },
+            {
+              name: 'Certificates expire',
+              value: (
+                <Box id="row-certificates" sx={focus === 'certificates' ? FOCUSED : undefined}>
+                  {certText(cluster)}
+                </Box>
+              ),
+            },
             { name: 'Automatic node repair', value: repairText(cluster) },
             {
               name: 'Node capacity',
@@ -424,6 +474,11 @@ export function ClusterDetail() {
             { name: 'Created', value: when(cluster.createdAt) },
           ]}
         />
+      </SectionBox>
+
+      <Box id="anatomy" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Anatomy">
+        <AnatomyDiagram cluster={cluster} />
       </SectionBox>
 
       {rolling && progress && (
@@ -451,17 +506,26 @@ export function ClusterDetail() {
         <ChecksPanel card={card} />
       </Box>
 
+      <Box id="inside" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Inside the cluster">
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
       </SectionBox>
 
+      <Box id="node-pools" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Node pools">
         {cluster.nodePools.length === 0 ? (
           <Typography>No node pools reported.</Typography>
         ) : (
           <SimpleTable
             columns={[
-              { label: 'Pool', getter: (p: NodePool) => p.name },
+              {
+                label: 'Pool',
+                getter: (p: NodePool) => (
+                  <Box id={`row-${p.name}`} sx={focus === p.name ? FOCUSED : undefined}>
+                    {p.name}
+                  </Box>
+                ),
+              },
               { label: 'Ready', getter: (p: NodePool) => poolSize(p) },
               { label: 'VM class', getter: (p: NodePool) => p.vmClass ?? '—' },
               { label: 'Storage class', getter: (p: NodePool) => p.storageClass ?? '—' },
@@ -498,6 +562,7 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      <Box id="machines" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Machines">
         {cluster.machines.length === 0 ? (
           <Typography>No machines reported.</Typography>
@@ -506,7 +571,11 @@ export function ClusterDetail() {
             columns={[
               {
                 label: 'Node',
-                getter: (m: MachineInfo) => <Link to={machinePath(cluster, m.name)}>{m.nodeName ?? m.name}</Link>,
+                getter: (m: MachineInfo) => (
+                  <Box id={`row-${m.name}`} sx={focus === m.name ? FOCUSED : undefined}>
+                    <Link to={machinePath(cluster, m.name)}>{m.nodeName ?? m.name}</Link>
+                  </Box>
+                ),
               },
               {
                 label: 'Role',
@@ -580,6 +649,7 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      <Box id="quota" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Namespace quota">
         {!cluster.quota || cluster.quota.length === 0 ? (
           <Typography>No quota is set on namespace {cluster.namespace}, or it isn't readable.</Typography>
@@ -606,6 +676,7 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      <Box id="troubleshoot" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Troubleshoot">
         <Box component="ul" sx={{ m: 0, pl: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
           <li>
@@ -631,6 +702,7 @@ export function ClusterDetail() {
         </Box>
       </SectionBox>
 
+      <Box id="addons" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Add-ons">
         {addons.length === 0 ? (
           <Typography>{extras ? 'No add-ons reported.' : 'Loading…'}</Typography>
@@ -645,6 +717,7 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      <Box id="conditions" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Conditions">
         {cluster.conditions.length === 0 ? (
           <Typography>The Supervisor hasn't reported any conditions for this cluster yet.</Typography>
@@ -665,6 +738,7 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      <Box id="events" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Supervisor events">
         {extras?.warnings.length ? (
           <Typography variant="body2" sx={{ mb: 1 }}>
@@ -717,6 +791,15 @@ export function ClusterDetail() {
           onApplied={applied}
         />
       )}
+
+      <Box id="timeline" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Timeline">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Rebuilt from what the Supervisor records: creation, nodes added and deleted, condition changes, actions taken
+          through this plugin, and recent Supervisor events.
+        </Typography>
+        <ClusterTimeline entries={clusterTimeline(cluster, extras?.events ?? [])} cluster={cluster} />
+      </SectionBox>
 
       {extras?.raw !== undefined && (
         <SectionBox title="Cluster object">

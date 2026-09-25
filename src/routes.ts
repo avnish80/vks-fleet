@@ -39,3 +39,26 @@ export function headlampNodePath(contextName: string, nodeName: string): string 
 export function headlampPodPath(contextName: string, namespace: string, name: string): string {
   return `/c/${encodeURIComponent(contextName)}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 }
+
+export interface DeepLink {
+  /** Section of the cluster page to scroll to (its element id). */
+  hash?: string;
+  /** Row to highlight (a machine or pool name). */
+  focus?: string;
+  /** Dialog to open on arrival. */
+  action?: 'upgrade' | 'pause' | 'resume' | 'timeouts' | 'scale';
+  pool?: string;
+}
+
+/** A cluster page link that scrolls to a section, highlights a row, or opens an action. */
+export function clusterDeepLink(
+  c: { supervisorId: string; namespace: string; name: string },
+  link: DeepLink
+): string {
+  const q = new URLSearchParams();
+  if (link.focus) q.set('focus', link.focus);
+  if (link.action) q.set('action', link.action);
+  if (link.pool) q.set('pool', link.pool);
+  const query = q.toString();
+  return `${clusterPath(c)}${query ? `?${query}` : ''}${link.hash ? `#${link.hash}` : ''}`;
+}

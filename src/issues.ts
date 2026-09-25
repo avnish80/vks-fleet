@@ -7,7 +7,7 @@
  */
 import { formatDuration, STUCK_AFTER_MS } from './capi/v1beta1';
 import { fleetFindings } from './findings';
-import { clusterPath, headlampNodePath, machinePath } from './routes';
+import { clusterDeepLink, clusterPath, headlampNodePath, machinePath } from './routes';
 import { FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
 import { isPlatformNamespace } from './workload';
 
@@ -66,6 +66,9 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     issue.affected.nodes = [s.node];
     issue.affected.pods = pods.map(p => `${p.namespace}/${p.name}`);
     if (machine) issue.links.push({ label: `Machine ${machine.nodeName ?? machine.name}`, path: machinePath(c, machine.name) });
+    issue.primary = machine
+      ? { label: `Machine ${machine.nodeName ?? machine.name}`, path: machinePath(c, machine.name) }
+      : { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) };
     if (wl?.contextName) issue.links.push({ label: 'Node in Headlamp', path: headlampNodePath(wl.contextName, s.node) });
     out.push(issue);
   }
@@ -96,6 +99,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     issue.affected.nodes = [label];
     issue.affected.pods = podsHere.map(p => `${p.namespace}/${p.name}`);
     issue.links.unshift({ label: `Machine ${label}`, path: machinePath(c, m.name) });
+    issue.primary = { label: `Machine ${label}`, path: machinePath(c, m.name) };
     issue.findingIds = mine
       .filter(f => (/#issue-/.test(f.id) && f.title.includes(label)) || /#mhc-repairing$/.test(f.id))
       .map(f => f.id);
@@ -116,6 +120,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     if (notReady.length) issue.evidence.push(`Not ready: ${notReady.join(', ')}.`);
     issue.affected.nodes = notReady;
     issue.findingIds = [blockedRepair.id];
+    issue.primary = { label: 'Machines', path: clusterDeepLink(c, { hash: 'machines' }) };
     out.push(issue);
   }
 
@@ -126,6 +131,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       title: `Can't reach the API of ${c.name}`,
       cause: wl.error ?? 'Requests to the cluster time out or fail.',
       fix: "Check the control-plane VM and the cluster's load balancer IP. The Supervisor view still shows its machines.",
+      primary: { label: 'Machines', path: clusterDeepLink(c, { hash: 'machines' }) },
     });
   } else if (wl?.status === 'expired') {
     out.push({
@@ -133,6 +139,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       title: `Sign-in to ${c.name} has expired`,
       cause: 'The token from kubectl vsphere login has run out.',
       fix: 'Log in again on the machine running Headlamp and reload its kubeconfig.',
+      primary: { label: 'Sign-in command', path: clusterDeepLink(c, { hash: 'inside' }) },
     });
   }
 
@@ -151,6 +158,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       issue.evidence.push(`Deployments not fully available: ${wl.deploymentIssues.map(d => `${d.namespace}/${d.name}`).slice(0, 5).join(', ')}.`);
     }
     issue.affected.pods = unexplained.map(p => `${p.namespace}/${p.name}`);
+    issue.primary = { label: 'Pods with problems', path: clusterDeepLink(c, { hash: 'inside' }) };
     out.push(issue);
   }
   return out;
@@ -173,7 +181,8 @@ function serviceIssue(r: SupervisorResult, f: Finding, now: Date): Issue {
       pods: [],
     },
     fix: f.fix,
-    links: [],
+    primary: f.target ? { label: 'Open the service pods', path: f.target } : undefined,
+    links: f.target ? [{ label: 'Service pods in Headlamp', path: f.target }] : [],
     findingIds: [f.id],
     detectedAt: now.toISOString(),
   };
@@ -194,7 +203,8 @@ function passthrough(f: Finding, clusters: Map<string, FleetCluster>, now: Date)
     evidence: [],
     affected: { clusters: c ? [c.name] : [], tenants: f.tenantName ? [f.tenantName] : [], nodes: [], pods: [] },
     fix: f.fix,
-    links: c ? [{ label: `Open ${c.name}`, path: clusterPath(c) }] : [],
+    primary: f.target ? { label: 'Go to it', path: f.target } : undefined,
+    links: c ? [{ label: `Open ${c.name}`, path: clusterPath(c) }] : f.target ? [{ label: 'Open', path: f.target }] : [],
     findingIds: [f.id],
     detectedAt: now.toISOString(),
   };

@@ -3,6 +3,7 @@
  * language. Pure rules over the fleet model, so the same engine can run in a
  * future server-side aggregator.
  */
+import { clusterDeepLink, DeepLink, headlampPodsPath, machinePath } from './routes';
 import { FleetCluster, Finding, ServiceHealth, Severity, SupervisorResult } from './types';
 
 /** "10s", "5m0s", "1h" → seconds. */
@@ -20,8 +21,41 @@ export const QUOTA_CRITICAL = 0.95;
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
+/** Where each kind of cluster finding points on the cluster page. */
+function targetFor(c: FleetCluster, id: string): string | undefined {
+  const at = (link: DeepLink) => clusterDeepLink(c, link);
+  const machineLabel = (label: string) => c.machines.find(m => m.nodeName === label || m.name === label);
+  if (id.startsWith('vm-off-')) return machinePath(c, id.slice('vm-off-'.length));
+  if (id.startsWith('timeouts-')) return at({ hash: 'node-pools', focus: id.slice('timeouts-'.length), action: 'timeouts', pool: id.slice('timeouts-'.length) });
+  if (id.startsWith('issue-')) {
+    const text = c.issues[Number(id.slice('issue-'.length))] ?? '';
+    const m = /Machine (\S+)/.exec(text);
+    const machine = m ? machineLabel(m[1]) : undefined;
+    return machine ? machinePath(c, machine.name) : at({ hash: 'machines' });
+  }
+  switch (id) {
+    case 'mhc-blocked':
+    case 'mhc-repairing':
+    case 'single-cp':
+    case 'one-zone':
+      return at({ hash: 'machines' });
+    case 'certs':
+      return at({ hash: 'summary', focus: 'certificates' });
+    case 'paused':
+      return at({ hash: 'summary', action: 'resume' });
+    case 'behind':
+    case 'upgrade':
+    case 'class':
+      return at({ hash: 'summary', action: 'upgrade' });
+    case 'unhealthy':
+      return at({ hash: 'conditions' });
+  }
+  return at({});
+}
+
 function f(c: FleetCluster, id: string, severity: Severity, title: string, fix: string, detail?: string): Finding {
   return {
+    target: targetFor(c, id),
     id: `${c.key}#${id}`,
     severity,
     scope: 'cluster',
@@ -262,6 +296,7 @@ export function namespaceFindings(c: FleetCluster): Finding[] {
     if (q.ratio === undefined || q.ratio < QUOTA_WARNING) continue;
     out.push({
       id: `${c.supervisorId}/${c.namespace}#quota-${q.resource}`,
+      target: clusterDeepLink(c, { hash: 'quota' }),
       severity: q.ratio >= QUOTA_CRITICAL ? 'critical' : 'warning',
       scope: 'namespace',
       supervisorId: c.supervisorId,
@@ -274,7 +309,7 @@ export function namespaceFindings(c: FleetCluster): Finding[] {
   return out;
 }
 
-export function serviceFindings(supervisorId: string, services: ServiceHealth[]): Finding[] {
+export function serviceFindings(supervisorId: string, services: ServiceHealth[], headlampCluster?: string): Finding[] {
   const leftovers = services.filter(s => s.leftovers > 0);
   const cleanup: Finding[] = leftovers.length
     ? [
@@ -285,6 +320,7 @@ export function serviceFindings(supervisorId: string, services: ServiceHealth[])
           supervisorId,
           title: `${leftovers.reduce((n, s) => n + s.leftovers, 0)} old failed pods left behind in Supervisor services`,
           detail: leftovers.map(s => `${s.name}: ${s.leftovers}`).join('; '),
+          target: headlampCluster ? headlampPodsPath(headlampCluster, leftovers[0].namespace) : undefined,
           fix: 'They were already replaced by running pods, so they are safe to delete, e.g. kubectl delete pod -n <namespace> --field-selector=status.phase=Failed.',
         },
       ]
@@ -297,6 +333,7 @@ export function serviceFindings(supervisorId: string, services: ServiceHealth[])
       scope: 'supervisor' as const,
       supervisorId,
       namespace: s.namespace,
+      target: headlampCluster ? headlampPodsPath(headlampCluster, s.namespace) : undefined,
       title: `Supervisor service ${s.name} has ${s.problems.length} pod${s.problems.length === 1 ? '' : 's'} with problems`,
       detail: s.problems
         .slice(0, 3)
@@ -319,7 +356,7 @@ export function fleetFindings(results: SupervisorResult[], now: Date = new Date(
       seenNamespaces.add(k);
       return namespaceFindings(c);
     }),
-    ...results.flatMap(r => serviceFindings(r.supervisor.id, r.services ?? [])),
+    ...results.flatMap(r => serviceFindings(r.supervisor.id, r.services ?? [], r.supervisor.headlampCluster)),
   ];
   return all.sort(
     (a, b) => RANK[a.severity] - RANK[b.severity] || (a.clusterName ?? '').localeCompare(b.clusterName ?? '')

@@ -32,6 +32,15 @@ The charts are plain SVG and CSS coloured from Headlamp's theme: no chart librar
 
 Findings that no rule explains are shown as their own issue, so nothing is hidden.
 
+**Every issue is clickable.** Its title and **Go to** button open the exact place:
+
+- the machine's page, for stuck, powered-off or failing nodes
+- the cluster page scrolled to the right section, with the row highlighted: the node pool with leftover timeouts, the certificate line, the machines, the quota
+- the right dialog already open: Upgrade for version and class issues, Resume for a paused cluster, Timeouts for a pool
+- the service's pods in Headlamp, for Supervisor services
+
+Cluster page links take `?focus=<row>&action=<dialog>&pool=<pool>#<section>`, so they can also be shared.
+
 **Checks:** a best-practice scorecard per cluster (0 to 100; a warning counts half; checks that need a sign-in don't count until they can run).
 
 - Resilience: control plane of 3, zone spread, pools of 2 or more, node repair configured, PodDisruptionBudgets on replicated workloads
@@ -73,6 +82,10 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 - when signed in to the cluster: the node (ready, cordoned, pressure, taints, capacity) and every pod on it, flagging pods a PodDisruptionBudget blocks from draining and pods **pinned** to the node (a hostname selector or affinity, or recreated on it after the drain started, which usually means `nodeName` in the owner's template), with links to the node and pods in Headlamp
 - machine conditions (including the detailed newer form), events and the raw object
 - actions: Replace, or Unblock deletion when it's stuck, and the pool's timeouts
+
+**Anatomy** (cluster page): a diagram of the cluster's VKS layers: tenant namespace, cluster (version, class, API endpoint), control plane and node pools (readiness, VM class, timeouts), and every machine with its VM (power, IP, zone, class). Coloured by health; deleting machines are dashed with how long; click a machine to open it or a pool to jump to its row. Machine and pool names drop the repeated cluster prefix (`np-1-7d8jrvmbxh`); the full name is in the tooltip.
+
+**Timeline:** rebuilt from what the Supervisor records (creation, nodes added and deleting, condition changes, plugin actions, Supervisor events) with no storage needed. The cluster page lists it by day; the overview shows the last 7 days as one lane per cluster, with every dot clickable.
 
 **Cluster page:**
 
@@ -216,6 +229,7 @@ src/
   findings.ts           Findings rules: severity, what's wrong, what to do
   issues.ts             Issues: findings and signals folded into causes; Copy diagnosis
   checks.ts             Best-practice scorecard per cluster
+  timeline.ts           History rebuilt from timestamps
   actions.ts            Action plans: checks, confirmations and the exact writes
   machine.ts            Machine page data: machine, VM, events; node, pods, drain blockers, pinned pods
   overview.ts           Numbers behind the overview tiles and charts

@@ -16,6 +16,8 @@ import { clusterPath } from '../routes';
 import { rollupByTenant, versionSpread } from '../summary';
 import { FleetCluster, Health, Scorecard, Severity } from '../types';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
+import { FleetActivity } from './Timeline';
+import { fleetTimeline } from '../timeline';
 
 const HEALTH_LABEL: Record<Health, { label: string; tone: Tone }> = {
   healthy: { label: 'Healthy', tone: 'success' },
@@ -240,6 +242,12 @@ export function Overview({
             <EmptyChart text="No clusters to score." />
           )}
         </ChartCard>
+
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <ChartCard title="Activity in the last 7 days" caption="Nodes added and deleted, condition changes and plugin actions. Click a dot to go there." minHeight={120}>
+            <FleetActivity lanes={fleetTimeline(clusters, now)} clusters={clusters} now={now} />
+          </ChartCard>
+        </Box>
 
         <ChartCard title="Recent changes" caption="Actions taken through this plugin">
           {changes.length ? (

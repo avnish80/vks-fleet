@@ -234,6 +234,8 @@ export interface Finding {
   title: string;
   detail?: string;
   fix: string;
+  /** Where to go to see or fix it: a page path, possibly with a section, highlight or action. */
+  target?: string;
 }
 
 /* ---------- Inside the workload cluster (via a Headlamp context) ---------- */
@@ -369,6 +371,8 @@ export interface Issue {
   evidence: string[];
   affected: { clusters: string[]; tenants: string[]; nodes: string[]; pods: string[] };
   fix: string;
+  /** The most specific place to look: clicking the issue goes here. */
+  primary?: IssueLink;
   links: IssueLink[];
   /** Finding ids this issue explains (so they aren't listed twice). */
   findingIds: string[];

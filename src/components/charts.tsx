@@ -14,7 +14,9 @@ export function ChartStyles() {
       @keyframes vksfleet-fade { from { opacity: 0; } to { opacity: 1; } }
       .vksfleet-bar { transform-origin: left center; animation: vksfleet-grow 700ms cubic-bezier(.2,.8,.2,1) both; }
       .vksfleet-fade { animation: vksfleet-fade 600ms ease-out both; }
-      @media (prefers-reduced-motion: reduce) { .vksfleet-bar, .vksfleet-fade { animation: none; } }
+      @keyframes vksfleet-flash { 0%, 45% { box-shadow: 0 0 0 3px rgba(255, 167, 38, 0.95); } 100% { box-shadow: 0 0 0 3px rgba(255, 167, 38, 0); } }
+      .vksfleet-flash { animation: vksfleet-flash 2.4s ease-out; border-radius: 8px; }
+      @media (prefers-reduced-motion: reduce) { .vksfleet-bar, .vksfleet-fade, .vksfleet-flash { animation: none; } }
     `}</style>
   );
 }

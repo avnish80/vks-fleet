@@ -45,6 +45,7 @@ function IssueCard({
   const tone = useTone();
   const [copied, setCopied] = React.useState<'idle' | 'done' | 'manual'>('idle');
   const text = React.useMemo(() => diagnosisMarkdown(issue, cluster, supervisorName), [issue, cluster, supervisorName]);
+  const primary = issue.primary ?? issue.links[0];
   const edge = issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
 
   async function copy() {
@@ -72,13 +73,24 @@ function IssueCard({
       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <SeverityLabel severity={issue.severity} />
         <Box sx={{ flex: 1, minWidth: 240 }}>
-          <Typography sx={{ fontWeight: 600 }}>{issue.title}</Typography>
+          {primary ? (
+            <Link to={primary.path} title={`Go to: ${primary.label}`} style={{ fontWeight: 600, textDecoration: 'none' }}>
+              {issue.title} ›
+            </Link>
+          ) : (
+            <Typography sx={{ fontWeight: 600 }}>{issue.title}</Typography>
+          )}
           {showCluster && (issue.clusterName || supervisorName) && (
             <Typography variant="body2" color="text.secondary">
               {issue.clusterName ? `${issue.clusterName}${issue.tenantName ? `, tenant ${issue.tenantName}` : ''}` : `Supervisor ${supervisorName}`}
             </Typography>
           )}
         </Box>
+        {primary && (
+          <Button size="small" variant="contained" component={Link} to={primary.path}>
+            Go to {primary.label.length > 24 ? 'it' : primary.label}
+          </Button>
+        )}
         <Button size="small" variant="outlined" onClick={copy}>
           {copied === 'done' ? 'Copied' : 'Copy diagnosis'}
         </Button>
@@ -110,9 +122,9 @@ function IssueCard({
           </Box>
           {issue.fix}
         </Typography>
-        {issue.links.length > 0 && (
+        {issue.links.filter(l => l.path !== primary?.path).length > 0 && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {issue.links.map(l => (
+            {issue.links.filter(l => l.path !== primary?.path).map(l => (
               <Link key={l.path} to={l.path}>
                 {l.label}
               </Link>
