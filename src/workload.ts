@@ -390,6 +390,9 @@ export async function fetchWorkloadHealth(
     health.podCount = podList.items.length;
     health.podsTruncated = !!podList?.metadata?.continue;
     health.podIssueCount = issues.length;
+    health.userPods = podList.items.filter(
+      (p: any) => !isPlatformNamespace(p?.metadata?.namespace ?? '') && p?.status?.phase !== 'Succeeded' && p?.status?.phase !== 'Failed'
+    ).length;
     health.podIssues = issues.slice(0, LIST_CAP);
   }
 

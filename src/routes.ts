@@ -4,6 +4,9 @@ export const SEARCH_ROUTE = '/vks-fleet/search';
 export const MACHINES_PATH = '/vks-fleet/machines';
 export const UPGRADES_PATH = '/vks-fleet/upgrades';
 export const CAPACITY_PATH = '/vks-fleet/capacity';
+export const BASELINE_PATH = '/vks-fleet/baseline';
+export const CLEANUP_PATH = '/vks-fleet/cleanup';
+export const ACCESS_PATH = '/vks-fleet/access';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

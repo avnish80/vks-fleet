@@ -13,6 +13,7 @@ import {
   listFirstServed,
   VMOP_VERSIONS,
 } from './supervisor';
+import { findLeftovers } from './cleanup';
 import { labelTenantResolver, readNamespaces } from './tenancy';
 import { EventInfo, FleetCluster, ServiceHealth, SupervisorConfig, SupervisorResult } from './types';
 import { toEventInfo } from './workload';
@@ -74,7 +75,7 @@ export async function fetchSupervisor(
   // that worked so a denied namespace is reported once.
   const operator = clusters.scope === 'cluster';
   const rest = operator ? supervisor.namespaces : clusters.readableNamespaces;
-  const [mds, kcps, machines, mhcs, vms, vmClasses, quotas, releases, allNamespaces] = await Promise.allSettled([
+  const [mds, kcps, machines, mhcs, vms, vmClasses, quotas, releases, allNamespaces, vmServices, supPvcs] = await Promise.allSettled([
     list(PATHS.machineDeployments, rest),
     list(PATHS.controlPlanes, rest),
     list(PATHS.machines, rest),
@@ -85,6 +86,8 @@ export async function fetchSupervisor(
     fetchReleaseVersions(client),
     // Supervisor-wide namespace list: tenant labels plus Supervisor services. Operators only.
     operator ? client.get<{ items?: KubeObject[] }>('/api/v1/namespaces') : Promise.resolve(undefined),
+    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachineservices', rest),
+    scopedList<KubeObject>(client, '/api/v1', 'persistentvolumeclaims', rest),
   ]);
 
   const optional = <T>(r: PromiseSettledResult<ListResult<T>>, what: string): T[] => {
@@ -148,6 +151,15 @@ export async function fetchSupervisor(
   fleet = attachClassUpdates(fleet, classNames);
 
   const events = await supervisorWarnings(client, operator, rest, now);
+  const cleanup = findLeftovers(
+    supervisor.id,
+    supervisor.headlampCluster,
+    clusters.items,
+    vmObjects,
+    vmServices.status === 'fulfilled' ? vmServices.value.items : [],
+    supPvcs.status === 'fulfilled' ? supPvcs.value.items : [],
+    now
+  );
 
   let services: ServiceHealth[] | undefined;
   if (namespaceList) {
@@ -166,6 +178,7 @@ export async function fetchSupervisor(
     classes: classNames,
     events,
     vmClasses: vmClassInfos(classObjects),
+    cleanup,
     fetchedAt,
   };
 }

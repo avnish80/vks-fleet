@@ -1,3 +1,4 @@
+import { normalizeBaseline } from './baseline';
 import { PluginConfig, SupervisorConfig } from './types';
 
 export const PLUGIN_NAME = 'vks-fleet';
@@ -94,5 +95,6 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     supervisors,
     refreshSeconds:
       Number.isFinite(refresh) && refresh >= MIN_REFRESH_SECONDS ? refresh : DEFAULT_REFRESH_SECONDS,
+    baseline: normalizeBaseline(raw?.baseline),
   };
 }

@@ -6,14 +6,17 @@ import {
 import React from 'react';
 import { ClusterDetail } from './components/ClusterDetail';
 import { MachineDetail } from './components/MachineDetail';
+import { AccessPage } from './components/AccessPanel';
+import { BaselinePage } from './components/BaselinePage';
 import { CapacityPage } from './components/CapacityPage';
+import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
 import { UpgradePlannerPage } from './components/UpgradePlannerPage';
 import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { CAPACITY_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
+import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
@@ -39,6 +42,9 @@ for (const child of [
   { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
   { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH },
   { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH },
+  { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH },
+  { name: 'vks-fleet-cleanup', label: 'Cleanup', url: CLEANUP_PATH },
+  { name: 'vks-fleet-access', label: 'Access', url: ACCESS_PATH },
 ]) {
   registerSidebarEntry({ parent: 'vks-fleet', ...child, useClusterURL: false, sidebar: 'HOME' });
 }
@@ -56,6 +62,9 @@ registerRoute({
 for (const page of [
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => <UpgradePlannerPage /> },
   { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => <CapacityPage /> },
+  { path: BASELINE_PATH, name: 'vks-fleet-baseline', component: () => <BaselinePage /> },
+  { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', component: () => <CleanupPage /> },
+  { path: ACCESS_PATH, name: 'vks-fleet-access', component: () => <AccessPage /> },
 ]) {
   registerRoute({
     path: page.path,

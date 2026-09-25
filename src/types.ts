@@ -32,6 +32,27 @@ export interface PluginConfig {
   /** Phase 1 uses exactly one entry; everything downstream handles N. */
   supervisors: SupervisorConfig[];
   refreshSeconds: number;
+  /** The fleet's standard cluster settings. */
+  baseline?: Baseline;
+}
+
+/** The fleet's standard: what every cluster should look like. */
+export interface Baseline {
+  controlPlaneReplicas: number;
+  minPoolNodes: number;
+  certificateRotation: boolean;
+  healthCheck: boolean;
+  latestClass: boolean;
+  /** Allowed minor versions behind the newest release (0 = must be on the newest minor). */
+  maxMinorsBehind: number;
+  /** Spread nodes across zones when the Supervisor has several. */
+  multiZone: boolean;
+  /** Allowed VM classes; empty = any. */
+  vmClasses: string[];
+  /** Allowed storage classes; empty = any. */
+  storageClasses: string[];
+  /** A successful backup within this many hours (0 = don't check). */
+  backupWithinHours: number;
 }
 
 export type Health = 'healthy' | 'degraded' | 'failed' | 'provisioning' | 'deleting' | 'unknown';
@@ -175,6 +196,10 @@ export interface FleetCluster {
   /** Earliest control-plane certificate expiry. */
   certificatesExpiry?: string;
   certificateRotation?: { enabled: boolean; renewalDaysBeforeExpiry?: number };
+  /** Names of spec.topology.variables in order (to address one in a patch). */
+  variableNames?: string[];
+  /** Kubernetes UID of the Cluster object. */
+  uid?: string;
   healthCheck?: HealthCheckSummary;
   capacity?: Capacity;
   /** ResourceQuota usage for the cluster's namespace. */
@@ -218,6 +243,8 @@ export interface SupervisorResult {
   events?: EventInfo[];
   /** VM classes available per namespace, with their sizes. */
   vmClasses?: VmClassInfo[];
+  /** Leftovers on the Supervisor that belong to clusters that no longer exist. */
+  cleanup?: CleanupItem[];
   fetchedAt: string;
 }
 
@@ -353,6 +380,8 @@ export interface WorkloadHealth {
   dns?: { available: number; desired: number };
   /** Live usage from metrics-server, when installed. */
   utilisation?: Utilisation;
+  /** Running pods outside platform namespaces (0 suggests an idle cluster). */
+  userPods?: number;
   /** Parts that couldn't be read (e.g. "pods: Access denied (403)"). */
   partial: string[];
   error?: string;
@@ -444,4 +473,50 @@ export interface Issue {
   /** Step-by-step commands to investigate and fix it. */
   runbook?: RunbookStep[];
   detectedAt: string;
+}
+
+/* ---------------- Governance ---------------- */
+
+export interface CleanupItem {
+  supervisorId: string;
+  namespace: string;
+  kind: 'VirtualMachine' | 'VirtualMachineService' | 'PersistentVolumeClaim' | 'Cluster';
+  name: string;
+  /** Why it looks left over. */
+  reason: string;
+  /** Command to inspect it; deletion is left to the operator. */
+  inspect: string;
+  remove?: string;
+  since?: string;
+}
+
+export interface BackupRecord {
+  name: string;
+  phase: string;
+  started?: string;
+  completed?: string;
+  schedule?: string;
+  errors?: number;
+  warnings?: number;
+}
+
+export interface BackupStatus {
+  clusterKey: string;
+  contextName: string;
+  /** Velero isn't installed (its API isn't served). */
+  missing?: boolean;
+  error?: string;
+  schedules: Array<{ name: string; schedule: string; lastBackup?: string; paused?: boolean }>;
+  recent: BackupRecord[];
+  lastSuccess?: BackupRecord;
+  lastFailure?: BackupRecord;
+}
+
+export interface AccessEntry {
+  subject: string;
+  subjectKind: 'User' | 'Group' | 'ServiceAccount' | string;
+  role: string;
+  binding: string;
+  /** Platform identities (controllers, system accounts). */
+  system: boolean;
 }

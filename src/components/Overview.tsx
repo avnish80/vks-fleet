@@ -12,10 +12,10 @@ import {
   tenantHealth,
 } from '../overview';
 import { formatBytes } from '../quantity';
-import { CAPACITY_PATH, clusterDeepLink, clusterPath, machinePath, MACHINES_PATH, PACKAGES_PATH, UPGRADES_PATH } from '../routes';
+import { BASELINE_PATH, CAPACITY_PATH, clusterDeepLink, clusterPath, machinePath, MACHINES_PATH, PACKAGES_PATH, UPGRADES_PATH } from '../routes';
 import { DriftRow, shortPackage } from '../packages';
 import { rollupByTenant, versionSpread } from '../summary';
-import { FleetCluster, Health, Scorecard, Severity } from '../types';
+import { BackupStatus, FleetCluster, Health, Scorecard, Severity } from '../types';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
 import { ActivityHeatmap } from './Timeline';
 import { fleetTimeline } from '../timeline';
@@ -56,6 +56,8 @@ export function Overview({
   onJump,
   onOpenIssues,
   busiest,
+  baseline,
+  backups,
 }: {
   clusters: FleetCluster[];
   /** Issues (or findings): anything with a severity. */
@@ -78,6 +80,10 @@ export function Overview({
   onOpenIssues?: () => void;
   /** Busiest nodes across signed-in clusters (from metrics-server). */
   busiest?: Array<{ cluster: FleetCluster; node: string; cpuPct: number; memPct: number }>;
+  /** Baseline compliance per cluster. */
+  baseline?: Array<{ cluster: FleetCluster; pct: number }>;
+  /** Velero status per signed-in cluster. */
+  backups?: Array<{ cluster: FleetCluster; status?: BackupStatus }>;
 }) {
   const now = new Date();
   const history = useHistory();
@@ -272,6 +278,50 @@ export function Overview({
             <EmptyChart text="No certificate dates reported." />
           )}
         </ChartCard>
+
+        {baseline && baseline.length > 0 && (
+          <ChartCard title="Baseline compliance" caption="How closely each cluster meets the fleet standard. Click to see what drifts.">
+            <BarList
+              max={100}
+              rows={[...baseline]
+                .sort((a, b) => a.pct - b.pct)
+                .slice(0, 8)
+                .map(b => ({
+                  key: b.cluster.key,
+                  label: b.cluster.name,
+                  parts: [{ label: 'Compliance', value: b.pct, tone: (b.pct >= 90 ? 'success' : b.pct >= 70 ? 'warning' : 'error') as Tone }],
+                  valueText: `${b.pct}%`,
+                  onClick: () => history.push(BASELINE_PATH),
+                }))}
+            />
+          </ChartCard>
+        )}
+
+        {backups && backups.length > 0 && (
+          <ChartCard title="Backups" caption="Hours since the last successful Velero backup (bar scale: 3 days). Click to open.">
+            <BarList
+              max={72}
+              rows={backups.map(b => {
+                const t = b.status?.lastSuccess?.completed;
+                const hours = t ? Math.round((now.getTime() - new Date(t).getTime()) / 3600000) : undefined;
+                const failedLast = !!b.status?.lastFailure && (!t || (b.status.lastFailure.completed ?? b.status.lastFailure.started ?? '') > t);
+                return {
+                  key: b.cluster.key,
+                  label: b.cluster.name,
+                  parts: [
+                    {
+                      label: 'Hours',
+                      value: hours === undefined ? 72 : Math.min(hours, 72),
+                      tone: (b.status?.missing ? 'neutral' : failedLast || hours === undefined || hours > 26 ? 'error' : hours > 12 ? 'warning' : 'success') as Tone,
+                    },
+                  ],
+                  valueText: b.status?.missing ? 'No Velero' : hours === undefined ? 'Never' : `${hours}h ago${failedLast ? ', last failed' : ''}`,
+                  onClick: () => history.push(clusterDeepLink(b.cluster, { hash: 'backups' })),
+                };
+              })}
+            />
+          </ChartCard>
+        )}
 
         {busiest && busiest.length > 0 && (
           <ChartCard title="Busiest nodes" caption="Higher of CPU and memory use against allocatable (metrics-server). Click a node to open it.">

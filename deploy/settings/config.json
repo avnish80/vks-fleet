@@ -12,5 +12,17 @@
         "6b9e01e4-8214-4c8a-9378-eae07e9e5dde": "org2"
       }
     }
-  ]
+  ],
+  "baseline": {
+    "controlPlaneReplicas": 3,
+    "minPoolNodes": 2,
+    "certificateRotation": true,
+    "healthCheck": true,
+    "latestClass": true,
+    "maxMinorsBehind": 1,
+    "multiZone": true,
+    "vmClasses": [],
+    "storageClasses": [],
+    "backupWithinHours": 26
+  }
 }

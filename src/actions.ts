@@ -516,3 +516,78 @@ export function upgradeProgress(c: FleetCluster): { controlPlane: PoolProgress; 
     pools,
   };
 }
+
+/* ---------------- Baseline fixes ---------------- */
+
+/** Grows the control plane (e.g. 1 → 3 for high availability) through the Cluster's topology. */
+export function controlPlaneReplicasPlan(c: FleetCluster, replicas: number): ActionPlan {
+  const current = c.controlPlane?.desired;
+  const checks: Check[] = [];
+  if (c.paused) checks.push({ level: 'block', text: 'The cluster is paused. Resume it first.' });
+  if (c.upgrading) checks.push({ level: 'block', text: 'An upgrade is in progress. Let it finish first.' });
+  if (current !== undefined && replicas <= current) checks.push({ level: 'block', text: `The control plane already has ${current} nodes.` });
+  if (replicas % 2 === 0) checks.push({ level: 'block', text: 'Use an odd number of control-plane nodes (1, 3 or 5), so etcd keeps a majority.' });
+  const cpClass = c.machines.find(m => m.role === 'control-plane')?.vm;
+  if (current !== undefined && replicas > current) {
+    const n = replicas - current;
+    checks.push({
+      level: 'warn',
+      text: `Adds ${n} control-plane VM${n === 1 ? '' : 's'}${
+        cpClass?.cpus !== undefined && cpClass.memoryBytes !== undefined
+          ? ` (${n * cpClass.cpus} vCPU and ${Math.round((n * cpClass.memoryBytes) / 2 ** 30)} GiB)`
+          : ''
+      }. Check the Capacity page for quota.`,
+    });
+    checks.push({ level: 'ok', text: 'New nodes join one at a time; the API stays up throughout.' });
+  }
+  return {
+    id: `${c.key}#cp#${replicas}`,
+    title: `Grow the control plane of ${c.name}`,
+    summary: `Sets the control plane to ${replicas} nodes${current !== undefined ? ` (now ${current})` : ''}, so the cluster API survives losing a node.`,
+    checks,
+    reasonRequired: true,
+    confirmText: c.name,
+    applyLabel: 'Grow control plane',
+    requests: (reason, now) => [
+      { method: 'PATCH', path: clusterUrl(c), contentType: JSON_PATCH, body: [{ op: 'add', path: '/spec/topology/controlPlane/replicas', value: replicas }] },
+      stampCluster(c, `control plane to ${replicas}`, reason, now),
+    ],
+  };
+}
+
+/** Turns on automatic certificate rotation through the "kubernetes" topology variable. */
+export function certRotationPlan(c: FleetCluster, renewalDays = 90): ActionPlan {
+  const checks: Check[] = [];
+  if (c.paused) checks.push({ level: 'block', text: 'The cluster is paused. Resume it first.' });
+  if (c.certificateRotation?.enabled) checks.push({ level: 'block', text: 'Certificate rotation is already on.' });
+  if (!c.variableNames) checks.push({ level: 'block', text: "This cluster's topology variables aren't readable." });
+  checks.push({ level: 'ok', text: `Control-plane certificates renew automatically ${renewalDays} days before they expire.` });
+  checks.push({
+    level: 'warn',
+    text: "Changing the cluster's Kubernetes settings may roll the control-plane nodes, depending on the class. The dry run shows whether VKS accepts it.",
+  });
+  const i = c.variableNames?.indexOf('kubernetes') ?? -1;
+  const rotation = { enabled: true, renewalDaysBeforeExpiry: renewalDays };
+  const ops: unknown[] =
+    i >= 0
+      ? [
+          { op: 'test', path: `/spec/topology/variables/${i}/name`, value: 'kubernetes' },
+          c.certificateRotation
+            ? { op: 'add', path: `/spec/topology/variables/${i}/value/certificateRotation/enabled`, value: true }
+            : { op: 'add', path: `/spec/topology/variables/${i}/value/certificateRotation`, value: rotation },
+        ]
+      : [{ op: 'add', path: '/spec/topology/variables/-', value: { name: 'kubernetes', value: { certificateRotation: rotation } } }];
+  return {
+    id: `${c.key}#certrotation`,
+    title: `Turn on certificate rotation for ${c.name}`,
+    summary: 'Sets certificateRotation.enabled in the cluster\'s "kubernetes" variable.',
+    checks,
+    reasonRequired: true,
+    confirmText: c.name,
+    applyLabel: 'Turn on rotation',
+    requests: (reason, now) => [
+      { method: 'PATCH', path: clusterUrl(c), contentType: JSON_PATCH, body: ops },
+      stampCluster(c, 'certificate rotation on', reason, now),
+    ],
+  };
+}

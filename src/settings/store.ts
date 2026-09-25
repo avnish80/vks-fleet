@@ -18,8 +18,9 @@ export function effectiveSettings(
   managed: Partial<PluginConfig> | null
 ): Partial<PluginConfig> | undefined {
   const own = (raw?.supervisors ?? []).some(s => s?.headlampCluster);
-  if (own || !managed) return raw;
-  return { ...managed, refreshSeconds: raw?.refreshSeconds ?? managed.refreshSeconds };
+  if (!managed) return raw;
+  if (own) return { ...raw, baseline: raw?.baseline ?? managed.baseline };
+  return { ...managed, refreshSeconds: raw?.refreshSeconds ?? managed.refreshSeconds, baseline: raw?.baseline ?? managed.baseline };
 }
 
 /** Normalized config; `supervisors` is the registry every view iterates over. */

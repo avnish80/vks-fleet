@@ -21,6 +21,8 @@ import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, MACHINE
 import { formatBytes } from '../quantity';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
+import { useBackups } from '../useBackups';
+import { compliance, evaluateBaseline } from '../baseline';
 import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
@@ -122,9 +124,11 @@ export function FleetView() {
     .map(c => ({ key: c.key, contextName: workload.byKey.get(c.key)?.contextName }))
     .filter((t): t is { key: string; contextName: string } => !!t.contextName);
   const packages = usePackages(packageTargets);
+  const backups = useBackups(packageTargets);
   const issues = React.useMemo(
-    () => buildIssues(scopedResults, workload.byKey, new Date(), packages ?? undefined),
-    [scopedResults, workload.byKey, packages]
+    () =>
+      buildIssues(scopedResults, workload.byKey, new Date(), packages ?? undefined, backups ?? undefined, config.baseline?.backupWithinHours),
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
@@ -145,8 +149,14 @@ export function FleetView() {
   const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
   const scores = tenantClusters.map(c => ({
     cluster: c,
-    card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key)),
+    card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key), backups?.get(c.key)),
   }));
+  const baselineRows = config.baseline
+    ? tenantClusters.map(c => ({ cluster: c, pct: compliance(evaluateBaseline(c, config.baseline!, fleetZones, backups?.get(c.key))).pct }))
+    : [];
+  const backupRows = tenantClusters
+    .map(c => ({ cluster: c, status: backups?.get(c.key) }))
+    .filter(x => x.status && !x.status.error);
   const tenantPackages = packages ? tenantClusters.map(c => packages.get(c.key)).filter((p): p is NonNullable<typeof p> => !!p) : [];
   const packageStats = tenantPackages.length
     ? {
@@ -329,6 +339,8 @@ export function FleetView() {
             setFindingsOpen(true);
             jump('issues');
           }}
+          baseline={baselineRows}
+          backups={backupRows}
           busiest={tenantClusters
             .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, cpuPct: n.cpuPct, memPct: n.memPct })))
             .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct))}

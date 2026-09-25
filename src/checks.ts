@@ -3,8 +3,9 @@
  * always run; workload checks need the user to be signed in to the cluster
  * and show as "unknown" otherwise, without counting against the score.
  */
+import { hoursSinceSuccess } from './backups';
 import { ClusterPackages, shortPackage } from './packages';
-import { CheckCategory, CheckResult, CheckStatus, FleetCluster, Scorecard, WorkloadHealth } from './types';
+import { BackupStatus, CheckCategory, CheckResult, CheckStatus, FleetCluster, Scorecard, WorkloadHealth } from './types';
 
 const DAY = 86400000;
 
@@ -29,7 +30,8 @@ export function scorecard(
   workload: WorkloadHealth | undefined,
   fleetZones: number,
   now: Date = new Date(),
-  packages?: ClusterPackages
+  packages?: ClusterPackages,
+  backups?: BackupStatus
 ): Scorecard {
   const checks: CheckResult[] = [];
   const cp = c.controlPlane?.desired;
@@ -160,16 +162,33 @@ export function scorecard(
   );
   const wc = workload?.checks;
   const signedIn = !!wc;
+  const bh = hoursSinceSuccess(backups, now);
   checks.push(
-    check(
-      'backup',
-      'Operations',
-      'Backup installed',
-      !signedIn || wc?.backup === undefined ? 'unknown' : wc.backup ? 'pass' : 'warn',
-      !signedIn ? 'Sign in to the cluster to check.' : wc?.backup ? 'Velero found in the cluster.' : 'No Velero deployment found.',
-      'Install Velero (a VKS standard package) and schedule backups.',
-      2
-    )
+    backups && !backups.error
+      ? check(
+          'backup',
+          'Operations',
+          'Backups running',
+          backups.missing ? 'warn' : bh !== undefined && bh <= 7 * 24 ? 'pass' : backups.schedules.length ? 'fail' : 'warn',
+          backups.missing
+            ? 'Velero is not installed.'
+            : bh !== undefined
+            ? `Last successful backup ${Math.round(bh)} hours ago.`
+            : backups.schedules.length
+            ? 'Scheduled, but no backup has completed.'
+            : 'Velero is installed but nothing is scheduled.',
+          'Install Velero (a VKS standard package) and schedule regular backups.',
+          2
+        )
+      : check(
+          'backup',
+          'Operations',
+          'Backup installed',
+          !signedIn || wc?.backup === undefined ? 'unknown' : wc.backup ? 'pass' : 'warn',
+          !signedIn ? 'Sign in to the cluster to check.' : wc?.backup ? 'Velero found in the cluster.' : 'No Velero deployment found.',
+          'Install Velero (a VKS standard package) and schedule backups.',
+          2
+        )
   );
 
   // Security and workload hygiene (inside the cluster)

@@ -135,6 +135,31 @@ The vSphere cluster's own free capacity isn't visible through the Supervisor API
 
 **Utilisation** (cluster page, from metrics-server when installed): CPU and memory against allocatable per node, the busiest pods, and user pods that request no CPU or memory. Nodes above 90% become issues with a runbook; the overview shows the busiest nodes across the fleet.
 
+**Fleet baseline** (sidebar: Baseline): the standard every cluster should meet, edited on the page and kept with the plugin settings (an administrator can preset it in `config.json`):
+
+- control plane of 3
+- minimum nodes per pool
+- certificate rotation on
+- node health checks
+- newest cluster class
+- how many minor versions behind are allowed
+- zone spread
+- allowed VM and storage classes
+- a successful backup within N hours
+
+A compliance matrix shows every cluster against every rule. Safe fixes are applied from the matrix with the usual checks and dry run: grow the control plane to 3, or turn on certificate rotation through the cluster's `kubernetes` variable. Other drift links to the right dialog (Scale for a pool, Upgrade for the version or class).
+
+**Cleanup** (sidebar: Cleanup): leftovers on the Supervisor, each with inspect and delete commands to review. The plugin deletes nothing itself.
+
+- VMs, load balancer services and volume claims that name a cluster that no longer exists. Only objects that say which cluster they belong to are judged, so VM Service VMs are never listed.
+- Volume claims that are Lost or stuck Pending.
+- Clusters stuck deleting.
+- Idle clusters: older than a week with nothing running outside platform namespaces.
+
+**Access** (sidebar: Access, and a section on each cluster page): who can reach each Supervisor namespace, from its role bindings, with system accounts hidden by default. Each cluster has ready-to-send **connection instructions** for developers.
+
+**Backups** (cluster page, and an overview card): Velero schedules, recent backups, and the last success and failure per signed-in cluster. A failed latest backup, or no success within the baseline's window while backups are scheduled, becomes an issue with a runbook. The scorecard's backup check now uses this.
+
 **Machines page:** every machine across the fleet with its state, VM, IP, zone and version; machines that need a look come first.
 
 **Export report:** Markdown (summary, issues needing action, clusters, tenants, versions) or CSV (one row per cluster), for the clusters currently shown.
@@ -306,6 +331,10 @@ src/
   report.ts             Fleet report: Markdown and CSV
   headroom.ts           Quota headroom, what-if, upgrade surge
   planner.ts            Upgrade waves: readiness, suggestions, status and gating
+  baseline.ts           Fleet standard, drift per cluster, fixes
+  cleanup.ts            Leftovers on the Supervisor
+  backups.ts            Velero status per cluster
+  access.ts             Namespace access and connection instructions
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes

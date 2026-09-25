@@ -24,7 +24,8 @@ import {
   stuckDeletionRunbook,
   unreachableRunbook,
 } from './runbooks';
-import { EventInfo, FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
+import { hoursSinceSuccess } from './backups';
+import { BackupStatus, EventInfo, FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
 import { ClusterPackages, isCorePackage, shortPackage } from './packages';
 import { isPlatformNamespace } from './workload';
 
@@ -344,12 +345,53 @@ function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date, sup: stri
   return issue;
 }
 
+const IDLE_AFTER_MS = 7 * 86400000;
+
+function backupIssues(c: FleetCluster, b: BackupStatus, now: Date, sup: string, withinHours: number): Issue[] {
+  const out: Issue[] = [];
+  if (b.missing || b.error) return out;
+  const k = `kubectl --context ${b.contextName}`;
+  const failedLast =
+    b.lastFailure && (!b.lastSuccess || (b.lastFailure.completed ?? b.lastFailure.started ?? '') > (b.lastSuccess.completed ?? ''));
+  if (failedLast && b.lastFailure) {
+    out.push({
+      ...base(c, 'backup-failed', 'warning', now),
+      title: `Latest backup of ${c.name} ${b.lastFailure.phase === 'PartiallyFailed' ? 'partially failed' : 'failed'}`,
+      cause: `Backup ${b.lastFailure.name} ended ${b.lastFailure.phase}${b.lastFailure.errors ? ` with ${b.lastFailure.errors} errors` : ''}.`,
+      fix: "Read the backup's logs and fix the cause (often the backup storage location or a volume snapshot).",
+      primary: { label: 'Backups', path: clusterDeepLink(c, { hash: 'backups' }) },
+      runbook: [
+        { title: 'Backups and their status', commands: [`${k} get backups.velero.io -A --sort-by=.status.startTimestamp`] },
+        { title: `Why ${b.lastFailure.name} failed`, commands: [`${k} get backup.velero.io -A -o yaml ${b.lastFailure.name} | grep -A5 -E 'phase|failureReason|errors'`] },
+        { title: 'Storage location health', commands: [`${k} get backupstoragelocations.velero.io -A`] },
+      ],
+    });
+  }
+  const hours = hoursSinceSuccess(b, now);
+  if (withinHours && b.schedules.some(s => !s.paused) && (hours === undefined || hours > withinHours)) {
+    out.push({
+      ...base(c, 'backup-stale', 'warning', now),
+      title: hours === undefined ? `${c.name} has never completed a backup` : `No successful backup of ${c.name} for ${Math.round(hours)} hours`,
+      cause: `Backups are scheduled (${b.schedules.map(s => `${s.name}: ${s.schedule}`).join(', ')}) but none has completed recently.`,
+      fix: 'Check that the schedule runs and the backups complete.',
+      primary: { label: 'Backups', path: clusterDeepLink(c, { hash: 'backups' }) },
+      runbook: [
+        { title: 'Schedules and their last run', commands: [`${k} get schedules.velero.io -A`] },
+        { title: 'Recent backups', commands: [`${k} get backups.velero.io -A --sort-by=.status.startTimestamp | tail -5`] },
+      ],
+    });
+  }
+  return out;
+}
+
 /** All issues for the fleet, most severe first. */
 export function buildIssues(
   results: SupervisorResult[],
   workload: Map<string, WorkloadHealth>,
   now: Date = new Date(),
-  packages?: Map<string, ClusterPackages>
+  packages?: Map<string, ClusterPackages>,
+  backups?: Map<string, BackupStatus>,
+  backupWithinHours = 26
 ): Issue[] {
   const findings = fleetFindings(results, now);
   const clusters = new Map(results.flatMap(r => r.clusters).map(c => [c.key, c]));
@@ -359,6 +401,18 @@ export function buildIssues(
     const r = supById.get(c.supervisorId);
     const sup = r?.supervisor.headlampCluster ?? c.supervisorId;
     issues.push(...clusterIssues(c, workload.get(c.key), findings, now, sup, r?.events ?? []));
+    const bk = backups?.get(c.key);
+    if (bk) issues.push(...backupIssues(c, bk, now, sup, backupWithinHours));
+    const wl = workload.get(c.key);
+    if (wl?.userPods === 0 && c.createdAt && now.getTime() - new Date(c.createdAt).getTime() > IDLE_AFTER_MS) {
+      issues.push({
+        ...base(c, 'idle', 'info', now),
+        title: `${c.name} looks idle: no workloads outside platform namespaces`,
+        cause: 'Nothing is running except VKS and add-on components.',
+        fix: "If it's no longer needed, delete it to free its VMs and quota (through VCFA or the Supervisor).",
+        primary: { label: 'Capacity', path: clusterDeepLink(c, { hash: 'summary' }) },
+      });
+    }
     const cp = packages?.get(c.key);
     const pi = cp ? packageIssue(c, cp, now, sup) : undefined;
     if (pi) issues.push(pi);
@@ -368,6 +422,50 @@ export function buildIssues(
     for (const f of findings.filter(x => x.supervisorId === r.supervisor.id && /#svc-(?!leftovers)/.test(x.id))) {
       issues.push(serviceIssue(r, f, now));
       explained.add(f.id);
+    }
+  }
+  for (const r of results) {
+    const items = r.cleanup ?? [];
+    const stuck = items.filter(i => i.kind === 'Cluster');
+    for (const i of stuck) {
+      issues.push({
+        id: `${r.supervisor.id}#cleanup-cluster-${i.namespace}/${i.name}`,
+        severity: 'warning',
+        supervisorId: r.supervisor.id,
+        namespace: i.namespace,
+        title: `Cluster ${i.name} is stuck deleting`,
+        cause: i.reason,
+        evidence: [],
+        affected: { clusters: [i.name], tenants: [], nodes: [], pods: [] },
+        fix: 'Find what holds its finalizers (usually machines or VMs that cannot be removed) and resolve that.',
+        primary: { label: 'Cleanup', path: '/vks-fleet/cleanup' },
+        links: [],
+        findingIds: [],
+        runbook: [{ title: 'Finalizers, conditions and what is left', commands: [i.inspect] }],
+        detectedAt: now.toISOString(),
+      });
+    }
+    const leftovers = items.filter(i => i.kind !== 'Cluster');
+    if (leftovers.length) {
+      issues.push({
+        id: `${r.supervisor.id}#cleanup`,
+        severity: 'info',
+        supervisorId: r.supervisor.id,
+        title: `${leftovers.length} leftover${leftovers.length === 1 ? '' : 's'} on the Supervisor to clean up`,
+        cause: 'Objects that belong to deleted clusters, or volume claims that are lost or stuck. They can hold IPs, storage or quota.',
+        evidence: leftovers.slice(0, 5).map(i => `${i.kind} ${i.namespace}/${i.name}: ${i.reason}`),
+        affected: { clusters: [], tenants: [], nodes: [], pods: [] },
+        fix: 'Review each one on the Cleanup page, then remove it with the command shown.',
+        primary: { label: 'Cleanup', path: '/vks-fleet/cleanup' },
+        links: [],
+        findingIds: [],
+        runbook: leftovers.slice(0, 10).map(i => ({
+          title: `${i.kind} ${i.namespace}/${i.name}`,
+          commands: [i.inspect, ...(i.remove ? [i.remove] : [])],
+          note: i.reason,
+        })),
+        detectedAt: now.toISOString(),
+      });
     }
   }
   for (const f of findings) if (!explained.has(f.id)) issues.push(passthrough(f, clusters, now));

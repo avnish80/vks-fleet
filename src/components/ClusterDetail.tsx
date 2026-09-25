@@ -18,6 +18,8 @@ import { buildIssues } from '../issues';
 import { clusterTimeline } from '../timeline';
 import { shortPackage, PackageInstallInfo } from '../packages';
 import { usePackages } from '../usePackages';
+import { useBackups } from '../useBackups';
+import { BackupRecord } from '../types';
 import { formatBytes } from '../quantity';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import { usePluginConfig } from '../settings/store';
@@ -44,6 +46,7 @@ import { AnatomyDiagram } from './Anatomy';
 import { ChecksPanel } from './ChecksPanel';
 import { ClusterTimeline } from './Timeline';
 import { PackageStateLabel, pkgiPath } from './PackagesPage';
+import { NamespaceAccess } from './AccessPanel';
 import { IssuesList } from './IssuesList';
 import {
   capacityText,
@@ -275,6 +278,8 @@ export function ClusterDetail() {
   const ctxName = cluster ? workload.byKey.get(cluster.key)?.contextName : undefined;
   const pkgMap = usePackages(cluster && ctxName ? [{ key: cluster.key, contextName: ctxName }] : []);
   const clusterPackages = cluster ? pkgMap?.get(cluster.key) : undefined;
+  const backupMap = useBackups(cluster && ctxName ? [{ key: cluster.key, contextName: ctxName }] : []);
+  const clusterBackups = cluster ? backupMap?.get(cluster.key) : undefined;
 
   // Deep links from issues: ?focus=<row>&action=<dialog>&pool=<pool>#<section>
   const location = useLocation();
@@ -348,10 +353,17 @@ export function ClusterDetail() {
   const fleetZones = new Set(
     results.flatMap(r => r.clusters.flatMap(c => c.machines.map(m => m.failureDomain))).filter(Boolean)
   ).size;
-  const clusterIssues = buildIssues(results, workload.byKey, new Date(), pkgMap ?? undefined).filter(
+  const clusterIssues = buildIssues(
+    results,
+    workload.byKey,
+    new Date(),
+    pkgMap ?? undefined,
+    backupMap ?? undefined,
+    config.baseline?.backupWithinHours
+  ).filter(
     i => i.clusterKey === cluster.key || (!i.clusterKey && i.namespace === cluster.namespace && i.supervisorId === cluster.supervisorId)
   );
-  const card = scorecard(cluster, health, fleetZones, new Date(), clusterPackages);
+  const card = scorecard(cluster, health, fleetZones, new Date(), clusterPackages, clusterBackups);
   const clusterMap = new Map([[cluster.key, cluster]]);
   const supervisorNames = new Map([[supervisor.id, supervisorLabel(supervisor)]]);
   const vksNamespace = results.flatMap(r => r.services ?? []).find(s => s.namespace.startsWith('svc-tkg-'))?.namespace;
@@ -719,6 +731,58 @@ export function ClusterDetail() {
             data={clusterPackages.items}
           />
         )}
+      </SectionBox>
+
+      <Box id="backups" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Backups">
+        {!ctxName ? (
+          <Typography color="text.secondary">Sign in to the cluster to see its Velero backups.</Typography>
+        ) : !clusterBackups ? (
+          <Typography>Loading…</Typography>
+        ) : clusterBackups.missing ? (
+          <Typography color="text.secondary">Velero isn't installed in this cluster (it's a VKS standard package).</Typography>
+        ) : clusterBackups.error ? (
+          <Typography color="text.secondary">Couldn't read backups: {clusterBackups.error}</Typography>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography>
+              {clusterBackups.lastSuccess?.completed
+                ? `Last successful backup ${formatDuration(Date.now() - new Date(clusterBackups.lastSuccess.completed).getTime())} ago (${clusterBackups.lastSuccess.name}).`
+                : 'No backup has completed yet.'}
+              {clusterBackups.lastFailure ? ` Last failure: ${clusterBackups.lastFailure.name} (${clusterBackups.lastFailure.phase}).` : ''}
+            </Typography>
+            <SimpleTable
+              columns={[
+                { label: 'Schedule', getter: (x: { name: string }) => x.name },
+                { label: 'When', getter: (x: { schedule: string }) => x.schedule },
+                { label: 'Last run', getter: (x: { lastBackup?: string }) => when(x.lastBackup) },
+                { label: 'State', getter: (x: { paused?: boolean }) => (x.paused ? 'Paused' : 'Active') },
+              ]}
+              data={clusterBackups.schedules}
+            />
+            {clusterBackups.recent.length > 0 && (
+              <SimpleTable
+                columns={[
+                  { label: 'Backup', getter: (b: BackupRecord) => b.name },
+                  {
+                    label: 'Result',
+                    getter: (b: BackupRecord) => (
+                      <StatusLabel status={b.phase === 'Completed' ? 'success' : /Fail/.test(b.phase) ? 'error' : ''}>{b.phase}</StatusLabel>
+                    ),
+                  },
+                  { label: 'Finished', getter: (b: BackupRecord) => when(b.completed ?? b.started) },
+                  { label: 'Errors / warnings', getter: (b: BackupRecord) => `${b.errors ?? 0} / ${b.warnings ?? 0}` },
+                ]}
+                data={clusterBackups.recent}
+              />
+            )}
+          </Box>
+        )}
+      </SectionBox>
+
+      <Box id="access" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Access">
+        <NamespaceAccess supervisorContext={supervisor.headlampCluster} namespace={cluster.namespace} clusters={[cluster]} />
       </SectionBox>
 
       <Box id="troubleshoot" sx={{ scrollMarginTop: 72 }} />
