@@ -22,14 +22,21 @@ export async function scopedList<T>(
   client: SupervisorClient,
   apiPrefix: string,
   plural: string,
-  namespaces: string[]
+  namespaces: string[],
+  namespacedOnly = false
 ): Promise<ListResult<T>> {
-  try {
-    const list = await client.get<{ items?: T[] }>(`${apiPrefix}/${plural}`);
-    return { items: list?.items ?? [], scope: 'cluster', readableNamespaces: [], warnings: [] };
-  } catch (err) {
-    if (statusOf(err) !== 403) {
-      throw err;
+  if (!namespacedOnly) {
+    try {
+      const list = await client.get<{ items?: T[] }>(`${apiPrefix}/${plural}`);
+      return { items: list?.items ?? [], scope: 'cluster', readableNamespaces: [], warnings: [] };
+    } catch (err) {
+      // 403: not allowed across namespaces. 404 with namespaces to fall back on:
+      // a namespace-scoped endpoint (e.g. VCF Automation's proxy) that has no
+      // cluster-wide path at all.
+      const status = statusOf(err);
+      if (status !== 403 && !(status === 404 && namespaces.length)) {
+        throw err;
+      }
     }
   }
 
@@ -59,6 +66,9 @@ export async function scopedList<T>(
   });
 
   if (warnings.length === namespaces.length) {
+    const reasons = settled.map(r => (r.status === 'rejected' ? r.reason : undefined));
+    // Every namespace says "not found": the resource isn't served here (e.g. that API version).
+    if (reasons.every(r => statusOf(r) === 404)) throw reasons[0];
     throw new Error(`Couldn't list ${plural} in any configured namespace. ${warnings[0]}`);
   }
   return { items, scope: 'namespaced', readableNamespaces, warnings };

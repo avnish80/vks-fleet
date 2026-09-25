@@ -6,10 +6,11 @@ import {
   StatusLabel,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Button, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { pausePlan, replacePlan, upgradeProgress } from '../actions';
-import { headlampWriter } from '../api/headlampClient';
+import { supervisorWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
 import { AddonInfo, ManagedChange } from '../extras';
@@ -22,7 +23,6 @@ import { useBackups } from '../useBackups';
 import { BackupRecord } from '../types';
 import { formatBytes } from '../quantity';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import {
   ClusterCondition,
   clusterKey,
@@ -38,7 +38,6 @@ import {
   WorkloadHealth,
 } from '../types';
 import { useClusterExtras } from '../useClusterExtras';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog, ScaleDialog, TimeoutDialog, UpgradeDialog } from './ActionDialog';
 import { BarList, ChartStyles, Tone } from './charts';
@@ -255,17 +254,18 @@ function EventsTable({ events, showNamespace = false }: { events: EventInfo[]; s
 
 export function ClusterDetail() {
   const params = useParams<{ supervisor: string; namespace: string; name: string }>();
-  const config = usePluginConfig();
+  const { config, all, refresh: refreshAll, canWrite: canWriteFor } = useFleetData();
   const supervisor = config.supervisors.find(s => s.id === params.supervisor);
 
   // Only read the Supervisor this cluster lives on.
-  const scoped = React.useMemo(() => (supervisor ? [supervisor] : []), [supervisor]);
-  const { results, refresh } = useFleet(scoped, config.refreshSeconds);
+  const results = all;
+  const refresh = refreshAll;
   const writer = React.useMemo(
-    () => (supervisor ? headlampWriter(supervisor.headlampCluster) : null),
+    () => (supervisor ? supervisorWriter(supervisor) : null),
     [supervisor?.headlampCluster]
   );
   const [action, setAction] = React.useState<OpenAction | null>(null);
+  const writeOk = supervisor ? canWriteFor(supervisor.id) : false;
   const [notice, setNotice] = React.useState<string | null>(null);
 
 
@@ -291,7 +291,7 @@ export function ClusterDetail() {
     if (!key || handled.current === key) return;
     handled.current = key;
     const q = new URLSearchParams(location.search);
-    const act = q.get('action');
+    const act = writeOk ? q.get('action') : null;
     const poolName = q.get('pool');
     const pool = poolName ? cluster.nodePools.find(p => p.name === poolName) : undefined;
     if (act === 'upgrade') setAction({ kind: 'upgrade' });
@@ -387,7 +387,13 @@ export function ClusterDetail() {
     (cluster.upgrading ||
       progress.controlPlane.updated < progress.controlPlane.total ||
       progress.pools.some(p => p.updated < p.total));
-  const actionButtons = [
+  const actionButtons = !writeOk
+    ? [
+        <Typography key="ro" variant="body2" color="text.secondary">
+          Read-only access
+        </Typography>,
+      ]
+    : [
     <Button key="upgrade" size="small" variant="contained" onClick={() => setAction({ kind: 'upgrade' })}>
       Upgrade
     </Button>,
@@ -574,7 +580,7 @@ export function ClusterDetail() {
                         .join(', ')
                     : 'None',
               },
-              {
+              ...(!writeOk ? [] : [{
                 label: 'Actions',
                 getter: (p: NodePool) => (
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -586,7 +592,7 @@ export function ClusterDetail() {
                     </Button>
                   </Box>
                 ),
-              },
+              }]),
             ]}
             data={cluster.nodePools}
           />
@@ -644,7 +650,7 @@ export function ClusterDetail() {
               { label: 'IP', getter: (m: MachineInfo) => m.internalIP ?? '—' },
               { label: 'Zone', getter: (m: MachineInfo) => m.failureDomain ?? m.vm?.zone ?? '—' },
               { label: 'Age', getter: (m: MachineInfo) => ageOf(m.createdAt) },
-              {
+              ...(!writeOk ? [] : [{
                 label: 'Actions',
                 getter: (m: MachineInfo) =>
                   m.deletingSince ? (
@@ -673,7 +679,7 @@ export function ClusterDetail() {
                       Replace
                     </Button>
                   ),
-              },
+              }]),
             ]}
             data={cluster.machines}
           />
@@ -782,7 +788,7 @@ export function ClusterDetail() {
 
       <Box id="access" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Access">
-        <NamespaceAccess supervisorContext={supervisor.headlampCluster} namespace={cluster.namespace} clusters={[cluster]} />
+        <NamespaceAccess supervisor={supervisor} namespace={cluster.namespace} clusters={[cluster]} />
       </SectionBox>
 
       <Box id="troubleshoot" sx={{ scrollMarginTop: 72 }} />

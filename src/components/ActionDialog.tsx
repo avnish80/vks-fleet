@@ -28,7 +28,7 @@ import { headlampClient } from '../api/headlampClient';
 import { upgradeKind, upgradeTargets } from '../releases';
 import { usePolling } from '../usePolling';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
-import { FleetCluster, MachineInfo, NodePool } from '../types';
+import { FleetCluster, NodePool } from '../types';
 
 const LEVEL: Record<CheckLevel, { text: string; status: 'success' | 'warning' | 'error' }> = {
   ok: { text: 'OK', status: 'success' },

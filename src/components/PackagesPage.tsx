@@ -1,12 +1,11 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, FormControlLabel, Switch, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { compareVersions, packageDrift, PackageInstallInfo, PackageState, shortPackage } from '../packages';
 import { clusterDeepLink } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { FleetCluster } from '../types';
-import { useFleet } from '../useFleet';
 import { usePackages } from '../usePackages';
 import { useWorkloadHealth } from '../useWorkload';
 import { ChartStyles, KpiTile, useTone } from './charts';
@@ -32,8 +31,7 @@ export function pkgiPath(contextName: string, p: PackageInstallInfo): string {
 type Row = PackageInstallInfo & { cluster: FleetCluster; contextName: string };
 
 export function PackagesPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const targets = clusters

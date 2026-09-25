@@ -1,15 +1,15 @@
 import { Loader, SectionBox, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Button, Checkbox, FormControlLabel, TextField, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import { certRotationPlan, controlPlaneReplicasPlan } from '../actions';
-import { headlampWriter } from '../api/headlampClient';
+import { supervisorWriter } from '../api/headlampClient';
 import { compliance, DEFAULT_BASELINE, evaluateBaseline, fixLink, RuleResult } from '../baseline';
 import { clusterPath } from '../routes';
-import { settingsStore, usePluginConfig } from '../settings/store';
+import { settingsStore } from '../settings/store';
 import { Baseline, FleetCluster, SupervisorResult } from '../types';
 import { useBackups } from '../useBackups';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile, useTone } from './charts';
@@ -50,9 +50,8 @@ function BaselineEditor({ baseline }: { baseline: Baseline }) {
 type Fixing = { c: FleetCluster; r: SupervisorResult; kind: 'control-plane' | 'cert-rotation' };
 
 export function BaselinePage() {
-  const config = usePluginConfig();
+  const { config, results, refresh, canWrite } = useFleetData();
   const baseline = config.baseline!;
-  const { results, refresh } = useFleet(config.supervisors, config.refreshSeconds);
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const targets = clusters
@@ -138,7 +137,7 @@ export function BaselinePage() {
                           <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                             {r.current}
                           </Typography>
-                          {r.fix && r.fix.kind !== 'link' && (
+                          {r.fix && r.fix.kind !== 'link' && canWrite(resultOf.get(c.key)!.supervisor.id) && (
                             <Button size="small" onClick={() => setFixing({ c, r: resultOf.get(c.key)!, kind: r.fix!.kind as Fixing['kind'] })}>
                               Fix
                             </Button>
@@ -169,7 +168,7 @@ export function BaselinePage() {
               ? controlPlaneReplicasPlan(fixing.c, baseline.controlPlaneReplicas)
               : certRotationPlan(fixing.c)
           }
-          writer={headlampWriter(fixing.r.supervisor.headlampCluster)}
+          writer={supervisorWriter(fixing.r.supervisor)}
           onClose={() => setFixing(null)}
           onApplied={m => {
             setNotice(m);

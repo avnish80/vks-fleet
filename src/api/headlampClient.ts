@@ -1,5 +1,7 @@
 import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 import { HeadlampClusterInfo, parseHeadlampConfig } from '../contexts';
+import { SupervisorConfig } from '../types';
+import { contextFor } from '../vcfa';
 import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
 
 /**
@@ -61,6 +63,26 @@ export function headlampWriter(headlampCluster: string): SupervisorWriter {
       if (req.body !== undefined) params.body = JSON.stringify(req.body);
       const path = req.method === 'PATCH' ? withParam(req.path, 'fieldManager=vks-fleet') : req.path;
       return ApiProxy.request(withDryRun(path, dryRun), params, false);
+    },
+  };
+}
+
+/**
+ * Client for one Supervisor entry. For VCFA tenants each namespace has its
+ * own context, so every request goes to the context serving its namespace.
+ */
+export function supervisorClient(s: SupervisorConfig): SupervisorClient {
+  return {
+    get<T>(path: string): Promise<T> {
+      return headlampClient(contextFor(s, path)).get<T>(path);
+    },
+  };
+}
+
+export function supervisorWriter(s: SupervisorConfig): SupervisorWriter {
+  return {
+    send(req: WriteRequest, dryRun: boolean): Promise<unknown> {
+      return headlampWriter(contextFor(s, req.path)).send(req, dryRun);
     },
   };
 }

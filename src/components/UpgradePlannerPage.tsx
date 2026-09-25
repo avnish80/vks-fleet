@@ -13,11 +13,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { upgradePlan, upgradeProgress } from '../actions';
 import { describeError } from '../api/client';
-import { headlampWriter } from '../api/headlampClient';
+import { supervisorWriter } from '../api/headlampClient';
 import {
   canStart,
   PlanEntry,
@@ -30,9 +31,7 @@ import {
 } from '../planner';
 import { upgradeKind, upgradeTargets } from '../releases';
 import { clusterPath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { FleetCluster, SupervisorResult } from '../types';
-import { useFleet } from '../useFleet';
 import { usePolling } from '../usePolling';
 import { useWorkloadHealth } from '../useWorkload';
 import { blockingPdbs } from './ActionDialog';
@@ -64,8 +63,7 @@ type Row = { c: FleetCluster; r: SupervisorResult; entry: PlanEntry; ready: Read
 type RunResult = { cluster: string; ok: boolean; message: string };
 
 export function UpgradePlannerPage() {
-  const config = usePluginConfig();
-  const { results, refresh } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results, refresh, canWrite } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const stored = usePlanRaw()?.entries ?? {};
@@ -166,7 +164,8 @@ export function UpgradePlannerPage() {
                     <Button
                       size="small"
                       variant="contained"
-                      disabled={!gate.ok || st === 'done' || st === 'running'}
+                      disabled={!gate.ok || st === 'done' || st === 'running' || !members.every(m => canWrite(m.r.supervisor.id))}
+                      title={members.every(m => canWrite(m.r.supervisor.id)) ? undefined : 'Read-only access: upgrades are not allowed'}
                       onClick={() => setRunWave(w)}
                     >
                       Upgrade wave {w}
@@ -337,7 +336,7 @@ function RunWaveDialog({
       available: m.r.releases ?? [],
       blockingPdbs: pdbs?.get(m.c.key),
     }),
-    writer: headlampWriter(m.r.supervisor.headlampCluster),
+    writer: supervisorWriter(m.r.supervisor),
   }));
 
   async function run(dryRun: boolean) {

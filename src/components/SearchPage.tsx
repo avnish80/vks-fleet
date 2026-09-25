@@ -1,18 +1,16 @@
 import { SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, TextField, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
 import { parseQuery, searchCluster, SearchHit, searchSupervisor } from '../search';
-import { usePluginConfig } from '../settings/store';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 
 export const SEARCH_PATH = '/vks-fleet/search';
 
 export function SearchPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const location = useLocation();

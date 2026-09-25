@@ -1,0 +1,48 @@
+# Tenant view for one VCF Automation org: sees only that org's clusters, with
+# the org user's own rights (an org admin can act; lesser roles are read-only).
+# Access tokens from VCFA last about an hour, so the refresher runs every 30 minutes.
+#   kubectl create namespace vks-fleet-org2
+#   kubectl -n vks-fleet-org2 apply --server-side -f https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet-plugin-configmap.yaml
+#   kubectl -n vks-fleet-org2 create secret generic vks-fleet-vcfa --from-literal=api-token=…
+#   edit refresher.env and config.json, then: kubectl apply -k deploy/overlays/tenant
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vks-fleet-org2
+resources:
+  - ../..
+patches:
+  - target:
+      kind: Namespace
+      name: vks-fleet
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: vks-fleet-org2
+  - target:
+      kind: CronJob
+      name: vks-fleet-refresher
+    patch: |-
+      - op: replace
+        path: /spec/schedule
+        value: "*/30 * * * *"
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env
+        value:
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: VCFA_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: vks-fleet-vcfa
+                key: api-token
+configMapGenerator:
+  - name: vks-fleet-settings
+    behavior: replace
+    files:
+      - config.json
+  - name: vks-fleet-refresher-env
+    behavior: replace
+    envs:
+      - refresher.env

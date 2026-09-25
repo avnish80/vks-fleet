@@ -12,6 +12,7 @@ import { CapacityPage } from './components/CapacityPage';
 import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
 import { UpgradePlannerPage } from './components/UpgradePlannerPage';
+import { PageFrame } from './components/PersonaBar';
 import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
@@ -56,15 +57,39 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <SearchPage />,
+  component: () => (
+    <PageFrame>
+      <SearchPage />
+    </PageFrame>
+  ),
 });
 
 for (const page of [
-  { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => <UpgradePlannerPage /> },
-  { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => <CapacityPage /> },
-  { path: BASELINE_PATH, name: 'vks-fleet-baseline', component: () => <BaselinePage /> },
-  { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', component: () => <CleanupPage /> },
-  { path: ACCESS_PATH, name: 'vks-fleet-access', component: () => <AccessPage /> },
+  { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
+    <PageFrame>
+      <UpgradePlannerPage />
+    </PageFrame>
+  ) },
+  { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => (
+    <PageFrame>
+      <CapacityPage />
+    </PageFrame>
+  ) },
+  { path: BASELINE_PATH, name: 'vks-fleet-baseline', component: () => (
+    <PageFrame>
+      <BaselinePage />
+    </PageFrame>
+  ) },
+  { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', component: () => (
+    <PageFrame>
+      <CleanupPage />
+    </PageFrame>
+  ) },
+  { path: ACCESS_PATH, name: 'vks-fleet-access', component: () => (
+    <PageFrame>
+      <AccessPage />
+    </PageFrame>
+  ) },
 ]) {
   registerRoute({
     path: page.path,
@@ -84,7 +109,11 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <MachinesPage />,
+  component: () => (
+    <PageFrame>
+      <MachinesPage />
+    </PageFrame>
+  ),
 });
 
 registerRoute({
@@ -94,7 +123,11 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <PackagesPage />,
+  component: () => (
+    <PageFrame>
+      <PackagesPage />
+    </PageFrame>
+  ),
 });
 
 registerRoute({
@@ -104,7 +137,11 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <FleetView />,
+  component: () => (
+    <PageFrame>
+      <FleetView />
+    </PageFrame>
+  ),
 });
 
 registerRoute({
@@ -114,7 +151,11 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <ClusterDetail />,
+  component: () => (
+    <PageFrame>
+      <ClusterDetail />
+    </PageFrame>
+  ),
 });
 
 registerRoute({
@@ -124,7 +165,11 @@ registerRoute({
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
-  component: () => <MachineDetail />,
+  component: () => (
+    <PageFrame>
+      <MachineDetail />
+    </PageFrame>
+  ),
 });
 
 // Settings are saved as they're edited through ConfigStore, so no Save button.

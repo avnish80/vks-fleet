@@ -1,12 +1,11 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, FormControlLabel, Switch, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
 import { clusterPath, machinePath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { FleetCluster, MachineInfo } from '../types';
-import { useFleet } from '../useFleet';
 
 type Row = MachineInfo & { cluster: FleetCluster; problem?: string };
 
@@ -21,8 +20,7 @@ export function machineProblem(m: MachineInfo, now: Date): string | undefined {
 }
 
 export function MachinesPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { results } = useFleetData();
   const now = new Date();
   const rows: Row[] = (results ?? []).flatMap(r =>
     r.clusters.flatMap(c => c.machines.map(m => ({ ...m, cluster: c, problem: machineProblem(m, now) })))

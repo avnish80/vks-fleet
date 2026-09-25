@@ -1,0 +1,33 @@
+{
+  "refreshSeconds": 30,
+  "readOnly": false,
+  "supervisors": [
+    {
+      "id": "org2",
+      "displayName": "org2",
+      "headlampCluster": "org2:org2-ns1-mrrtd:default-project",
+      "mode": "vcfa",
+      "org": "org2",
+      "namespaces": [
+        "org2-ns1-mrrtd"
+      ],
+      "namespaceContexts": {
+        "org2-ns1-mrrtd": "org2:org2-ns1-mrrtd:default-project"
+      },
+      "tenantLabelKey": "",
+      "tenantNames": {}
+    }
+  ],
+  "baseline": {
+    "controlPlaneReplicas": 3,
+    "minPoolNodes": 2,
+    "certificateRotation": true,
+    "healthCheck": true,
+    "latestClass": true,
+    "maxMinorsBehind": 1,
+    "multiZone": true,
+    "vmClasses": [],
+    "storageClasses": [],
+    "backupWithinHours": 26
+  }
+}

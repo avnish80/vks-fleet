@@ -16,6 +16,28 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 
 **Preset settings:** a `config.json` in the plugin folder (same fields as the settings page) configures every browser that has no settings of its own. The deployment ships it from a ConfigMap. On a jump server you can drop one into `~/headlamp-plugins/vks-fleet/config.json`. The settings page shows when a preset is in use, and offers "Copy to edit" to override it for that browser.
 
+## Who is signed in
+
+The Supervisor's permissions are the boundary; the plugin adapts its view to them. At the top of every plugin page a bar shows who is signed in, worked out from the Supervisor's own answers to "can I?" checks:
+
+| Persona | Signed in as | Sees | Can do |
+|---|---|---|---|
+| **Operator** | an admin account on the Supervisor | every org, with an **Org** switcher | every action |
+| **Read-only admin** | an account that can list everywhere but not change clusters | every org, with an **Org** switcher | nothing: actions are hidden |
+| **Tenant** | an org user through VCF Automation | only that org's namespaces and clusters | what the org role allows (an org admin can act) |
+
+- **The Org switcher** scopes every plugin page (overview, issues, clusters, machines, packages, search, capacity, upgrades, baseline, cleanup, access) and is remembered between pages. When an operator narrows to one org, a note says actions still use operator rights.
+- **Actions follow permissions:** buttons are hidden where the identity can't make changes.
+- **Read-only view:** a setting (and the `readOnly` preset) turns actions off even for an account that could make changes, for example on a NOC screen.
+
+**Tenants through VCF Automation.** Org users live in VCF Automation, not vSphere SSO, so they sign in with the VCF CLI:
+
+```bash
+vcf context create org2 --endpoint https://<vcf-automation> --api-token <token> --tenant-name <org> [--insecure-skip-tls-verify]
+```
+
+This creates contexts named `<org>:<namespace>:<project>`, each pointing at VCF Automation's proxy for one namespace. The plugin finds them by itself. With no Supervisor configured, the orgs are used automatically; otherwise the settings page offers **Add**. Each namespace's requests go to its own context, and the org name is the tenant name. VCF Automation tokens last about an hour: refresh with `vcf context refresh <context>` (for example from cron), or use the deployment's tenant overlay, which refreshes every 30 minutes.
+
 ## What it shows
 
 **Everything on the overview is clickable** and leads to the data behind it:
@@ -335,6 +357,10 @@ src/
   cleanup.ts            Leftovers on the Supervisor
   backups.ts            Velero status per cluster
   access.ts             Namespace access and connection instructions
+  persona.ts            Who is signed in, from SelfSubjectAccessReview
+  vcfa.ts               VCF Automation org contexts and per-namespace routing
+  scope.ts              Org scoping for the switcher
+  fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes

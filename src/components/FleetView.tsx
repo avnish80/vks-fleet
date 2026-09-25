@@ -12,6 +12,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { scorecard } from '../checks';
@@ -23,14 +24,11 @@ import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
 import { compliance, evaluateBaseline } from '../baseline';
-import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import {
   capacityText,
-  FindingsTable,
   HealthLabel,
   IssuesText,
   nodesText,
@@ -63,8 +61,7 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const config = usePluginConfig();
-  const { results, refreshing, refresh } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results, refreshing, refresh } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.

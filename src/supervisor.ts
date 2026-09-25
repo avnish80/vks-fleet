@@ -21,12 +21,13 @@ export async function listFirstServed(
   group: string,
   versions: string[],
   plural: string,
-  namespaces: string[]
+  namespaces: string[],
+  namespacedOnly = false
 ): Promise<ListResult<KubeObject>> {
   let last: unknown;
   for (const v of versions) {
     try {
-      return await scopedList<KubeObject>(client, `/apis/${group}/${v}`, plural, namespaces);
+      return await scopedList<KubeObject>(client, `/apis/${group}/${v}`, plural, namespaces, namespacedOnly);
     } catch (err) {
       if (statusOf(err) !== 404) throw err;
       last = err;

@@ -4,7 +4,7 @@
  * developer.
  */
 import { describeError, SupervisorClient } from './api/client';
-import { AccessEntry, FleetCluster } from './types';
+import { AccessEntry, FleetCluster, SupervisorConfig } from './types';
 
 export function isSystemSubject(kind: string, name: string): boolean {
   return (
@@ -48,14 +48,30 @@ export async function fetchAccess(client: SupervisorClient, namespace: string): 
 }
 
 /** Plain-language instructions for a developer to connect to a cluster. */
-export function connectInstructions(c: FleetCluster, supervisorServer: string): string {
+export function connectInstructions(c: FleetCluster, s: SupervisorConfig): string {
+  if (s.mode === 'vcfa') {
+    return [
+      `To connect to the VKS cluster ${c.name} (org ${s.org ?? c.tenantName}):`,
+      '',
+      '1. Install the VCF CLI and kubectl.',
+      '2. In VCF Automation, create an API token (your user menu, then API tokens).',
+      '3. Create your contexts:',
+      '',
+      `   vcf context create ${s.org ?? '<org>'} --endpoint https://<vcf-automation> --api-token <token> --tenant-name <org>`,
+      '',
+      `4. Get the cluster's kubeconfig from VCF Automation (the cluster's page, or the VCF CLI), then:  kubectl get nodes`,
+      '',
+      'Sign-ins through VCF Automation last about an hour; refresh with: vcf context refresh <context>.',
+    ].join('\n');
+  }
+  const server = s.headlampCluster;
   return [
     `To connect to the VKS cluster ${c.name}:`,
     '',
-    `1. Download the Kubernetes CLI tools (kubectl and the vSphere plugin) from https://${supervisorServer} and put both on your PATH.`,
+    `1. Download the Kubernetes CLI tools (kubectl and the vSphere plugin) from https://${server} and put both on your PATH.`,
     '2. Sign in with your vSphere or VCF account:',
     '',
-    `   kubectl vsphere login --server=${supervisorServer} --vsphere-username <you@domain> --insecure-skip-tls-verify \\`,
+    `   kubectl vsphere login --server=${server} --vsphere-username <you@domain> --insecure-skip-tls-verify \\`,
     `     --tanzu-kubernetes-cluster-namespace ${c.namespace} --tanzu-kubernetes-cluster-name ${c.name}`,
     '',
     `3. Use the context:  kubectl config use-context ${c.name}`,

@@ -1,18 +1,16 @@
 import { Loader, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Typography } from '@mui/material';
+import { Alert, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
 import { clusterPath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { CleanupItem, FleetCluster } from '../types';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { Runbook } from './IssuesList';
 
 export function CleanupPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   if (results === null) return <Loader title="Looking for leftovers" />;

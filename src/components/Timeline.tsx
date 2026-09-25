@@ -1,4 +1,4 @@
-import { Box, Button, Typography, useTheme } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import React from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import { clusterDeepLink, machinePath } from '../routes';

@@ -1,13 +1,12 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, MenuItem, TextField, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { classSize, fits, NamespaceHeadroom, namespaceHeadroom, QuotaLine, upgradeSurge } from '../headroom';
 import { formatBytes } from '../quantity';
 import { clusterPath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { FleetCluster, VmClassInfo } from '../types';
-import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { BarList, ChartStyles, Tone } from './charts';
 
@@ -169,8 +168,7 @@ function NamespaceCard({ ns, usage }: { ns: NamespaceHeadroom; usage: Map<string
 }
 
 export function CapacityPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { config, results } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   if (results === null) return <Loader title="Loading capacity" />;

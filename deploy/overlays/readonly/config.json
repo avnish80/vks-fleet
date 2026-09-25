@@ -1,0 +1,29 @@
+{
+  "refreshSeconds": 30,
+  "supervisors": [
+    {
+      "id": "wld",
+      "headlampCluster": "10.150.4.2",
+      "displayName": "wld",
+      "namespaces": [],
+      "tenantLabelKey": "vmware-system-vcf/organization-id",
+      "tenantNames": {
+        "81bc9f2a-8e16-46e0-b7e2-3e94bf215fc1": "org1",
+        "6b9e01e4-8214-4c8a-9378-eae07e9e5dde": "org2"
+      }
+    }
+  ],
+  "baseline": {
+    "controlPlaneReplicas": 3,
+    "minPoolNodes": 2,
+    "certificateRotation": true,
+    "healthCheck": true,
+    "latestClass": true,
+    "maxMinorsBehind": 1,
+    "multiZone": true,
+    "vmClasses": [],
+    "storageClasses": [],
+    "backupWithinHours": 26
+  },
+  "readOnly": true
+}

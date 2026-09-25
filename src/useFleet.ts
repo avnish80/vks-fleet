@@ -1,5 +1,5 @@
 import React from 'react';
-import { headlampClient } from './api/headlampClient';
+import { supervisorClient } from './api/headlampClient';
 import { fetchFleet } from './fleet';
 import { SupervisorConfig, SupervisorResult } from './types';
 
@@ -31,7 +31,7 @@ export function useFleet(supervisors: SupervisorConfig[], refreshSeconds: number
       running = true;
       setRefreshing(true);
       try {
-        const r = await fetchFleet(sups, s => headlampClient(s.headlampCluster));
+        const r = await fetchFleet(sups, s => supervisorClient(s));
         if (!cancelled) {
           setResults(r);
         }

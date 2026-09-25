@@ -71,6 +71,9 @@ function normalizeSupervisor(raw: Partial<SupervisorConfig>): SupervisorConfig |
     tenantLabelKey:
       raw.tenantLabelKey === undefined ? DEFAULT_TENANT_LABEL : String(raw.tenantLabelKey).trim(),
     tenantNames: sanitizeNames(raw.tenantNames),
+    mode: raw.mode === 'vcfa' ? 'vcfa' : 'supervisor',
+    org: raw.org?.trim() || undefined,
+    namespaceContexts: raw.namespaceContexts ? sanitizeNames(raw.namespaceContexts) : undefined,
   };
 }
 
@@ -96,5 +99,6 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     refreshSeconds:
       Number.isFinite(refresh) && refresh >= MIN_REFRESH_SECONDS ? refresh : DEFAULT_REFRESH_SECONDS,
     baseline: normalizeBaseline(raw?.baseline),
+    readOnly: raw?.readOnly === true,
   };
 }

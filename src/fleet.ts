@@ -1,4 +1,4 @@
-import { describeError, SupervisorClient } from './api/client';
+import { describeError, statusOf, SupervisorClient } from './api/client';
 import { ListResult, scopedList } from './api/scopedList';
 import { KubeObject, PATHS, toFleetClusters } from './capi/v1beta1';
 import { fetchReleaseVersions, findUpgrade, parseVersion } from './releases';
@@ -59,14 +59,26 @@ export async function fetchSupervisor(
 ): Promise<SupervisorResult> {
   const fetchedAt = now.toISOString();
   const warnings: string[] = [];
+  // VCF Automation tenants reach each namespace through its own proxy
+  // endpoint, so there's no Supervisor-wide view to try first.
+  const vcfa = supervisor.mode === 'vcfa';
   const list = (p: { prefix: string; plural: string }, namespaces: string[]) =>
-    scopedList<KubeObject>(client, p.prefix, p.plural, namespaces);
+    scopedList<KubeObject>(client, p.prefix, p.plural, namespaces, vcfa);
 
   let clusters: ListResult<KubeObject>;
   try {
     clusters = await list(PATHS.clusters, supervisor.namespaces);
   } catch (err) {
-    return { supervisor, clusters: [], error: describeError(err), warnings, fetchedAt };
+    const expired = vcfa && statusOf(err) === 401;
+    return {
+      supervisor,
+      clusters: [],
+      error: expired
+        ? `The VCF Automation sign-in for ${supervisor.org} has expired (tokens last about an hour). Run: vcf context refresh ${supervisor.org}`
+        : describeError(err),
+      warnings,
+      fetchedAt,
+    };
   }
   warnings.push(...clusters.warnings);
 
@@ -80,14 +92,14 @@ export async function fetchSupervisor(
     list(PATHS.controlPlanes, rest),
     list(PATHS.machines, rest),
     list(PATHS.machineHealthChecks, rest),
-    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachines', rest),
-    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachineclasses', rest),
-    scopedList<KubeObject>(client, '/api/v1', 'resourcequotas', rest),
+    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachines', rest, vcfa),
+    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachineclasses', rest, vcfa),
+    scopedList<KubeObject>(client, '/api/v1', 'resourcequotas', rest, vcfa),
     fetchReleaseVersions(client),
     // Supervisor-wide namespace list: tenant labels plus Supervisor services. Operators only.
     operator ? client.get<{ items?: KubeObject[] }>('/api/v1/namespaces') : Promise.resolve(undefined),
-    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachineservices', rest),
-    scopedList<KubeObject>(client, '/api/v1', 'persistentvolumeclaims', rest),
+    listFirstServed(client, 'vmoperator.vmware.com', VMOP_VERSIONS, 'virtualmachineservices', rest, vcfa),
+    scopedList<KubeObject>(client, '/api/v1', 'persistentvolumeclaims', rest, vcfa),
   ]);
 
   const optional = <T>(r: PromiseSettledResult<ListResult<T>>, what: string): T[] => {
@@ -116,7 +128,11 @@ export async function fetchSupervisor(
     allNamespaces.status === 'fulfilled' ? allNamespaces.value?.items : undefined;
 
   let tenantOf = labelTenantResolver('', [], supervisor.tenantNames);
-  if (supervisor.tenantLabelKey) {
+  if (vcfa && supervisor.org) {
+    // The org is the tenant; its namespaces' labels aren't needed (or readable).
+    const org = supervisor.org;
+    tenantOf = () => ({ tenantId: org, tenantName: supervisor.tenantNames[org] ?? org, mapped: true, named: true });
+  } else if (supervisor.tenantLabelKey) {
     let nsObjects = namespaceList;
     if (!nsObjects) {
       const names = Array.from(new Set(clusters.items.map(c => c.metadata.namespace ?? '').filter(Boolean)));

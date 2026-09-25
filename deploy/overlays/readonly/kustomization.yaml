@@ -1,0 +1,24 @@
+# Read-only admin: sees every org, never offers actions.
+# Uses its own namespace, URL and vSphere account (give that account view-only rights):
+#   kubectl create namespace vks-fleet-readonly
+#   kubectl -n vks-fleet-readonly apply --server-side -f https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet-plugin-configmap.yaml
+#   kubectl -n vks-fleet-readonly create secret generic vks-fleet-vsphere --from-literal=username=… --from-literal=password=…
+#   kubectl apply -k deploy/overlays/readonly
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vks-fleet-readonly
+resources:
+  - ../..
+patches:
+  - target:
+      kind: Namespace
+      name: vks-fleet
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: vks-fleet-readonly
+configMapGenerator:
+  - name: vks-fleet-settings
+    behavior: replace
+    files:
+      - config.json

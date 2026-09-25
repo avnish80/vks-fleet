@@ -347,7 +347,7 @@ function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date, sup: stri
 
 const IDLE_AFTER_MS = 7 * 86400000;
 
-function backupIssues(c: FleetCluster, b: BackupStatus, now: Date, sup: string, withinHours: number): Issue[] {
+function backupIssues(c: FleetCluster, b: BackupStatus, now: Date, withinHours: number): Issue[] {
   const out: Issue[] = [];
   if (b.missing || b.error) return out;
   const k = `kubectl --context ${b.contextName}`;
@@ -402,7 +402,7 @@ export function buildIssues(
     const sup = r?.supervisor.headlampCluster ?? c.supervisorId;
     issues.push(...clusterIssues(c, workload.get(c.key), findings, now, sup, r?.events ?? []));
     const bk = backups?.get(c.key);
-    if (bk) issues.push(...backupIssues(c, bk, now, sup, backupWithinHours));
+    if (bk) issues.push(...backupIssues(c, bk, now, backupWithinHours));
     const wl = workload.get(c.key);
     if (wl?.userPods === 0 && c.createdAt && now.getTime() - new Date(c.createdAt).getTime() > IDLE_AFTER_MS) {
       issues.push({

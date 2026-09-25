@@ -6,18 +6,17 @@ import {
   StatusLabel,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Button, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { replacePlan } from '../actions';
-import { headlampClient, headlampWriter } from '../api/headlampClient';
+import { headlampClient, supervisorClient, supervisorWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
 import { deletionStage, fetchMachineDetail, fetchNodeView, machineStatusNotes, NodePod } from '../machine';
 import { formatBytes } from '../quantity';
 import { clusterPath, headlampNodePath, headlampPodPath } from '../routes';
-import { usePluginConfig } from '../settings/store';
 import { ClusterCondition, clusterKey, EventInfo } from '../types';
-import { useFleet } from '../useFleet';
 import { usePolling } from '../usePolling';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog, TimeoutDialog } from './ActionDialog';
@@ -65,10 +64,10 @@ function ConditionsTable({ conditions }: { conditions: ClusterCondition[] }) {
 
 export function MachineDetail() {
   const params = useParams<{ supervisor: string; namespace: string; name: string; machine: string }>();
-  const config = usePluginConfig();
+  const { config, all, refresh: refreshAll, canWrite: canWriteFor } = useFleetData();
   const supervisor = config.supervisors.find(s => s.id === params.supervisor);
-  const scoped = React.useMemo(() => (supervisor ? [supervisor] : []), [supervisor]);
-  const { results, refresh } = useFleet(scoped, config.refreshSeconds);
+  const results = all;
+  const refresh = refreshAll;
   const cluster = results?.flatMap(r => r.clusters).find(c => c.key === clusterKey(params.supervisor, params.namespace, params.name));
   const machine = cluster?.machines.find(m => m.name === params.machine);
 
@@ -79,7 +78,7 @@ export function MachineDetail() {
   const target = supervisor?.headlampCluster;
   const detail = usePolling(
     target ? `${target}/${params.namespace}/${params.machine}` : null,
-    () => fetchMachineDetail(headlampClient(target as string), params.namespace, params.machine),
+    () => fetchMachineDetail(supervisorClient(supervisor!), params.namespace, params.machine),
     config.refreshSeconds
   );
   const nodeName = machine?.nodeName;
@@ -90,7 +89,8 @@ export function MachineDetail() {
     config.refreshSeconds
   );
 
-  const writer = React.useMemo(() => (target ? headlampWriter(target) : null), [target]);
+  const writeOk = supervisor ? canWriteFor(supervisor.id) : false;
+  const writer = React.useMemo(() => (supervisor && writeOk ? supervisorWriter(supervisor) : null), [target, writeOk]);
   const [action, setAction] = React.useState<'replace' | 'unblock' | 'timeouts' | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
 
@@ -130,7 +130,7 @@ export function MachineDetail() {
   };
 
   const stage = detail ? deletionStage(detail) : undefined;
-  const buttons = [
+  const buttons = !writeOk ? [] : [
     machine.deletingSince ? (
       pool ? (
         <Button key="unblock" size="small" color="warning" variant="outlined" onClick={() => setAction('unblock')}>

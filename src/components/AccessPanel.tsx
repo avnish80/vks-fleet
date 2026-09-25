@@ -1,13 +1,12 @@
 import { Loader, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Button, FormControlLabel, Switch, Typography } from '@mui/material';
+import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { connectInstructions, fetchAccess } from '../access';
-import { headlampClient } from '../api/headlampClient';
+import { supervisorClient } from '../api/headlampClient';
 import { clusterPath } from '../routes';
-import { usePluginConfig } from '../settings/store';
-import { AccessEntry, FleetCluster, SupervisorResult } from '../types';
-import { useFleet } from '../useFleet';
+import { AccessEntry, FleetCluster, SupervisorConfig, SupervisorResult } from '../types';
 import { usePolling } from '../usePolling';
 
 function CopyText({ text, label }: { text: string; label: string }) {
@@ -33,19 +32,19 @@ function CopyText({ text, label }: { text: string; label: string }) {
 
 /** Who can reach one Supervisor namespace, and how a developer connects to its clusters. */
 export function NamespaceAccess({
-  supervisorContext,
+  supervisor,
   namespace,
   clusters,
   showSystemDefault = false,
 }: {
-  supervisorContext: string;
+  supervisor: SupervisorConfig;
   namespace: string;
   clusters: FleetCluster[];
   showSystemDefault?: boolean;
 }) {
   const [showSystem, setShowSystem] = React.useState(showSystemDefault);
   const [shown, setShown] = React.useState<string | null>(null);
-  const access = usePolling(`${supervisorContext}/${namespace}`, () => fetchAccess(headlampClient(supervisorContext), namespace), 300);
+  const access = usePolling(`${supervisor.id}/${namespace}`, () => fetchAccess(supervisorClient(supervisor), namespace), 300);
   const entries = (access?.entries ?? []).filter(e => showSystem || !e.system);
   return (
     <Box>
@@ -75,7 +74,7 @@ export function NamespaceAccess({
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         {clusters.map(c => (
           <Box key={c.key} sx={{ display: 'flex', gap: 1 }}>
-            <CopyText text={connectInstructions(c, supervisorContext)} label={`Copy for ${c.name}`} />
+            <CopyText text={connectInstructions(c, supervisor)} label={`Copy for ${c.name}`} />
             <Button size="small" onClick={() => setShown(shown === c.key ? null : c.key)}>
               {shown === c.key ? 'Hide' : 'Show'}
             </Button>
@@ -84,7 +83,7 @@ export function NamespaceAccess({
       </Box>
       {shown && (
         <Box component="pre" sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover', borderRadius: 1, whiteSpace: 'pre-wrap', fontSize: '0.8rem' }}>
-          {connectInstructions(clusters.find(c => c.key === shown)!, supervisorContext)}
+          {connectInstructions(clusters.find(c => c.key === shown)!, supervisor)}
         </Box>
       )}
     </Box>
@@ -92,8 +91,7 @@ export function NamespaceAccess({
 }
 
 export function AccessPage() {
-  const config = usePluginConfig();
-  const { results } = useFleet(config.supervisors, config.refreshSeconds);
+  const { results } = useFleetData();
   if (results === null) return <Loader title="Loading namespaces" />;
   const spaces: Array<{ r: SupervisorResult; ns: string; clusters: FleetCluster[] }> = results.flatMap(r => {
     const byNs = new Map<string, FleetCluster[]>();
@@ -120,7 +118,7 @@ export function AccessPage() {
               </React.Fragment>
             ))}
           </Typography>
-          <NamespaceAccess supervisorContext={s.r.supervisor.headlampCluster} namespace={s.ns} clusters={s.clusters} />
+          <NamespaceAccess supervisor={s.r.supervisor} namespace={s.ns} clusters={s.clusters} />
         </SectionBox>
       ))}
     </>

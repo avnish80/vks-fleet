@@ -51,6 +51,33 @@ kubectl -n vks-fleet logs -f job/first-signin
 
 The Headlamp pod waits in `ContainerCreating` until the first sign-in has written its Secret, then starts.
 
+## Personas: one instance each
+
+Each Headlamp instance acts as one identity. For operators, read-only admins and tenants, run one instance per persona, each in its own namespace with its own URL:
+
+| Overlay | Identity | Notes |
+|---|---|---|
+| `.` (base) | operator: a vSphere account with edit rights | as above |
+| `overlays/readonly` | a vSphere account with view-only rights | `readOnly: true` preset as well, so actions stay off whatever the account can do |
+| `overlays/tenant` | an org user through VCF Automation (API token) | the refresher runs in VCFA mode every 30 minutes; set `refresher.env` (endpoint, tenant name, namespaces with their URNs) and `config.json` |
+
+For the tenant overlay, find each namespace's URN in your VCF CLI context's server address:
+
+```bash
+kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"  "}{end}'; echo
+kubectl config view -o jsonpath='{.clusters[*].cluster.server}' | tr ' ' '\n' | grep proxy
+```
+
+Then create the API token Secret and apply:
+
+```bash
+kubectl create namespace vks-fleet-org2
+kubectl -n vks-fleet-org2 apply --server-side -f https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet-plugin-configmap.yaml
+kubectl -n vks-fleet-org2 create secret generic vks-fleet-vcfa --from-literal=api-token='…'
+kubectl apply -k overlays/tenant
+kubectl -n vks-fleet-org2 create job --from=cronjob/vks-fleet-refresher first-signin
+```
+
 ## Open it
 
 For a pilot, port-forward from wherever you run `kubectl`:

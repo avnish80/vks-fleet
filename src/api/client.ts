@@ -9,7 +9,7 @@ export interface SupervisorClient {
 
 /** One write to the Supervisor. Actions are short lists of these, applied in order. */
 export interface WriteRequest {
-  method: 'PATCH' | 'DELETE';
+  method: 'PATCH' | 'DELETE' | 'POST';
   path: string;
   body?: unknown;
   /** For PATCH: application/merge-patch+json or application/json-patch+json. */

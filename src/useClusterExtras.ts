@@ -1,5 +1,5 @@
 import React from 'react';
-import { headlampClient } from './api/headlampClient';
+import { supervisorClient } from './api/headlampClient';
 import { ClusterExtras, fetchClusterExtras } from './extras';
 import { SupervisorConfig } from './types';
 
@@ -16,7 +16,7 @@ export function useClusterExtras(
     if (!target) return;
     let cancelled = false;
     const run = async () => {
-      const e = await fetchClusterExtras(headlampClient(target), namespace, name);
+      const e = await fetchClusterExtras(supervisorClient(supervisor as SupervisorConfig), namespace, name);
       if (!cancelled) setExtras(e);
     };
     run();

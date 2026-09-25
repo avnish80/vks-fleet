@@ -26,6 +26,16 @@ export interface SupervisorConfig {
   tenantLabelKey: string;
   /** Tenant ID → display name, for IDs that aren't human-readable (VCFA org UUIDs). */
   tenantNames: Record<string, string>;
+  /**
+   * "supervisor" (default): a kubeconfig context for the Supervisor itself.
+   * "vcfa": an org's contexts through VCF Automation, one per namespace
+   * (namespaceContexts), each reached through VCFA's namespace proxy.
+   */
+  mode?: 'supervisor' | 'vcfa';
+  /** VCFA org name (vcfa mode); used as the tenant name. */
+  org?: string;
+  /** Namespace → Headlamp cluster (context) serving it (vcfa mode). */
+  namespaceContexts?: Record<string, string>;
 }
 
 export interface PluginConfig {
@@ -34,6 +44,8 @@ export interface PluginConfig {
   refreshSeconds: number;
   /** The fleet's standard cluster settings. */
   baseline?: Baseline;
+  /** Never offer actions, even when the identity could make changes (e.g. a NOC screen). */
+  readOnly?: boolean;
 }
 
 /** The fleet's standard: what every cluster should look like. */

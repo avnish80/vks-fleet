@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Paper, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, FormControlLabel, Paper, TextField, Typography } from '@mui/material';
 import React from 'react';
 import {
   DEFAULT_REFRESH_SECONDS,
@@ -10,6 +10,9 @@ import {
   parseTenantNames,
 } from '../config';
 import { SupervisorConfig } from '../types';
+import { listHeadlampClusters } from '../api/headlampClient';
+import { usePolling } from '../usePolling';
+import { discoverVcfaOrgs } from '../vcfa';
 import { useManagedConfig } from './managed';
 import { settingsStore, useRawSettings } from './store';
 
@@ -121,6 +124,8 @@ export function SettingsPanel() {
   }
 
   const managed = useManagedConfig();
+  const discovered = usePolling('settings-vcfa-discovery', async () => discoverVcfaOrgs(await listHeadlampClusters()), 60) ?? [];
+  const newOrgs = discovered.filter(d => !supervisors.some(x => x.id === d.id || x.headlampCluster === d.headlampCluster));
   const write = (list: Draft[]) => settingsStore.update({ supervisors: list as SupervisorConfig[] });
   const idOf = (s: Draft) => (s.id?.trim() || s.headlampCluster?.trim().toLowerCase() || '');
   const ids = supervisors.map(idOf);
@@ -191,6 +196,39 @@ export function SettingsPanel() {
           Add Supervisor
         </Button>
       </Box>
+      {newOrgs.length > 0 && (
+        <Alert severity="info">
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            VCF Automation org contexts found (from <code>vcf context create</code>). Adding one shows that org's clusters
+            with the org user's own rights:
+          </Typography>
+          {newOrgs.map(d => (
+            <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Typography variant="body2">
+                <b>{d.org}</b>: {d.namespaces.join(', ')}
+              </Typography>
+              <Button
+                size="small"
+                onClick={() => {
+                  write([...supervisors, d as Draft]);
+                  setKeys([...keys, nextKey.current++]);
+                }}
+              >
+                Add
+              </Button>
+            </Box>
+          ))}
+          {supervisors.length === 0 && (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              With no Supervisors configured, these orgs are used automatically.
+            </Typography>
+          )}
+        </Alert>
+      )}
+      <FormControlLabel
+        control={<Checkbox checked={raw.readOnly === true} onChange={e => settingsStore.update({ readOnly: e.target.checked })} />}
+        label="Read-only view: never offer actions, even when the signed-in account could make changes"
+      />
       <TextField
         label="Refresh every (seconds)"
         type="number"
