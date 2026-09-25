@@ -290,3 +290,76 @@ export function skipDrainPlan(c: FleetCluster, m: MachineInfo, skipVolumeWait: b
     },
   };
 }
+
+/* ---------------- Drain timeout on a node pool ---------------- */
+
+/** Go-style duration like "60s", "5m", "1h30m". Returns seconds, or undefined if invalid. */
+export function parseDuration(text: string): number | undefined {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text.trim());
+  if (!m || text.trim() === '') return undefined;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
+/**
+ * Sets (or clears, with timeout null) how long Cluster API keeps draining a
+ * node in this pool before deleting it anyway. Written on the Cluster's
+ * topology, which Cluster API passes down to the pool's existing machines,
+ * so it also unblocks a deletion that's already stuck in drain.
+ */
+export function drainTimeoutPlan(c: FleetCluster, pool: NodePool, timeout: string | null): ActionPlan {
+  const checks: Check[] = [];
+  const seconds = timeout === null ? undefined : parseDuration(timeout);
+  if (pool.topologyIndex === undefined) {
+    checks.push({ level: 'block', text: "This pool isn't managed through the cluster's topology." });
+  }
+  if (timeout === null) {
+    if (!pool.nodeDrainTimeout) checks.push({ level: 'block', text: 'This pool has no drain timeout to clear.' });
+    checks.push({ level: 'ok', text: 'Drains go back to waiting until every pod has been evicted.' });
+  } else if (seconds === undefined || seconds < 1) {
+    checks.push({ level: 'block', text: 'Enter a duration such as 60s, 5m or 1h.' });
+  } else {
+    const stuck = c.machines.filter(m => m.pool === pool.name && m.deletingSince);
+    checks.push({
+      level: 'warn',
+      text: `After ${timeout}, pods still on a draining node are stopped without eviction, and PodDisruptionBudgets are ignored.`,
+    });
+    if (stuck.length) {
+      checks.push({
+        level: 'ok',
+        text: `${stuck.length} machine${stuck.length === 1 ? ' is' : 's are'} stuck deleting in this pool. Their drain stops once the timeout has passed.`,
+      });
+    }
+    checks.push({
+      level: 'ok',
+      text: 'Once the stuck deletion finishes, clear the timeout again if this pool should normally wait for every pod.',
+    });
+  }
+  const i = pool.topologyIndex ?? -1;
+  const base = `/spec/topology/workers/machineDeployments/${i}`;
+  const clearing = timeout === null;
+  return {
+    id: `${c.key}#draintimeout#${pool.name}#${timeout ?? 'clear'}`,
+    title: clearing ? `Clear drain timeout on ${pool.name}` : `Set drain timeout on ${pool.name}`,
+    summary: clearing
+      ? `Removes the drain timeout (${pool.nodeDrainTimeout ?? 'none'}) from node pool ${pool.name}.`
+      : `Cluster API stops draining a node in ${pool.name} after ${timeout} and deletes it anyway.`,
+    checks,
+    reasonRequired: !clearing,
+    confirmText: clearing ? undefined : c.name,
+    applyLabel: clearing ? 'Clear timeout' : 'Set timeout',
+    requests: (reason, now) => [
+      {
+        method: 'PATCH',
+        path: clusterUrl(c),
+        contentType: JSON_PATCH,
+        body: [
+          { op: 'test', path: `${base}/name`, value: pool.name },
+          clearing
+            ? { op: 'remove', path: `${base}/nodeDrainTimeout` }
+            : { op: 'add', path: `${base}/nodeDrainTimeout`, value: timeout },
+        ],
+      },
+      stampCluster(c, clearing ? `cleared drain timeout on ${pool.name}` : `set drain timeout ${timeout} on ${pool.name}`, reason, now),
+    ],
+  };
+}

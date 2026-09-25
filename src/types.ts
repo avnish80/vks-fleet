@@ -62,6 +62,8 @@ export interface NodePool {
   vmClass?: string;
   storageClass?: string;
   failureDomain?: string;
+  /** From the topology, e.g. "5m0s". Unset means drains wait indefinitely. */
+  nodeDrainTimeout?: string;
   autoscaler?: { min?: number; max?: number };
 }
 

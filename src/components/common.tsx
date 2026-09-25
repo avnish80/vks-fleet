@@ -221,3 +221,31 @@ export function SupervisorBanners({ results }: { results: SupervisorResult[] }) 
     </Box>
   );
 }
+
+export function Code({ children }: { children: string }) {
+  return (
+    <Box
+      component="pre"
+      sx={{ p: 1.5, m: 0, overflowX: 'auto', fontSize: '0.85rem', bgcolor: 'action.hover', borderRadius: 1 }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+export function LoginHint({ cluster, supervisorHost }: { cluster: FleetCluster; supervisorHost?: string }) {
+  return (
+    <Box>
+      <Typography sx={{ mb: 1 }}>
+        Headlamp isn't signed in to this cluster yet. Sign in with your own account on the machine running
+        Headlamp, then reload Headlamp's kubeconfig (for the container setup: docker restart headlamp).
+      </Typography>
+      <Code>
+        {`kubectl vsphere login --server=${supervisorHost ?? '<supervisor>'} \\
+  --vsphere-username <you@domain> --insecure-skip-tls-verify \\
+  --tanzu-kubernetes-cluster-namespace ${cluster.namespace} \\
+  --tanzu-kubernetes-cluster-name ${cluster.name}`}
+      </Code>
+    </Box>
+  );
+}

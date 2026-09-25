@@ -5,9 +5,10 @@ import {
 } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { ClusterDetail } from './components/ClusterDetail';
+import { MachineDetail } from './components/MachineDetail';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { CLUSTER_PATH, FLEET_PATH } from './routes';
+import { CLUSTER_PATH, FLEET_PATH, MACHINE_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
@@ -45,6 +46,16 @@ registerRoute({
   useClusterURL: false,
   noAuthRequired: true,
   component: () => <ClusterDetail />,
+});
+
+registerRoute({
+  path: MACHINE_PATH,
+  sidebar: SIDEBAR,
+  name: 'vks-fleet-machine',
+  exact: true,
+  useClusterURL: false,
+  noAuthRequired: true,
+  component: () => <MachineDetail />,
 });
 
 // Settings are saved as they're edited through ConfigStore, so no Save button.

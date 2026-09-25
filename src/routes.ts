@@ -22,3 +22,20 @@ export function headlampClusterObjectPath(contextName: string, namespace: string
     namespace
   )}/${encodeURIComponent(name)}`;
 }
+
+export const MACHINE_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name/machines/:machine';
+
+export function machinePath(
+  c: { supervisorId: string; namespace: string; name: string },
+  machineName: string
+): string {
+  return `${clusterPath(c)}/machines/${machineName}`;
+}
+
+export function headlampNodePath(contextName: string, nodeName: string): string {
+  return `/c/${encodeURIComponent(contextName)}/nodes/${encodeURIComponent(nodeName)}`;
+}
+
+export function headlampPodPath(contextName: string, namespace: string, name: string): string {
+  return `/c/${encodeURIComponent(contextName)}/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+}

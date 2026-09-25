@@ -15,7 +15,7 @@ import { serverHost } from '../contexts';
 import { AddonInfo } from '../extras';
 import { clusterFindings, namespaceFindings } from '../findings';
 import { formatBytes } from '../quantity';
-import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath } from '../routes';
+import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import { usePluginConfig } from '../settings/store';
 import {
   ClusterCondition,
@@ -33,13 +33,22 @@ import {
 import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
-import { ActionDialog, ScaleDialog, SkipDrainDialog } from './ActionDialog';
-import { capacityText, FindingsTable, HealthLabel, replicas, SupervisorBanners, WorkloadCell } from './common';
+import { ActionDialog, DrainTimeoutDialog, ScaleDialog, SkipDrainDialog } from './ActionDialog';
+import {
+  capacityText,
+  FindingsTable,
+  HealthLabel,
+  LoginHint,
+  replicas,
+  SupervisorBanners,
+  WorkloadCell,
+} from './common';
 
 type OpenAction =
   | { kind: 'pause' }
   | { kind: 'resume' }
   | { kind: 'scale'; pool: NodePool }
+  | { kind: 'drain-timeout'; pool: NodePool }
   | { kind: 'replace'; machine: MachineInfo }
   | { kind: 'skip-drain'; machine: MachineInfo };
 
@@ -104,34 +113,6 @@ function poolSize(p: NodePool): string {
 function autoscaling(p: NodePool): string {
   if (!p.autoscaler) return 'Off';
   return `${p.autoscaler.min ?? '?'} to ${p.autoscaler.max ?? '?'} nodes`;
-}
-
-function Code({ children }: { children: string }) {
-  return (
-    <Box
-      component="pre"
-      sx={{ p: 1.5, m: 0, overflowX: 'auto', fontSize: '0.85rem', bgcolor: 'action.hover', borderRadius: 1 }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-function LoginHint({ cluster, supervisorHost }: { cluster: FleetCluster; supervisorHost?: string }) {
-  return (
-    <Box>
-      <Typography sx={{ mb: 1 }}>
-        Headlamp isn't signed in to this cluster yet. Sign in with your own account on the machine running
-        Headlamp, then reload Headlamp's kubeconfig (for the container setup: docker restart headlamp).
-      </Typography>
-      <Code>
-        {`kubectl vsphere login --server=${supervisorHost ?? '<supervisor>'} \\
-  --vsphere-username <you@domain> --insecure-skip-tls-verify \\
-  --tanzu-kubernetes-cluster-namespace ${cluster.namespace} \\
-  --tanzu-kubernetes-cluster-name ${cluster.name}`}
-      </Code>
-    </Box>
-  );
 }
 
 function InsideCluster({
@@ -426,12 +407,18 @@ export function ClusterDetail() {
               { label: 'Storage class', getter: (p: NodePool) => p.storageClass ?? '—' },
               { label: 'Zone', getter: (p: NodePool) => p.failureDomain ?? '—' },
               { label: 'Autoscaling', getter: (p: NodePool) => autoscaling(p) },
+              { label: 'Drain timeout', getter: (p: NodePool) => p.nodeDrainTimeout ?? 'None' },
               {
                 label: 'Actions',
                 getter: (p: NodePool) => (
-                  <Button size="small" onClick={() => setAction({ kind: 'scale', pool: p })}>
-                    Scale
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Button size="small" onClick={() => setAction({ kind: 'scale', pool: p })}>
+                      Scale
+                    </Button>
+                    <Button size="small" onClick={() => setAction({ kind: 'drain-timeout', pool: p })}>
+                      Drain timeout
+                    </Button>
+                  </Box>
                 ),
               },
             ]}
@@ -446,7 +433,10 @@ export function ClusterDetail() {
         ) : (
           <SimpleTable
             columns={[
-              { label: 'Node', getter: (m: MachineInfo) => m.nodeName ?? m.name },
+              {
+                label: 'Node',
+                getter: (m: MachineInfo) => <Link to={machinePath(cluster, m.name)}>{m.nodeName ?? m.name}</Link>,
+              },
               {
                 label: 'Role',
                 getter: (m: MachineInfo) => (m.role === 'control-plane' ? 'Control plane' : m.pool ?? 'Worker'),
@@ -610,6 +600,9 @@ export function ClusterDetail() {
       )}
       {writer && action?.kind === 'scale' && (
         <ScaleDialog cluster={cluster} pool={action.pool} writer={writer} onClose={closeAction} onApplied={applied} />
+      )}
+      {writer && action?.kind === 'drain-timeout' && (
+        <DrainTimeoutDialog cluster={cluster} pool={action.pool} writer={writer} onClose={closeAction} onApplied={applied} />
       )}
       {writer && action?.kind === 'replace' && (
         <ActionDialog

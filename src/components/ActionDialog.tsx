@@ -13,7 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import React, { ReactNode } from 'react';
-import { ActionPlan, blocked, CheckLevel, scalePlan, skipDrainPlan } from '../actions';
+import { ActionPlan, blocked, CheckLevel, drainTimeoutPlan, scalePlan, skipDrainPlan } from '../actions';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
 import { FleetCluster, MachineInfo, NodePool } from '../types';
 
@@ -25,10 +25,15 @@ const LEVEL: Record<CheckLevel, { text: string; status: 'success' | 'warning' | 
 
 type DryRun = { state: 'running' } | { state: 'ok' } | { state: 'error'; message: string } | { state: 'skipped' };
 
+/** Always keeps the Supervisor's own words: a 403 can be RBAC or an admission webhook. */
 function explain(err: unknown): string {
-  if (statusOf(err) === 403) return "Your account isn't allowed to make this change.";
   if (statusOf(err) === 409) return 'The cluster changed since this page loaded. Close this and try again.';
-  return describeError(err);
+  const text = describeError(err);
+  if (statusOf(err) === 403 && /admission webhook|denied the request/i.test(text)) {
+    return `A Supervisor admission rule rejected it. ${text}`;
+  }
+  if (statusOf(err) === 403) return `Your account may not be allowed to make this change. ${text}`;
+  return text;
 }
 
 async function runAll(plan: ActionPlan, writer: SupervisorWriter, reason: string, dryRun: boolean) {
@@ -45,9 +50,11 @@ export interface ActionDialogProps {
   onApplied: (message: string) => void;
   /** Extra inputs shown above the checks (e.g. the node count for scaling). */
   children?: ReactNode;
+  /** Shown under a rejected dry run, e.g. an alternative action to try. */
+  rejectedHint?: ReactNode;
 }
 
-export function ActionDialog({ plan, writer, onClose, onApplied, children }: ActionDialogProps) {
+export function ActionDialog({ plan, writer, onClose, onApplied, children, rejectedHint }: ActionDialogProps) {
   const [reason, setReason] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
   const [dry, setDry] = React.useState<DryRun>({ state: 'skipped' });
@@ -109,7 +116,12 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children }: Act
 
           {dry.state === 'running' && <Alert severity="info">Checking the change with the Supervisor (dry run)…</Alert>}
           {dry.state === 'ok' && <Alert severity="success">The Supervisor accepted this change in a dry run.</Alert>}
-          {dry.state === 'error' && <Alert severity="error">The Supervisor would reject this change: {dry.message}</Alert>}
+          {dry.state === 'error' && (
+            <Alert severity="error">
+              The Supervisor would reject this change. {dry.message}
+              {rejectedHint && <Box sx={{ mt: 1 }}>{rejectedHint}</Box>}
+            </Alert>
+          )}
 
           {!isBlocked && (
             <TextField
@@ -182,12 +194,56 @@ export function SkipDrainDialog(props: {
 }) {
   const [skipVolumes, setSkipVolumes] = React.useState(false);
   const plan = skipDrainPlan(props.cluster, props.machine, skipVolumes);
+  const hint = props.machine.pool
+    ? `If VKS doesn't allow editing machines directly, close this and use "Drain timeout" on node pool ${props.machine.pool} instead. It changes only the cluster and unblocks the same deletion.`
+    : undefined;
   return (
-    <ActionDialog plan={plan} writer={props.writer} onClose={props.onClose} onApplied={props.onApplied}>
+    <ActionDialog
+      plan={plan}
+      writer={props.writer}
+      onClose={props.onClose}
+      onApplied={props.onApplied}
+      rejectedHint={hint}
+    >
       <FormControlLabel
         control={<Checkbox checked={skipVolumes} onChange={e => setSkipVolumes(e.target.checked)} />}
         label="Also stop waiting for volumes to detach"
       />
+    </ActionDialog>
+  );
+}
+
+export function DrainTimeoutDialog(props: {
+  cluster: FleetCluster;
+  pool: NodePool;
+  writer: SupervisorWriter;
+  onClose: () => void;
+  onApplied: (message: string) => void;
+}) {
+  const hasTimeout = !!props.pool.nodeDrainTimeout;
+  const [mode, setMode] = React.useState<'set' | 'clear'>('set');
+  const [text, setText] = React.useState('60s');
+  const plan = drainTimeoutPlan(props.cluster, props.pool, mode === 'clear' ? null : text);
+  return (
+    <ActionDialog plan={plan} writer={props.writer} onClose={props.onClose} onApplied={props.onApplied}>
+      <Typography variant="body2">
+        Current drain timeout: {props.pool.nodeDrainTimeout ?? 'none (drains wait for every pod)'}
+      </Typography>
+      {hasTimeout && (
+        <FormControlLabel
+          control={<Checkbox checked={mode === 'clear'} onChange={e => setMode(e.target.checked ? 'clear' : 'set')} />}
+          label="Clear the timeout instead"
+        />
+      )}
+      {mode === 'set' && (
+        <TextField
+          label="Timeout (for example 60s, 5m, 1h)"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          size="small"
+          sx={{ maxWidth: 260 }}
+        />
+      )}
     </ActionDialog>
   );
 }

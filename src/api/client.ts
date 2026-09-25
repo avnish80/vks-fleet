@@ -31,9 +31,11 @@ export function describeError(err: unknown): string {
   if (status === 401) {
     return 'The Supervisor rejected the credentials (401). Sign in again and refresh the kubeconfig.';
   }
+  const message = (err instanceof Error ? err.message : String(err)).trim();
   if (status === 403) {
-    return 'Access denied (403).';
+    // 403 is also what admission webhooks return, so keep the server's own words.
+    const generic = !message || /^forbidden$/i.test(message);
+    return generic ? 'Access denied (403).' : `Access denied (403): ${message}`;
   }
-  const message = err instanceof Error ? err.message : String(err);
   return status ? `${message} (${status})` : message;
 }

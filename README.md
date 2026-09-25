@@ -35,6 +35,15 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 
 With more than one tenant it adds a tenant rollup (including node capacity in vCPU and memory, from VM class sizes) and the spread of Kubernetes versions. Operators with Supervisor-wide access also see the Supervisor services (VKS, Velero, CCI and the others), with pod health and a link to their pods and logs in Headlamp.
 
+**Machine page** (click a node in the Machines table):
+
+- what's happening, in plain words, from the machine's conditions. For a stuck deletion, this is usually the drain message naming the pods and PodDisruptionBudget.
+- machine details, drain start time and certificate expiry
+- the VM: power, class and size, image, IP, zone, and its conditions
+- when signed in to the cluster: the node (ready, cordoned, pressure, taints, capacity) and every pod on it, with which ones a PodDisruptionBudget blocks from draining, and links to the node and pods in Headlamp
+- machine conditions (including the detailed newer form), events and the raw object
+- actions: Replace or Skip drain, and Drain timeout on its pool
+
 **Cluster page:**
 
 - summary: tenant, versions, upgrade, class (and whether a newer one exists), OS, VM and storage class, API endpoint, pod and service networks, certificate expiry and rotation, automatic node repair status, node capacity
@@ -55,7 +64,8 @@ The cluster page can make changes on the Supervisor:
 - **Pause / Resume:** stop or restart reconciliation, for example during maintenance.
 - **Scale** a node pool: blocked for autoscaled pools.
 - **Replace** a node: delete its machine and let Cluster API rebuild it. Blocked for the only control-plane node, or while the cluster is paused.
-- **Skip drain**, on machines stuck deleting: a break-glass action that lets the deletion finish without evicting pods, optionally without waiting for volumes to detach.
+- **Skip drain**, on machines stuck deleting: a break-glass action that lets the deletion finish without evicting pods, optionally without waiting for volumes to detach. It annotates the Machine; if VKS doesn't allow editing Machines, the dialog shows the Supervisor's message and points to the drain timeout instead.
+- **Drain timeout** on a node pool: set or clear `nodeDrainTimeout` in the cluster's topology. Cluster API passes it down to the pool's machines, so it also unblocks a deletion that's already stuck. It only writes to the Cluster.
 
 Every action works the same way:
 
@@ -171,6 +181,7 @@ src/
   supervisor.ts         Node VMs, VM class sizes, capacity, quotas, class currency, Supervisor services
   findings.ts           Findings rules: severity, what's wrong, what to do
   actions.ts            Action plans: checks, confirmations and the exact writes
+  machine.ts            Machine page data: machine, VM, events; node, pods and drain blockers
   quantity.ts           Kubernetes quantity parsing
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
   contexts.ts           Match fleet clusters to Headlamp contexts by API endpoint
@@ -214,7 +225,12 @@ These Headlamp and VKS details were checked in CI or against a real Supervisor:
 - `noAuthRequired` on the home routes (without it the page stays blank)
 - VCFA's `vmware-system-vcf/organization-id` namespace label, and the CAPI and VKS resource names
 
-New in v0.4.0 and still to confirm on a live system:
+New in v0.5.0 and still to confirm on a live system:
+
+- Headlamp's node and pod pages at `/c/<cluster>/nodes/<name>` and `/c/<cluster>/pods/<ns>/<name>`
+- `nodeDrainTimeout` in the v1beta1 topology being propagated to machines that are already deleting
+
+From v0.4.0, still to confirm:
 
 - writes through `ApiProxy.request` with `method`, `headers` and `body` (PATCH merge and JSON patches, DELETE), and `?dryRun=All`
 - VKS admission webhooks accepting changes to `spec.topology.workers.machineDeployments[].replicas` and `spec.paused` through `cluster.x-k8s.io/v1beta1`

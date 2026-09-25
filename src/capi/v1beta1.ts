@@ -103,7 +103,11 @@ export function formatDuration(ms: number): string {
 }
 
 function conditions(obj: KubeObject): ClusterCondition[] {
-  const raw = obj.status?.conditions;
+  return parseConditions(obj.status?.conditions);
+}
+
+/** Normalizes a conditions array (v1beta1 or the newer v1beta2 form). */
+export function parseConditions(raw: unknown): ClusterCondition[] {
   if (!Array.isArray(raw)) {
     return [];
   }
@@ -190,6 +194,7 @@ function nodePools(cluster: KubeObject, mds: KubeObject[], clusterVars: Map<stri
           vmClass: str(overrides.get('vmClass')) ?? str(clusterVars.get('vmClass')),
           storageClass: str(overrides.get('storageClass')) ?? str(clusterVars.get('storageClass')),
           failureDomain: str(t.failureDomain) ?? str(md?.spec?.template?.spec?.failureDomain),
+          nodeDrainTimeout: str(t.nodeDrainTimeout),
           autoscaler: min !== undefined || max !== undefined ? { min, max } : undefined,
         };
       });
