@@ -61,6 +61,15 @@ Each Headlamp instance acts as one identity. For operators, read-only admins and
 | `overlays/readonly` | a vSphere account with view-only rights | `readOnly: true` preset as well, so actions stay off whatever the account can do |
 | `overlays/tenant` | an org user through VCF Automation (API token) | the refresher runs in VCFA mode every 30 minutes; set `refresher.env` (endpoint, tenant name, namespaces with their URNs) and `config.json` |
 
+Each preset sets `"identitySwitch": false`, so a shared instance never offers other identities, and viewers can't turn it back on. To let people move between instances, add links in each preset's `config.json`:
+
+```json
+"links": [
+  { "label": "Read-only view", "url": "https://fleet-readonly.example.com" },
+  { "label": "org2 view", "url": "https://fleet-org2.example.com" }
+]
+```
+
 For the tenant overlay, find each namespace's URN in your VCF CLI context's server address:
 
 ```bash

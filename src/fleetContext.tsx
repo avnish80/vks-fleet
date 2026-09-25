@@ -6,15 +6,16 @@
 import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 import React, { createContext, ReactNode, useContext } from 'react';
 import { listHeadlampClusters, supervisorWriter } from './api/headlampClient';
-import { detectPersona, PersonaInfo } from './persona';
+import { detectPersona, PersonaInfo, whoAmI } from './persona';
 import { ALL_ORGS, orgsOf, scopeResults } from './scope';
 import { usePluginConfig } from './settings/store';
 import { PluginConfig, SupervisorConfig, SupervisorResult } from './types';
 import { useFleet } from './useFleet';
 import { usePolling } from './usePolling';
 import { discoverVcfaOrgs } from './vcfa';
+import { identityPlan } from './identity';
 
-const viewStore = new ConfigStore<{ org?: string }>('vks-fleet-view');
+const viewStore = new ConfigStore<{ org?: string; identity?: string }>('vks-fleet-view');
 const useView = viewStore.useConfig();
 
 export interface FleetData {
@@ -35,15 +36,35 @@ export interface FleetData {
   orgs: Array<{ id: string; name: string; clusters: number }>;
   /** VCFA orgs found in Headlamp's contexts (used when nothing is configured). */
   discovered: SupervisorConfig[];
+  /** Identities this Headlamp can act as (when switching is allowed). */
+  identities: SupervisorConfig[];
+  identity?: string;
+  setIdentity: (id: string) => void;
+  /** Whether the "Signed in as" switch is offered. */
+  canSwitchIdentity: boolean;
+  /** User name per identity, when the API server says. */
+  userNames: Map<string, string>;
 }
 
 const Ctx = createContext<FleetData | null>(null);
 
 export function FleetProvider({ children }: { children: ReactNode }) {
   const settings = usePluginConfig();
+  const view = useView();
   const discovered =
     usePolling('vcfa-discovery', async () => discoverVcfaOrgs(await listHeadlampClusters()), 120) ?? [];
-  const config: PluginConfig = settings.supervisors.length ? settings : { ...settings, supervisors: discovered };
+  const { identities, canSwitch: canSwitchIdentity, active, supervisors } = identityPlan(settings, discovered, view?.identity);
+  const config: PluginConfig = { ...settings, supervisors };
+  const identityKey = identities.map(i => `${i.id}:${i.headlampCluster}`).join('|');
+  const userNames =
+    usePolling(
+      canSwitchIdentity ? `whoami|${identityKey}` : null,
+      async () => {
+        const names = await Promise.all(identities.map(async i => [i.id, await whoAmI(supervisorWriter(i))] as const));
+        return new Map(names.filter((x): x is readonly [string, string] => !!x[1]).map(([k, v]) => [k, v] as [string, string]));
+      },
+      600
+    ) ?? new Map<string, string>();
   const { results, refresh, refreshing } = useFleet(config.supervisors, config.refreshSeconds);
 
   const probeKey = config.supervisors.map(s => `${s.id}:${s.mode}:${s.headlampCluster}`).join('|');
@@ -64,7 +85,6 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       300
     ) ?? new Map<string, PersonaInfo>();
 
-  const view = useView();
   const orgs = orgsOf(results ?? []);
   const primary = config.supervisors[0] ? personas.get(config.supervisors[0].id) : undefined;
   const tenantView = primary?.persona === 'tenant' || primary?.persona === 'tenant-readonly';
@@ -84,6 +104,11 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     setOrg: o => viewStore.update({ org: o }),
     orgs,
     discovered,
+    identities,
+    identity: active?.id,
+    setIdentity: id => viewStore.update({ identity: id, org: ALL_ORGS }),
+    canSwitchIdentity,
+    userNames,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

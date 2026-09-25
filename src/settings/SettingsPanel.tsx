@@ -226,9 +226,30 @@ export function SettingsPanel() {
         </Alert>
       )}
       <FormControlLabel
-        control={<Checkbox checked={raw.readOnly === true} onChange={e => settingsStore.update({ readOnly: e.target.checked })} />}
-        label="Read-only view: never offer actions, even when the signed-in account could make changes"
+        control={
+          <Checkbox
+            checked={raw.readOnly === true || managed?.readOnly === true}
+            disabled={managed?.readOnly === true}
+            onChange={e => settingsStore.update({ readOnly: e.target.checked })}
+          />
+        }
+        label={`Read-only view: never offer actions, even when the signed-in account could make changes${
+          managed?.readOnly === true ? ' (set by your administrator)' : ''
+        }`}
       />
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={raw.identitySwitch !== false && managed?.identitySwitch !== false}
+            disabled={managed?.identitySwitch === false}
+            onChange={e => settingsStore.update({ identitySwitch: e.target.checked })}
+          />
+        }
+        label={`Offer "Signed in as" to switch between the accounts in this Headlamp's kubeconfig${
+          managed?.identitySwitch === false ? ' (turned off by your administrator)' : ''
+        }`}
+      />
+      <LinksEditor value={raw.links ?? []} />
       <TextField
         label="Refresh every (seconds)"
         type="number"
@@ -240,5 +261,32 @@ export function SettingsPanel() {
         sx={{ maxWidth: 260 }}
       />
     </Box>
+  );
+}
+
+/** Links to other Headlamp instances, one "Label = https://…" per line. */
+function LinksEditor({ value }: { value: Array<{ label: string; url: string }> }) {
+  const [text, setText] = React.useState(value.map(l => `${l.label} = ${l.url}`).join('\n'));
+  return (
+    <TextField
+      label="Links to other views (one per line: Label = https://…)"
+      placeholder={'Read-only view = https://fleet-ro.example.com\norg2 view = https://fleet-org2.example.com'}
+      multiline
+      minRows={2}
+      size="small"
+      value={text}
+      onChange={e => {
+        setText(e.target.value);
+        const links = e.target.value
+          .split('\n')
+          .map(line => {
+            const i = line.indexOf('=');
+            return i > 0 ? { label: line.slice(0, i).trim(), url: line.slice(i + 1).trim() } : undefined;
+          })
+          .filter((l): l is { label: string; url: string } => !!l && !!l.label && /^https?:\/\//.test(l.url));
+        settingsStore.update({ links });
+      }}
+      helperText="Shown as buttons in the bar at the top of every plugin page."
+    />
   );
 }

@@ -24,5 +24,7 @@
     "vmClasses": [],
     "storageClasses": [],
     "backupWithinHours": 26
-  }
+  },
+  "identitySwitch": false,
+  "links": []
 }

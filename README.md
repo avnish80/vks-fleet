@@ -29,6 +29,10 @@ The Supervisor's permissions are the boundary; the plugin adapts its view to the
 - **The Org switcher** scopes every plugin page (overview, issues, clusters, machines, packages, search, capacity, upgrades, baseline, cleanup, access) and is remembered between pages. When an operator narrows to one org, a note says actions still use operator rights.
 - **Actions follow permissions:** buttons are hidden where the identity can't make changes.
 - **Read-only view:** a setting (and the `readOnly` preset) turns actions off even for an account that could make changes, for example on a NOC screen.
+- **Signed in as:** when this Headlamp holds more than one identity (for example the administrator context, a read-only account's context, and an org's VCF Automation contexts), the bar offers a switch between them. The plugin then reads and acts with the chosen account only, so the Supervisor or VCF Automation decides what's visible. The bar also shows the signed-in user name, from the API server's SelfSubjectReview.
+  - `kubectl vsphere login` names the context after the Supervisor's address, so a second vSphere login overwrites the first. Rename after each login: `kubectl config rename-context 10.150.4.2 readonly@10.150.4.2`.
+  - For shared instances, turn the switch off with `"identitySwitch": false` in the preset. A preset's `identitySwitch: false` and `readOnly: true` can't be undone from a browser.
+- **Links to other views:** `"links": [{"label": "Read-only view", "url": "https://…"}]` in the preset (or the settings page) adds buttons to the bar, for moving between the per-persona instances.
 
 **Tenants through VCF Automation.** Org users live in VCF Automation, not vSphere SSO, so they sign in with the VCF CLI:
 

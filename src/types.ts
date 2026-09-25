@@ -46,6 +46,13 @@ export interface PluginConfig {
   baseline?: Baseline;
   /** Never offer actions, even when the identity could make changes (e.g. a NOC screen). */
   readOnly?: boolean;
+  /**
+   * Offer a "Signed in as" switch between the identities (kubeconfig contexts)
+   * this Headlamp has. Turn off for shared instances; a preset of false is enforced.
+   */
+  identitySwitch?: boolean;
+  /** Links to other Headlamp instances (e.g. the read-only or a tenant view). */
+  links?: Array<{ label: string; url: string }>;
 }
 
 /** The fleet's standard: what every cluster should look like. */

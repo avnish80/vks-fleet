@@ -100,5 +100,10 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
       Number.isFinite(refresh) && refresh >= MIN_REFRESH_SECONDS ? refresh : DEFAULT_REFRESH_SECONDS,
     baseline: normalizeBaseline(raw?.baseline),
     readOnly: raw?.readOnly === true,
+    identitySwitch: raw?.identitySwitch !== false,
+    links: (Array.isArray(raw?.links) ? raw!.links : [])
+      .filter(l => l && typeof l.label === 'string' && typeof l.url === 'string' && /^https?:\/\//.test(l.url))
+      .map(l => ({ label: l.label.trim(), url: l.url.trim() }))
+      .filter(l => l.label),
   };
 }

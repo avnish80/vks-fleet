@@ -10,6 +10,8 @@ export type Persona = 'operator' | 'readonly' | 'tenant' | 'tenant-readonly' | '
 
 export interface PersonaInfo {
   persona: Persona;
+  /** The signed-in user name, when the API server says (SelfSubjectReview). */
+  user?: string;
   /** May make changes through the plugin (false when read-only is forced). */
   canWrite: boolean;
   canListAll: boolean;
@@ -61,6 +63,25 @@ export function classify(canListAll: boolean, canPatch: boolean): Persona {
   return canPatch ? 'tenant' : 'tenant-readonly';
 }
 
+/** The user name behind an identity (Kubernetes 1.28+ SelfSubjectReview); undefined if not answered. */
+export async function whoAmI(writer: SupervisorWriter): Promise<string | undefined> {
+  try {
+    const res: any = await writer.send(
+      {
+        method: 'POST',
+        path: '/apis/authentication.k8s.io/v1/selfsubjectreviews',
+        contentType: 'application/json',
+        body: { apiVersion: 'authentication.k8s.io/v1', kind: 'SelfSubjectReview' },
+      },
+      false
+    );
+    const name = res?.status?.userInfo?.username;
+    return typeof name === 'string' && name ? name.replace(/^(sso|wcp):/, '') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Asks the Supervisor what this identity may do. */
 export async function detectPersona(
   s: SupervisorConfig,
@@ -73,7 +94,8 @@ export async function detectPersona(
     const ns = probeNamespace ?? s.namespaces[0];
     const patch = ns ? await can(writer, 'patch', 'clusters', 'cluster.x-k8s.io', ns) : false;
     const persona = classify(listAll, patch);
-    return { persona, canWrite: patch && !forcedReadOnly, canListAll: listAll, ...describePersona(persona, s.org, forcedReadOnly) };
+    const user = await whoAmI(writer);
+    return { persona, user, canWrite: patch && !forcedReadOnly, canListAll: listAll, ...describePersona(persona, s.org, forcedReadOnly) };
   } catch {
     return { persona: 'unknown', canWrite: !forcedReadOnly, canListAll: false, ...describePersona('unknown', s.org, forcedReadOnly) };
   }

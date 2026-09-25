@@ -25,5 +25,7 @@
     "storageClasses": [],
     "backupWithinHours": 26
   },
-  "readOnly": true
+  "readOnly": true,
+  "identitySwitch": false,
+  "links": []
 }
