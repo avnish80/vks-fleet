@@ -114,6 +114,27 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 
 **Change audit:** who last changed the Cluster object and which parts (for example "VCF Automation: spec.topology.version", "kubectl (patch): spec.paused", "vks-fleet plugin: spec.topology.workers"), read from its managed fields, so it survives after events expire. Changes made through the plugin are recorded as `vks-fleet`. They also appear in the timeline.
 
+**Upgrade planner** (sidebar: Upgrades, or the Upgrades tile): every cluster with its current version and a target (next minor or newest patch from the Supervisor's releases), an optional class move, and readiness. Readiness uses the same checks as a single upgrade plus whether the namespace quota has room for what a rolling upgrade adds. Clusters go into waves; the suggested plan puts the smallest upgradable cluster in wave 1 as a canary and the rest in wave 2. A wave:
+
+- starts only when every earlier wave has finished healthy (all nodes on the target, not upgrading, cluster healthy)
+- is dry-run for every cluster first, and applied only if all pass
+- is applied one cluster after another, stopping at the first failure, with a reason and "wave N" typed to confirm
+- shows progress per cluster (nodes on the new version)
+
+The plan is kept per browser.
+
+**Capacity** (sidebar: Capacity, or the Node capacity tile), per Supervisor namespace:
+
+- quota against use, as bars
+- the VM classes the namespace can use, with sizes
+- what each cluster holds, and what it's using (metrics-server)
+- the extra a rolling upgrade takes while it runs (one new node per pool plus one control-plane node), and whether quota has room
+- a **what-if**: pick a cluster, pool, VM class and count, and see whether it fits each quota
+
+The vSphere cluster's own free capacity isn't visible through the Supervisor API, so without a quota only the namespace's use is shown.
+
+**Utilisation** (cluster page, from metrics-server when installed): CPU and memory against allocatable per node, the busiest pods, and user pods that request no CPU or memory. Nodes above 90% become issues with a runbook; the overview shows the busiest nodes across the fleet.
+
 **Machines page:** every machine across the fleet with its state, VM, IP, zone and version; machines that need a look come first.
 
 **Export report:** Markdown (summary, issues needing action, clusters, tenants, versions) or CSV (one row per cluster), for the clusters currently shown.
@@ -283,6 +304,8 @@ src/
   timeline.ts           History rebuilt from timestamps
   runbooks.ts           Pre-filled commands for each kind of issue
   report.ts             Fleet report: Markdown and CSV
+  headroom.ts           Quota headroom, what-if, upgrade surge
+  planner.ts            Upgrade waves: readiness, suggestions, status and gating
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes

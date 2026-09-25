@@ -256,7 +256,7 @@ export function TimeoutDialog(props: {
 }
 
 /** PodDisruptionBudgets that currently allow no disruptions (and protect at least one pod). */
-async function blockingPdbs(contextName: string): Promise<{ names?: string[]; error?: string }> {
+export async function blockingPdbs(contextName: string): Promise<{ names?: string[]; error?: string }> {
   try {
     const list = await headlampClient(contextName).get<{ items?: any[] }>('/apis/policy/v1/poddisruptionbudgets');
     const names = (list?.items ?? [])

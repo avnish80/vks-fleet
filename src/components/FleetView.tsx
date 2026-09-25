@@ -329,6 +329,9 @@ export function FleetView() {
             setFindingsOpen(true);
             jump('issues');
           }}
+          busiest={tenantClusters
+            .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, cpuPct: n.cpuPct, memPct: n.memPct })))
+            .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct))}
         />
       )}
 
@@ -448,6 +451,13 @@ export function FleetView() {
               { label: 'Nodes', getter: (c: FleetCluster) => c.machines.filter(m => !m.deletingSince).length },
               { label: 'vCPU', getter: (c: FleetCluster) => c.capacity?.cpus ?? '—' },
               { label: 'Memory', getter: (c: FleetCluster) => (c.capacity ? formatBytes(c.capacity.memoryBytes) : '—') },
+              {
+                label: 'In use',
+                getter: (c: FleetCluster) => {
+                  const u = workload.byKey.get(c.key)?.utilisation;
+                  return u ? `CPU ${u.cpuPct}%, memory ${u.memPct}%` : '—';
+                },
+              },
               {
                 label: 'VM classes',
                 getter: (c: FleetCluster) =>

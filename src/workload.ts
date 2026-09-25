@@ -5,7 +5,72 @@
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { matchesSelector } from './selector';
-import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, StuckObject, WorkloadChecks, WorkloadHealth } from './types';
+import { parseQuantity } from './quantity';
+import {
+  DeploymentIssue,
+  EventInfo,
+  NodeUse,
+  PodIssue,
+  PodUse,
+  SandboxFailure,
+  StuckObject,
+  Utilisation,
+  WorkloadChecks,
+  WorkloadHealth,
+} from './types';
+
+/**
+ * Usage against allocatable per node, the busiest pods, and user pods that
+ * request nothing (the usual cause of overcommitted nodes). From metrics-server.
+ */
+export function utilisation(nodes: any[], nodeMetrics: any[], podMetrics: any[], pods: any[]): Utilisation | undefined {
+  if (!nodeMetrics.length) return undefined;
+  const usage = new Map(nodeMetrics.map(m => [m?.metadata?.name, m?.usage ?? {}]));
+  const nodeUse: NodeUse[] = nodes
+    .filter(n => usage.has(n?.metadata?.name))
+    .map(n => {
+      const u = usage.get(n.metadata.name) ?? {};
+      const cpuUsed = parseQuantity(u.cpu) ?? 0;
+      const memUsed = parseQuantity(u.memory) ?? 0;
+      const cpuAllocatable = parseQuantity(n?.status?.allocatable?.cpu) ?? 0;
+      const memAllocatable = parseQuantity(n?.status?.allocatable?.memory) ?? 0;
+      return {
+        name: n.metadata.name,
+        cpuUsed,
+        cpuAllocatable,
+        memUsed,
+        memAllocatable,
+        cpuPct: cpuAllocatable ? Math.round((cpuUsed / cpuAllocatable) * 100) : 0,
+        memPct: memAllocatable ? Math.round((memUsed / memAllocatable) * 100) : 0,
+      };
+    })
+    .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct));
+  const sum = (f: (n: NodeUse) => number) => nodeUse.reduce((x, n) => x + f(n), 0);
+  const nodeOf = new Map(pods.map(p => [`${p?.metadata?.namespace}/${p?.metadata?.name}`, p?.spec?.nodeName]));
+  const podUse: PodUse[] = podMetrics.map(m => {
+    const containers: any[] = m?.containers ?? [];
+    const key = `${m?.metadata?.namespace}/${m?.metadata?.name}`;
+    return {
+      namespace: m?.metadata?.namespace ?? '',
+      name: m?.metadata?.name ?? '',
+      node: nodeOf.get(key),
+      cpu: containers.reduce((x, c) => x + (parseQuantity(c?.usage?.cpu) ?? 0), 0),
+      mem: containers.reduce((x, c) => x + (parseQuantity(c?.usage?.memory) ?? 0), 0),
+    };
+  });
+  const podsWithoutRequests = pods
+    .filter(p => !isPlatformNamespace(p?.metadata?.namespace ?? '') && p?.status?.phase === 'Running')
+    .filter(p => (p?.spec?.containers ?? []).some((c: any) => !c?.resources?.requests?.cpu || !c?.resources?.requests?.memory))
+    .map(p => `${p.metadata.namespace}/${p.metadata.name}`);
+  return {
+    nodes: nodeUse,
+    cpuPct: sum(n => n.cpuAllocatable) ? Math.round((sum(n => n.cpuUsed) / sum(n => n.cpuAllocatable)) * 100) : 0,
+    memPct: sum(n => n.memAllocatable) ? Math.round((sum(n => n.memUsed) / sum(n => n.memAllocatable)) * 100) : 0,
+    topByCpu: [...podUse].sort((a, b) => b.cpu - a.cpu).slice(0, 8),
+    topByMemory: [...podUse].sort((a, b) => b.mem - a.mem).slice(0, 8),
+    podsWithoutRequests,
+  };
+}
 
 /** Things stuck longer than this are reported. */
 export const STUCK_OBJECT_MS = 5 * 60 * 1000;
@@ -267,7 +332,18 @@ export async function fetchWorkloadHealth(
   contextName: string,
   now: Date = new Date()
 ): Promise<WorkloadHealth> {
-  const parts = ['version', 'nodes', 'pods', 'deployments', 'events', 'poddisruptionbudgets', 'persistentvolumeclaims', 'services'] as const;
+  const parts = [
+    'version',
+    'nodes',
+    'pods',
+    'deployments',
+    'events',
+    'poddisruptionbudgets',
+    'persistentvolumeclaims',
+    'services',
+    'node metrics',
+    'pod metrics',
+  ] as const;
   const settled = await Promise.allSettled([
     client.get<any>('/version'),
     client.get<any>('/api/v1/nodes'),
@@ -277,6 +353,8 @@ export async function fetchWorkloadHealth(
     client.get<any>('/apis/policy/v1/poddisruptionbudgets'),
     client.get<any>('/api/v1/persistentvolumeclaims'),
     client.get<any>('/api/v1/services'),
+    client.get<any>('/apis/metrics.k8s.io/v1beta1/nodes'),
+    client.get<any>('/apis/metrics.k8s.io/v1beta1/pods'),
   ]);
 
   const rejected = settled
@@ -285,7 +363,7 @@ export async function fetchWorkloadHealth(
 
   // Classify by the parts that carry health data; the version endpoint is
   // readable by almost anyone and says nothing about access to workloads.
-  const optionalParts = new Set(['version', 'poddisruptionbudgets', 'persistentvolumeclaims', 'services']);
+  const optionalParts = new Set(['version', 'poddisruptionbudgets', 'persistentvolumeclaims', 'services', 'node metrics', 'pod metrics']);
   const substantive = rejected.filter(x => !optionalParts.has(x.part));
   if (substantive.length === parts.length - optionalParts.size) {
     const statuses = substantive.map(x => statusOf(x.r.reason));
@@ -336,6 +414,12 @@ export async function fetchWorkloadHealth(
   const svcs = value(7)?.items;
   if (Array.isArray(svcs)) health.pendingLoadBalancers = pendingLoadBalancers(svcs, now);
   if (Array.isArray(deps)) health.dns = dnsAvailability(deps);
+  const nodeMetrics = value(8)?.items;
+  if (Array.isArray(nodes) && Array.isArray(nodeMetrics)) {
+    health.utilisation = utilisation(nodes, nodeMetrics, value(9)?.items ?? [], podList?.items ?? []);
+  }
+  // metrics-server not installed is normal; don't list it as unreadable.
+  health.partial = health.partial.filter(p => !/^(node|pod) metrics:/.test(p) || !/\(404\)/.test(p));
 
   const nodesShort = !!health.nodes && health.nodes.ready < health.nodes.total;
   if (nodesShort || health.podIssueCount > 0 || health.deploymentIssues.length > 0) {

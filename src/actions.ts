@@ -465,7 +465,7 @@ export function upgradePlan(c: FleetCluster, target: string, newClass: string | 
   }
   checks.push({
     level: 'ok',
-    text: 'The control plane is upgraded first, then each node pool one node at a time. Progress shows on this page.',
+    text: 'The control plane is upgraded first, then each node pool one node at a time. Progress shows on the cluster page and in the upgrade planner.',
   });
 
   const body: unknown[] = [

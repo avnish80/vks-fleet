@@ -239,3 +239,14 @@ export async function fetchServices(
   });
   return { services, warnings };
 }
+
+/** VM classes per namespace with their sizes, for headroom and what-if. */
+export function vmClassInfos(classes: KubeObject[]): import('./types').VmClassInfo[] {
+  return classes.map(c => ({
+    namespace: c.metadata.namespace ?? '',
+    name: c.metadata.name,
+    cpus: parseQuantity(c.spec?.hardware?.cpus),
+    memoryBytes: parseQuantity(c.spec?.hardware?.memory),
+    reserved: !!(c.spec?.policies?.resources?.requests?.cpu || c.spec?.policies?.resources?.requests?.memory),
+  }));
+}

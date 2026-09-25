@@ -100,6 +100,15 @@ export interface MachineInfo {
   healthChecked?: boolean;
 }
 
+export interface VmClassInfo {
+  namespace: string;
+  name: string;
+  cpus?: number;
+  memoryBytes?: number;
+  /** Reserves its resources (guaranteed) rather than best effort. */
+  reserved?: boolean;
+}
+
 export interface HealthCheckSummary {
   expected: number;
   healthy: number;
@@ -207,6 +216,8 @@ export interface SupervisorResult {
   classes?: string[];
   /** Recent Warning events on the Supervisor (last couple of hours). */
   events?: EventInfo[];
+  /** VM classes available per namespace, with their sizes. */
+  vmClasses?: VmClassInfo[];
   fetchedAt: string;
 }
 
@@ -257,6 +268,34 @@ export interface DeploymentIssue {
   name: string;
   available: number;
   desired: number;
+}
+
+export interface NodeUse {
+  name: string;
+  cpuUsed: number;
+  cpuAllocatable: number;
+  memUsed: number;
+  memAllocatable: number;
+  cpuPct: number;
+  memPct: number;
+}
+
+export interface PodUse {
+  namespace: string;
+  name: string;
+  node?: string;
+  cpu: number;
+  mem: number;
+}
+
+export interface Utilisation {
+  nodes: NodeUse[];
+  cpuPct: number;
+  memPct: number;
+  topByCpu: PodUse[];
+  topByMemory: PodUse[];
+  /** User pods with a container that requests no CPU or memory. */
+  podsWithoutRequests: string[];
 }
 
 export interface StuckObject {
@@ -312,6 +351,8 @@ export interface WorkloadHealth {
   pendingLoadBalancers?: StuckObject[];
   /** Cluster DNS (CoreDNS) availability, when readable. */
   dns?: { available: number; desired: number };
+  /** Live usage from metrics-server, when installed. */
+  utilisation?: Utilisation;
   /** Parts that couldn't be read (e.g. "pods: Access denied (403)"). */
   partial: string[];
   error?: string;

@@ -39,7 +39,7 @@ import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog, ScaleDialog, TimeoutDialog, UpgradeDialog } from './ActionDialog';
-import { BarList, ChartStyles } from './charts';
+import { BarList, ChartStyles, Tone } from './charts';
 import { AnatomyDiagram } from './Anatomy';
 import { ChecksPanel } from './ChecksPanel';
 import { ClusterTimeline } from './Timeline';
@@ -517,6 +517,19 @@ export function ClusterDetail() {
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
       </SectionBox>
 
+      <Box id="utilisation" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Utilisation">
+        {!health?.contextName ? (
+          <Typography color="text.secondary">Sign in to the cluster to see how busy its nodes are.</Typography>
+        ) : !health.utilisation ? (
+          <Typography color="text.secondary">
+            No usage data: metrics-server isn't installed or isn't answering (it's a VKS standard package).
+          </Typography>
+        ) : (
+          <UtilisationView cluster={cluster} u={health.utilisation} />
+        )}
+      </SectionBox>
+
       <Box id="node-pools" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Node pools">
         {cluster.nodePools.length === 0 ? (
@@ -877,5 +890,80 @@ export function ClusterDetail() {
         </SectionBox>
       )}
     </>
+  );
+}
+
+function pctTone(p: number): Tone {
+  if (p >= 90) return 'error';
+  if (p >= 75) return 'warning';
+  return 'success';
+}
+
+function cores(v: number): string {
+  return v >= 1 ? `${Math.round(v * 100) / 100}` : `${Math.round(v * 1000)}m`;
+}
+
+function UtilisationView({ cluster, u }: { cluster: FleetCluster; u: import('../types').Utilisation }) {
+  const machineFor = (node: string) => cluster.machines.find(m => m.nodeName === node || m.name === node);
+  const rows = (kind: 'cpu' | 'mem') =>
+    u.nodes.map(n => {
+      const pct = kind === 'cpu' ? n.cpuPct : n.memPct;
+      const m = machineFor(n.name);
+      return {
+        key: `${kind}-${n.name}`,
+        label: m ? <Link to={machinePath(cluster, m.name)}>{n.name}</Link> : n.name,
+        title:
+          kind === 'cpu'
+            ? `${n.name}: ${cores(n.cpuUsed)} of ${cores(n.cpuAllocatable)} cores`
+            : `${n.name}: ${formatBytes(n.memUsed)} of ${formatBytes(n.memAllocatable)}`,
+        parts: [{ label: kind === 'cpu' ? 'CPU' : 'Memory', value: Math.min(pct, 100), tone: pctTone(pct) }],
+        valueText: `${pct}%`,
+      };
+    });
+  return (
+    <Box>
+      <Typography sx={{ mb: 2 }}>
+        Nodes are using {u.cpuPct}% of allocatable CPU and {u.memPct}% of memory overall.
+        {u.podsWithoutRequests.length
+          ? ` ${u.podsWithoutRequests.length} user pod${u.podsWithoutRequests.length === 1 ? '' : 's'} request no CPU or memory, so the scheduler can't place ${
+              u.podsWithoutRequests.length === 1 ? 'it' : 'them'
+            } by size (for example ${u.podsWithoutRequests.slice(0, 2).join(', ')}).`
+          : ''}
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 3, mb: 2 }}>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>CPU by node</Typography>
+          <BarList max={100} rows={rows('cpu')} />
+        </Box>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>Memory by node</Typography>
+          <BarList max={100} rows={rows('mem')} />
+        </Box>
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 3 }}>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>Busiest pods by CPU</Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Pod', getter: (p: import('../types').PodUse) => `${p.namespace}/${p.name}` },
+              { label: 'CPU (cores)', getter: (p: import('../types').PodUse) => cores(p.cpu) },
+              { label: 'Node', getter: (p: import('../types').PodUse) => p.node ?? '—' },
+            ]}
+            data={u.topByCpu}
+          />
+        </Box>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>Busiest pods by memory</Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Pod', getter: (p: import('../types').PodUse) => `${p.namespace}/${p.name}` },
+              { label: 'Memory', getter: (p: import('../types').PodUse) => formatBytes(p.mem) },
+              { label: 'Node', getter: (p: import('../types').PodUse) => p.node ?? '—' },
+            ]}
+            data={u.topByMemory}
+          />
+        </Box>
+      </Box>
+    </Box>
   );
 }

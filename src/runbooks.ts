@@ -203,3 +203,16 @@ export function attachRunbook(r: RunbookContext, machineName: string, node: stri
     { title: 'Volume attachments the cluster expects on the node', commands: [`kubectl --context ${r.ctx} get volumeattachment | grep ${node}`] },
   ];
 }
+
+export function hotNodeRunbook(r: RunbookContext, node: string): RunbookStep[] {
+  const k = `kubectl --context ${r.ctx}`;
+  return [
+    signIn(r),
+    { title: 'Busiest pods on the node', commands: [`${k} top pods -A --sort-by=memory | head -15`, `${k} get pods -A -o wide --field-selector spec.nodeName=${node}`] },
+    { title: 'What the node has promised (requests and limits)', commands: [`${k} describe node ${node} | sed -n '/Allocated resources/,/Events/p'`] },
+    {
+      title: 'Then: spread or grow',
+      note: 'Set requests and limits on the heavy pods so the scheduler spreads them, or scale the node pool (Scale on the cluster page, checked against quota on the Capacity page).',
+    },
+  ];
+}

@@ -6,12 +6,14 @@ import {
 import React from 'react';
 import { ClusterDetail } from './components/ClusterDetail';
 import { MachineDetail } from './components/MachineDetail';
+import { CapacityPage } from './components/CapacityPage';
 import { MachinesPage } from './components/MachinesPage';
+import { UpgradePlannerPage } from './components/UpgradePlannerPage';
 import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from './routes';
+import { CAPACITY_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
@@ -35,6 +37,8 @@ for (const child of [
   { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE },
   { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH },
   { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
+  { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH },
+  { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH },
 ]) {
   registerSidebarEntry({ parent: 'vks-fleet', ...child, useClusterURL: false, sidebar: 'HOME' });
 }
@@ -48,6 +52,21 @@ registerRoute({
   noAuthRequired: true,
   component: () => <SearchPage />,
 });
+
+for (const page of [
+  { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => <UpgradePlannerPage /> },
+  { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => <CapacityPage /> },
+]) {
+  registerRoute({
+    path: page.path,
+    sidebar: { item: page.name, sidebar: 'HOME' },
+    name: page.name,
+    exact: true,
+    useClusterURL: false,
+    noAuthRequired: true,
+    component: page.component,
+  });
+}
 
 registerRoute({
   path: MACHINES_PATH,

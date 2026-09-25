@@ -11,6 +11,7 @@ import { clusterDeepLink, clusterPath, headlampNodePath, machinePath } from './r
 import {
   attachRunbook,
   dnsRunbook,
+  hotNodeRunbook,
   loadBalancerRunbook,
   networkRunbook,
   packageRunbook,
@@ -29,6 +30,8 @@ import { isPlatformNamespace } from './workload';
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 const MIN_SANDBOX_ATTEMPTS = 5;
+/** A node above this share of allocatable CPU or memory is reported. */
+export const HOT_NODE_PCT = 90;
 
 function base(c: FleetCluster, id: string, severity: Severity, now: Date): Omit<Issue, 'title' | 'cause' | 'fix'> {
   return {
@@ -190,6 +193,22 @@ function clusterIssues(
     issue.primary = { label: 'Pods with problems', path: clusterDeepLink(c, { hash: 'inside' }) };
     issue.runbook = podsRunbook(rb, issue.affected.pods);
     out.push(issue);
+  }
+
+  // Rule: nodes running hot (from metrics-server).
+  for (const n of wl?.utilisation?.nodes ?? []) {
+    const pct = Math.max(n.cpuPct, n.memPct);
+    if (pct < HOT_NODE_PCT) continue;
+    const what = n.memPct >= n.cpuPct ? `memory ${n.memPct}%` : `CPU ${n.cpuPct}%`;
+    const machine = c.machines.find(m => m.nodeName === n.name || m.name === n.name);
+    out.push({
+      ...base(c, `hot-${n.name}`, pct >= 97 ? 'critical' : 'warning', now),
+      title: `Node ${n.name} is running hot (${what})`,
+      cause: `Using ${n.cpuPct}% of allocatable CPU and ${n.memPct}% of memory. Near the limit, pods get evicted (memory) or slowed down (CPU).`,
+      fix: 'Find the heaviest pods, give them requests and limits so they spread, or add nodes to the pool.',
+      primary: machine ? { label: `Machine ${n.name}`, path: machinePath(c, machine.name) } : { label: 'Utilisation', path: clusterDeepLink(c, { hash: 'utilisation' }) },
+      runbook: hotNodeRunbook(rb, n.name),
+    });
   }
 
   // Rule: cluster DNS down or degraded (everything that resolves names suffers).

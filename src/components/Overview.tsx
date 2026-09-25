@@ -12,7 +12,7 @@ import {
   tenantHealth,
 } from '../overview';
 import { formatBytes } from '../quantity';
-import { clusterDeepLink, clusterPath, MACHINES_PATH, PACKAGES_PATH } from '../routes';
+import { CAPACITY_PATH, clusterDeepLink, clusterPath, machinePath, MACHINES_PATH, PACKAGES_PATH, UPGRADES_PATH } from '../routes';
 import { DriftRow, shortPackage } from '../packages';
 import { rollupByTenant, versionSpread } from '../summary';
 import { FleetCluster, Health, Scorecard, Severity } from '../types';
@@ -55,6 +55,7 @@ export function Overview({
   onFilter,
   onJump,
   onOpenIssues,
+  busiest,
 }: {
   clusters: FleetCluster[];
   /** Issues (or findings): anything with a severity. */
@@ -75,6 +76,8 @@ export function Overview({
   onJump?: (section: string) => void;
   /** Open the Issues section and scroll to it. */
   onOpenIssues?: () => void;
+  /** Busiest nodes across signed-in clusters (from metrics-server). */
+  busiest?: Array<{ cluster: FleetCluster; node: string; cpuPct: number; memPct: number }>;
 }) {
   const now = new Date();
   const history = useHistory();
@@ -115,8 +118,8 @@ export function Overview({
           value={`${n.cpus} vCPU`}
           sub={`${formatBytes(n.memoryBytes)} memory`}
           tone="primary"
-          onClick={onJump ? () => onJump('capacity') : undefined}
-          hint="Capacity by cluster"
+          onClick={() => history.push(CAPACITY_PATH)}
+          hint="Headroom, quotas and what-if by namespace"
         />
         <KpiTile
           label="Tenants"
@@ -143,8 +146,8 @@ export function Overview({
           value={n.upgradable}
           sub={n.upgrading ? `${n.upgrading} in progress` : 'Newer releases available'}
           tone="info"
-          onClick={onFilter ? () => onFilter({ upgradable: true }) : undefined}
-          hint="Show the clusters that can be upgraded"
+          onClick={() => history.push(UPGRADES_PATH)}
+          hint="Plan upgrades in waves"
         />
       </Box>
 
@@ -269,6 +272,26 @@ export function Overview({
             <EmptyChart text="No certificate dates reported." />
           )}
         </ChartCard>
+
+        {busiest && busiest.length > 0 && (
+          <ChartCard title="Busiest nodes" caption="Higher of CPU and memory use against allocatable (metrics-server). Click a node to open it.">
+            <BarList
+              max={100}
+              rows={busiest.slice(0, 6).map(b => {
+                const pct = Math.max(b.cpuPct, b.memPct);
+                const m = b.cluster.machines.find(x => x.nodeName === b.node || x.name === b.node);
+                return {
+                  key: `${b.cluster.key}/${b.node}`,
+                  label: `${b.cluster.name}: ${b.node.startsWith(`${b.cluster.name}-`) ? b.node.slice(b.cluster.name.length + 1) : b.node}`,
+                  title: `${b.node}: CPU ${b.cpuPct}%, memory ${b.memPct}%`,
+                  parts: [{ label: pct === b.memPct ? 'Memory' : 'CPU', value: Math.min(pct, 100), tone: (pct >= 90 ? 'error' : pct >= 75 ? 'warning' : 'success') as Tone }],
+                  valueText: `${pct}% ${pct === b.memPct ? 'mem' : 'CPU'}`,
+                  onClick: () => history.push(m ? machinePath(b.cluster, m.name) : clusterDeepLink(b.cluster, { hash: 'utilisation' })),
+                };
+              })}
+            />
+          </ChartCard>
+        )}
 
         <ChartCard title="Checks score" caption="Best-practice score per cluster, lowest first">
           {scores && scores.length ? (

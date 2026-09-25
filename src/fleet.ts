@@ -7,6 +7,7 @@ import {
   attachQuotas,
   attachVms,
   DEFAULT_CLASS_NAMESPACE,
+  vmClassInfos,
   fetchClassNames,
   fetchServices,
   listFirstServed,
@@ -164,6 +165,7 @@ export async function fetchSupervisor(
     releases: versions,
     classes: classNames,
     events,
+    vmClasses: vmClassInfos(classObjects),
     fetchedAt,
   };
 }
