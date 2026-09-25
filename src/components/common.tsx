@@ -1,7 +1,20 @@
-import { StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Typography } from '@mui/material';
 import React from 'react';
-import { FleetCluster, Health, ReplicaCount, SupervisorResult, supervisorLabel, WorkloadHealth } from '../types';
+import { Link } from 'react-router-dom';
+import { formatBytes } from '../quantity';
+import { clusterPath } from '../routes';
+import {
+  Capacity,
+  Finding,
+  FleetCluster,
+  Health,
+  ReplicaCount,
+  Severity,
+  SupervisorResult,
+  supervisorLabel,
+  WorkloadHealth,
+} from '../types';
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
 
@@ -51,11 +64,76 @@ export function replicas(r?: ReplicaCount): string {
   return r ? `${r.ready} / ${r.desired}` : '—';
 }
 
+function readyOf(r: ReplicaCount, what: string): string {
+  // More ready than wanted means a scale-down (or replacement) hasn't finished.
+  return r.ready > r.desired
+    ? `${r.ready} ${what} ready, ${r.desired} wanted`
+    : `${r.ready}/${r.desired} ${what}`;
+}
+
 export function nodesText(c: FleetCluster): string {
   const parts: string[] = [];
-  if (c.controlPlane) parts.push(`${c.controlPlane.ready}/${c.controlPlane.desired} control plane`);
-  if (c.workers) parts.push(`${c.workers.ready}/${c.workers.desired} workers`);
+  if (c.controlPlane) parts.push(readyOf(c.controlPlane, 'control plane'));
+  if (c.workers) parts.push(readyOf(c.workers, 'workers'));
   return parts.length ? parts.join(', ') : '—';
+}
+
+export function capacityText(c?: { cpus: number; memoryBytes: number } | Capacity): string {
+  if (!c || (!c.cpus && !c.memoryBytes)) return '—';
+  return `${c.cpus} vCPU, ${formatBytes(c.memoryBytes)}`;
+}
+
+const SEVERITY: Record<Severity, { text: string; status: 'error' | 'warning' | '' }> = {
+  critical: { text: 'Critical', status: 'error' },
+  warning: { text: 'Warning', status: 'warning' },
+  info: { text: 'Info', status: '' },
+};
+
+export function SeverityLabel({ severity }: { severity: Severity }) {
+  return <StatusLabel status={SEVERITY[severity].status}>{SEVERITY[severity].text}</StatusLabel>;
+}
+
+/** Findings with what to do about each. The cluster column is left out on a cluster's own page. */
+export function FindingsTable({ findings, showCluster = true }: { findings: Finding[]; showCluster?: boolean }) {
+  return (
+    <SimpleTable
+      columns={[
+        { label: 'Severity', getter: (x: Finding) => <SeverityLabel severity={x.severity} /> },
+        ...(showCluster
+          ? [
+              {
+                label: 'Where',
+                getter: (x: Finding) =>
+                  x.scope === 'cluster' && x.clusterName && x.namespace ? (
+                    <Link to={clusterPath({ supervisorId: x.supervisorId, namespace: x.namespace, name: x.clusterName })}>
+                      {x.clusterName}
+                    </Link>
+                  ) : x.scope === 'namespace' ? (
+                    `Namespace ${x.namespace}`
+                  ) : (
+                    `Supervisor ${x.supervisorId}`
+                  ),
+              },
+            ]
+          : []),
+        {
+          label: 'Finding',
+          getter: (x: Finding) => (
+            <Box>
+              <div>{x.title}</div>
+              {x.detail && (
+                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                  {x.detail}
+                </Typography>
+              )}
+            </Box>
+          ),
+        },
+        { label: 'What to do', getter: (x: Finding) => x.fix },
+      ]}
+      data={findings}
+    />
+  );
 }
 
 export function TenantText({ cluster }: { cluster: Pick<FleetCluster, 'tenantName' | 'tenantId' | 'tenantNamed'> }) {

@@ -11,6 +11,20 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 
 ## What it shows
 
+**Findings:** things an operator should know or do, each with what to do about it. They're computed from everything below, fleet-wide and per cluster:
+
+- node VMs powered off
+- automatic node repair stopped
+- machines stuck deleting or provisioning
+- control-plane certificates expiring, or rotation turned off
+- paused clusters
+- versions two or more minors behind, and available upgrades
+- newer cluster classes
+- a single control-plane node
+- all nodes in one zone (when the Supervisor has several)
+- namespace quotas over 80%
+- Supervisor services with failing pods
+
 **Fleet page:** every VKS cluster, grouped by tenant (VCFA organization by default), with:
 
 - health, including problems the Supervisor can see, such as a machine stuck deleting
@@ -19,14 +33,16 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 - a one-line summary from inside the cluster (nodes, failing pods, unavailable deployments)
 - a link that opens the cluster in Headlamp's own views
 
-With more than one tenant it adds a tenant rollup and the spread of Kubernetes versions.
+With more than one tenant it adds a tenant rollup (including node capacity in vCPU and memory, from VM class sizes) and the spread of Kubernetes versions. Operators with Supervisor-wide access also see the Supervisor services (VKS, Velero, CCI and the others), with pod health and a link to their pods and logs in Headlamp.
 
 **Cluster page:**
 
-- summary: tenant, versions, upgrade, class, OS, VM and storage class, API endpoint, pod and service networks
+- summary: tenant, versions, upgrade, class (and whether a newer one exists), OS, VM and storage class, API endpoint, pod and service networks, certificate expiry and rotation, automatic node repair status, node capacity
 - inside the cluster: problem pods, deployments not fully available, warnings from the last hour
 - node pools, including autoscaling limits
-- machines
+- machines, each with its VM's power state, class and size
+- namespace quota usage
+- troubleshooting links into Headlamp: the Cluster object's YAML, the namespace's pods, and the VKS controller pods and logs
 - add-ons
 - conditions
 - Supervisor events for the cluster and its machines
@@ -98,7 +114,10 @@ In Headlamp, add the Supervisor as a cluster (the kubeconfig context your VCF CL
 
 **On the Supervisor** (the configured Headlamp cluster):
 
-- `cluster.x-k8s.io/v1beta1`: Clusters, MachineDeployments, Machines
+- `cluster.x-k8s.io/v1beta1`: Clusters, MachineDeployments, Machines, MachineHealthChecks, and the ClusterClasses in the class namespace
+- `vmoperator.vmware.com` (newest served version): VirtualMachines and VirtualMachineClasses
+- ResourceQuotas
+- Supervisor-wide access only: pods in the `svc-*` namespaces
 - `controlplane.cluster.x-k8s.io/v1beta1`: KubeadmControlPlanes
 - Kubernetes releases (`tanzukubernetesreleases`, or `kubernetesreleases`), for upgrade availability
 - Namespaces, for tenant labels
@@ -130,6 +149,9 @@ src/
   capi/v1beta1.ts       CAPI v1beta1 → FleetCluster (health, issues, pools, machines, network)
   tenancy.ts            Namespace → tenant ID, and ID → display name
   releases.ts           Kubernetes releases and upgrade detection
+  supervisor.ts         Node VMs, VM class sizes, capacity, quotas, class currency, Supervisor services
+  findings.ts           Findings rules: severity, what's wrong, what to do
+  quantity.ts           Kubernetes quantity parsing
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
   contexts.ts           Match fleet clusters to Headlamp contexts by API endpoint
   workload.ts           Health from inside a workload cluster
@@ -172,7 +194,12 @@ These Headlamp and VKS details were checked in CI or against a real Supervisor:
 - `noAuthRequired` on the home routes (without it the page stays blank)
 - VCFA's `vmware-system-vcf/organization-id` namespace label, and the CAPI and VKS resource names
 
-New in v0.2.0 and still to confirm on a live system:
+New in v0.3.0 and still to confirm on a live system:
+
+- the Headlamp link formats: pod list filtered by namespace (`/c/<cluster>/pods?namespace=<ns>`) and custom-resource pages (`/c/<cluster>/customresources/clusters.cluster.x-k8s.io/<ns>/<name>`)
+- MachineHealthCheck status fields and the VM class `spec.hardware` sizes
+
+From v0.2.0, still to confirm:
 
 - that Headlamp's `/config` response includes each cluster's `server` (if not, contexts are matched by cluster name, when the name is unique in the fleet)
 - the release objects' version field (`spec.version`)

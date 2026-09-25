@@ -11,6 +11,7 @@ import {
   clusterKey,
   FleetCluster,
   Health,
+  HealthCheckSummary,
   MachineInfo,
   NodePool,
   ReplicaCount,
@@ -22,6 +23,7 @@ export const PATHS = {
   clusters: { prefix: '/apis/cluster.x-k8s.io/v1beta1', plural: 'clusters' },
   machineDeployments: { prefix: '/apis/cluster.x-k8s.io/v1beta1', plural: 'machinedeployments' },
   machines: { prefix: '/apis/cluster.x-k8s.io/v1beta1', plural: 'machines' },
+  machineHealthChecks: { prefix: '/apis/cluster.x-k8s.io/v1beta1', plural: 'machinehealthchecks' },
   controlPlanes: { prefix: '/apis/controlplane.cluster.x-k8s.io/v1beta1', plural: 'kubeadmcontrolplanes' },
 } as const;
 
@@ -46,6 +48,7 @@ export interface CapiObjects {
   machineDeployments: KubeObject[];
   controlPlanes: KubeObject[];
   machines: KubeObject[];
+  machineHealthChecks?: KubeObject[];
 }
 
 export interface TenantInfo {
@@ -218,7 +221,26 @@ function machineInfo(m: KubeObject, poolOfMd: Map<string, string>): MachineInfo 
     osImage: str(m.status?.nodeInfo?.osImage),
     createdAt: m.metadata.creationTimestamp,
     deletingSince: m.metadata.deletionTimestamp,
+    certificatesExpiry: str(m.status?.certificatesExpiryDate),
   };
+}
+
+/** Sums the cluster's MachineHealthChecks. Repair counts as blocked if any check has stopped remediating. */
+export function healthCheckSummary(mhcs: KubeObject[]): HealthCheckSummary | undefined {
+  if (mhcs.length === 0) return undefined;
+  let expected = 0;
+  let healthy = 0;
+  let remediationAllowed = true;
+  for (const m of mhcs) {
+    const e = num(m.status?.expectedMachines);
+    const h = num(m.status?.currentHealthy);
+    expected += e;
+    healthy += h;
+    const cond = conditions(m).find(c => c.type === 'RemediationAllowed');
+    const allowedCount = optNum(m.status?.remediationsAllowed);
+    if (cond?.status === 'False' || (allowedCount === 0 && h < e)) remediationAllowed = false;
+  }
+  return { expected, healthy, remediationAllowed };
 }
 
 /** Plain-language problems visible from the Supervisor, e.g. a machine stuck deleting. */
@@ -311,6 +333,10 @@ export function toFleetClusters(
     objs.machines,
     m => m.spec?.clusterName || m.metadata.labels?.[CLUSTER_NAME_LABEL]
   );
+  const mhcsByCluster = byCluster(
+    objs.machineHealthChecks ?? [],
+    m => m.spec?.clusterName || m.metadata.labels?.[CLUSTER_NAME_LABEL]
+  );
 
   return objs.clusters.map(c => {
     const namespace = c.metadata.namespace ?? '';
@@ -356,6 +382,11 @@ export function toFleetClusters(
     const services: string[] = Array.isArray(net?.services?.cidrBlocks) ? net.services.cidrBlocks : [];
 
     const tenant = tenantOf(namespace);
+    const certExpiries = machines
+      .filter(m => m.role === 'control-plane' && m.certificatesExpiry && !m.deletingSince)
+      .map(m => m.certificatesExpiry as string)
+      .sort();
+    const rotation = vars.get('kubernetes')?.certificateRotation;
 
     return {
       key: clusterKey(supervisorId, namespace, name),
@@ -372,6 +403,14 @@ export function toFleetClusters(
       kubernetesVersion: desiredVersion,
       controlPlaneVersion: cpVersion,
       clusterClass: str(topology?.class) ?? str(topology?.classRef?.name),
+      classNamespace: str(topology?.classNamespace) ?? str(topology?.classRef?.namespace),
+      paused: c.spec?.paused === true || 'cluster.x-k8s.io/paused' in (c.metadata.annotations ?? {}),
+      certificatesExpiry: certExpiries[0],
+      certificateRotation:
+        rotation && typeof rotation === 'object'
+          ? { enabled: rotation.enabled === true, renewalDaysBeforeExpiry: optNum(rotation.renewalDaysBeforeExpiry) }
+          : undefined,
+      healthCheck: healthCheckSummary(mhcsByCluster.get(nsName(namespace, name)) ?? []),
       controlPlane: cp,
       workers,
       upgrading: upgradePending || cpBehind || workersBehind,

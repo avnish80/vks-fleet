@@ -63,6 +63,15 @@ export interface NodePool {
   autoscaler?: { min?: number; max?: number };
 }
 
+export interface VmInfo {
+  powerState?: string;
+  className?: string;
+  ip?: string;
+  zone?: string;
+  cpus?: number;
+  memoryBytes?: number;
+}
+
 export interface MachineInfo {
   name: string;
   nodeName?: string;
@@ -77,6 +86,32 @@ export interface MachineInfo {
   osImage?: string;
   createdAt?: string;
   deletingSince?: string;
+  /** Control-plane machines only: when the Kubernetes certificates expire. */
+  certificatesExpiry?: string;
+  /** The node's VirtualMachine on the Supervisor, when readable. */
+  vm?: VmInfo;
+}
+
+export interface HealthCheckSummary {
+  expected: number;
+  healthy: number;
+  /** False when automatic repair has hit its limit (maxUnhealthy) and stopped. */
+  remediationAllowed: boolean;
+}
+
+export interface Capacity {
+  cpus: number;
+  memoryBytes: number;
+  /** Nodes whose VM or VM class couldn't be read are left out of the totals. */
+  nodesCounted: number;
+}
+
+export interface QuotaItem {
+  resource: string;
+  used: string;
+  hard: string;
+  /** used / hard, 0..1+, when both parse as quantities. */
+  ratio?: number;
 }
 
 export interface UpgradeInfo {
@@ -111,7 +146,20 @@ export interface FleetCluster {
   /** Version the control plane currently reports. */
   controlPlaneVersion?: string;
   availableUpgrade?: UpgradeInfo;
+  /** Minor versions behind the newest release on the Supervisor. */
+  minorsBehind?: number;
   clusterClass?: string;
+  classNamespace?: string;
+  /** Newer ClusterClass of the same family, when one exists. */
+  classUpdate?: string;
+  paused: boolean;
+  /** Earliest control-plane certificate expiry. */
+  certificatesExpiry?: string;
+  certificateRotation?: { enabled: boolean; renewalDaysBeforeExpiry?: number };
+  healthCheck?: HealthCheckSummary;
+  capacity?: Capacity;
+  /** ResourceQuota usage for the cluster's namespace. */
+  quota?: QuotaItem[];
   controlPlane?: ReplicaCount;
   workers?: ReplicaCount;
   upgrading: boolean;
@@ -141,7 +189,35 @@ export interface SupervisorResult {
   error?: string;
   /** Partial problems (a namespace denied, labels unreadable, ...). */
   warnings: string[];
+  /** Supervisor services (svc-* namespaces); only readable with Supervisor-wide access. */
+  services?: ServiceHealth[];
   fetchedAt: string;
+}
+
+export interface ServiceHealth {
+  namespace: string;
+  name: string;
+  pods: number;
+  problems: PodIssue[];
+}
+
+export type Severity = 'critical' | 'warning' | 'info';
+
+/** Something an operator should know or do, with the fix in plain language. */
+export interface Finding {
+  /** Stable identity, so the same finding keeps its place across refreshes. */
+  id: string;
+  severity: Severity;
+  /** What the finding is about: one cluster, a Supervisor namespace, or the Supervisor itself. */
+  scope: 'cluster' | 'namespace' | 'supervisor';
+  supervisorId: string;
+  clusterKey?: string;
+  clusterName?: string;
+  namespace?: string;
+  tenantName?: string;
+  title: string;
+  detail?: string;
+  fix: string;
 }
 
 /* ---------- Inside the workload cluster (via a Headlamp context) ---------- */

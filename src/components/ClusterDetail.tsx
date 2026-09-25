@@ -11,7 +11,9 @@ import { Link, useParams } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
 import { AddonInfo } from '../extras';
-import { FLEET_PATH, headlampClusterPath } from '../routes';
+import { clusterFindings, namespaceFindings } from '../findings';
+import { formatBytes } from '../quantity';
+import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath } from '../routes';
 import { usePluginConfig } from '../settings/store';
 import {
   ClusterCondition,
@@ -22,13 +24,14 @@ import {
   MachineInfo,
   NodePool,
   PodIssue,
+  QuotaItem,
   supervisorLabel,
   WorkloadHealth,
 } from '../types';
 import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
-import { HealthLabel, replicas, SupervisorBanners, WorkloadCell } from './common';
+import { capacityText, FindingsTable, HealthLabel, replicas, SupervisorBanners, WorkloadCell } from './common';
 
 type LabelStatus = 'success' | 'warning' | 'error' | '';
 
@@ -43,6 +46,36 @@ function phaseStatus(m: MachineInfo): LabelStatus {
   if (m.phase === 'Running') return m.ready === false ? 'warning' : 'success';
   if (m.phase === 'Failed') return 'error';
   return '';
+}
+
+function certText(c: FleetCluster): string {
+  if (!c.certificatesExpiry) return '—';
+  const days = Math.floor((new Date(c.certificatesExpiry).getTime() - Date.now()) / 86400000);
+  const rotation = c.certificateRotation
+    ? c.certificateRotation.enabled
+      ? `automatic rotation on${
+          c.certificateRotation.renewalDaysBeforeExpiry
+            ? `, ${c.certificateRotation.renewalDaysBeforeExpiry} days before expiry`
+            : ''
+        }`
+      : 'automatic rotation off'
+    : 'rotation setting unknown';
+  return `${new Date(c.certificatesExpiry).toLocaleDateString()} (in ${days} days; ${rotation})`;
+}
+
+function repairText(c: FleetCluster): string {
+  if (!c.healthCheck) return 'No health checks found';
+  const hc = c.healthCheck;
+  return `${hc.healthy} of ${hc.expected} nodes healthy; ${hc.remediationAllowed ? 'repair active' : 'repair stopped'}`;
+}
+
+function vmText(m: MachineInfo): string {
+  if (!m.vm) return '—';
+  const size =
+    m.vm.cpus !== undefined && m.vm.memoryBytes !== undefined
+      ? ` (${m.vm.cpus} vCPU, ${formatBytes(m.vm.memoryBytes)})`
+      : '';
+  return `${m.vm.className ?? '—'}${size}`;
 }
 
 function when(ts?: string): string {
@@ -250,6 +283,11 @@ export function ClusterDetail() {
   }
 
   const health = workload.byKey.get(cluster.key);
+  const fleetZones = new Set(
+    results.flatMap(r => r.clusters.flatMap(c => c.machines.map(m => m.failureDomain))).filter(Boolean)
+  ).size;
+  const findings = [...clusterFindings(cluster, new Date(), fleetZones), ...namespaceFindings(cluster)];
+  const vksNamespace = results.flatMap(r => r.services ?? []).find(s => s.namespace.startsWith('svc-tkg-'))?.namespace;
   const supervisorHost = serverHost(workload.contexts.find(c => c.name === supervisor.headlampCluster)?.server);
   const addons: AddonInfo[] =
     extras?.addons.length
@@ -263,9 +301,15 @@ export function ClusterDetail() {
       <SectionBox title={cluster.name}>
         {back}
         <SupervisorBanners results={results} />
+        {findings.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <FindingsTable findings={findings} showCluster={false} />
+          </Box>
+        )}
         <NameValueTable
           rows={[
             { name: 'Status', value: <HealthLabel cluster={cluster} /> },
+            ...(cluster.paused ? [{ name: 'Paused', value: 'Yes: changes and repairs are not applied' }] : []),
             ...(cluster.issues.length
               ? [
                   {
@@ -297,7 +341,12 @@ export function ClusterDetail() {
                 ? `${cluster.availableUpgrade.version} available (${cluster.availableUpgrade.kind} upgrade)`
                 : 'No newer release found',
             },
-            { name: 'Class', value: cluster.clusterClass ?? '—' },
+            {
+              name: 'Class',
+              value: cluster.classUpdate
+                ? `${cluster.clusterClass} (newer: ${cluster.classUpdate})`
+                : cluster.clusterClass ?? '—',
+            },
             { name: 'Operating system', value: cluster.osImage ?? '—' },
             { name: 'VM class', value: cluster.vmClass ?? '—' },
             { name: 'Storage class', value: cluster.storageClass ?? '—' },
@@ -307,6 +356,16 @@ export function ClusterDetail() {
             },
             { name: 'Pod network', value: cluster.network?.pods.join(', ') || '—' },
             { name: 'Service network', value: cluster.network?.services.join(', ') || '—' },
+            { name: 'Certificates expire', value: certText(cluster) },
+            { name: 'Automatic node repair', value: repairText(cluster) },
+            {
+              name: 'Node capacity',
+              value: cluster.capacity
+                ? `${capacityText(cluster.capacity)} across ${cluster.capacity.nodesCounted} node${
+                    cluster.capacity.nodesCounted === 1 ? '' : 's'
+                  }`
+                : '—',
+            },
             { name: 'Control plane ready', value: replicas(cluster.controlPlane) },
             { name: 'Workers ready', value: replicas(cluster.workers) },
             { name: 'Created', value: when(cluster.createdAt) },
@@ -360,15 +419,80 @@ export function ClusterDetail() {
                   </Box>
                 ),
               },
+              {
+                label: 'VM',
+                getter: (m: MachineInfo) => (
+                  <Box>
+                    {m.vm?.powerState && (
+                      <StatusLabel status={/^poweredon$/i.test(m.vm.powerState) ? 'success' : 'error'}>
+                        {m.vm.powerState}
+                      </StatusLabel>
+                    )}
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {vmText(m)}
+                    </Typography>
+                  </Box>
+                ),
+              },
               { label: 'Version', getter: (m: MachineInfo) => m.version ?? '—' },
               { label: 'IP', getter: (m: MachineInfo) => m.internalIP ?? '—' },
-              { label: 'Zone', getter: (m: MachineInfo) => m.failureDomain ?? '—' },
-              { label: 'OS', getter: (m: MachineInfo) => m.osImage ?? '—' },
+              { label: 'Zone', getter: (m: MachineInfo) => m.failureDomain ?? m.vm?.zone ?? '—' },
               { label: 'Age', getter: (m: MachineInfo) => ageOf(m.createdAt) },
             ]}
             data={cluster.machines}
           />
         )}
+      </SectionBox>
+
+      <SectionBox title="Namespace quota">
+        {!cluster.quota || cluster.quota.length === 0 ? (
+          <Typography>No quota is set on namespace {cluster.namespace}, or it isn't readable.</Typography>
+        ) : (
+          <SimpleTable
+            columns={[
+              { label: 'Resource', getter: (q: QuotaItem) => q.resource },
+              { label: 'Used', getter: (q: QuotaItem) => q.used },
+              { label: 'Limit', getter: (q: QuotaItem) => q.hard },
+              {
+                label: 'Usage',
+                getter: (q: QuotaItem) =>
+                  q.ratio === undefined ? (
+                    '—'
+                  ) : (
+                    <StatusLabel status={q.ratio >= 0.95 ? 'error' : q.ratio >= 0.8 ? 'warning' : 'success'}>
+                      {`${Math.round(q.ratio * 100)}%`}
+                    </StatusLabel>
+                  ),
+              },
+            ]}
+            data={cluster.quota}
+          />
+        )}
+      </SectionBox>
+
+      <SectionBox title="Troubleshoot">
+        <Box component="ul" sx={{ m: 0, pl: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <li>
+            <Link to={headlampClusterObjectPath(supervisor.headlampCluster, cluster.namespace, cluster.name)}>
+              Open the Cluster object in Headlamp
+            </Link>{' '}
+            to view or edit its YAML on the Supervisor.
+          </li>
+          <li>
+            <Link to={headlampPodsPath(supervisor.headlampCluster, cluster.namespace)}>
+              Open pods in namespace {cluster.namespace}
+            </Link>{' '}
+            on the Supervisor.
+          </li>
+          {vksNamespace && (
+            <li>
+              <Link to={headlampPodsPath(supervisor.headlampCluster, vksNamespace)}>
+                Open the VKS controller pods
+              </Link>{' '}
+              ({vksNamespace}) and check their logs for this cluster's name.
+            </li>
+          )}
+        </Box>
       </SectionBox>
 
       <SectionBox title="Add-ons">

@@ -11,6 +11,15 @@ export interface FleetTotals {
   attention: number;
   upgrading: number;
   upgradable: number;
+  cpus: number;
+  memoryBytes: number;
+}
+
+function sumCapacity(clusters: FleetCluster[]): { cpus: number; memoryBytes: number } {
+  return clusters.reduce(
+    (acc, c) => ({ cpus: acc.cpus + (c.capacity?.cpus ?? 0), memoryBytes: acc.memoryBytes + (c.capacity?.memoryBytes ?? 0) }),
+    { cpus: 0, memoryBytes: 0 }
+  );
 }
 
 export function fleetTotals(clusters: FleetCluster[]): FleetTotals {
@@ -21,6 +30,7 @@ export function fleetTotals(clusters: FleetCluster[]): FleetTotals {
     attention: clusters.filter(needsAttention).length,
     upgrading: clusters.filter(c => c.upgrading).length,
     upgradable: clusters.filter(c => !!c.availableUpgrade && !c.upgrading).length,
+    ...sumCapacity(clusters),
   };
 }
 
@@ -34,6 +44,8 @@ export interface TenantRollup {
   upgradable: number;
   versions: string[];
   supervisorIds: string[];
+  cpus: number;
+  memoryBytes: number;
   /** True if any namespace in this tenant fell back to "namespace as tenant". */
   unmapped: boolean;
 }
@@ -55,6 +67,7 @@ export function rollupByTenant(clusters: FleetCluster[]): TenantRollup[] {
       upgradable: cs.filter(c => !!c.availableUpgrade && !c.upgrading).length,
       versions: uniqueSorted(cs.map(c => c.kubernetesVersion ?? 'unknown')),
       supervisorIds: uniqueSorted(cs.map(c => c.supervisorId)),
+      ...sumCapacity(cs),
       unmapped: cs.some(c => !c.tenantMapped),
     }))
     .sort((a, b) => b.attention - a.attention || a.tenantName.localeCompare(b.tenantName));

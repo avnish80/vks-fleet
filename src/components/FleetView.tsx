@@ -1,18 +1,29 @@
-import { Loader, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Button, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { clusterPath, headlampClusterPath } from '../routes';
+import { countBySeverity, fleetFindings } from '../findings';
+import { clusterPath, headlampClusterPath, headlampPodsPath } from '../routes';
 import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup, versionSpread } from '../summary';
-import { FleetCluster, supervisorLabel } from '../types';
+import { FleetCluster, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
-import { HealthLabel, IssuesText, nodesText, SupervisorBanners, VersionCell, WorkloadCell } from './common';
+import {
+  capacityText,
+  FindingsTable,
+  HealthLabel,
+  IssuesText,
+  nodesText,
+  SupervisorBanners,
+  VersionCell,
+  WorkloadCell,
+} from './common';
 
 const ALL = '__all__';
 
 type VersionCount = { version: string; count: number };
+type ServiceRow = ServiceHealth & { supervisor: SupervisorConfig };
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -25,9 +36,10 @@ function summarySentence(clusters: FleetCluster[]): string {
   if (t.attention) parts.push(`${t.attention} ${t.attention === 1 ? 'needs' : 'need'} attention`);
   if (t.upgrading) parts.push(`${t.upgrading} ${t.upgrading === 1 ? 'is' : 'are'} upgrading`);
   if (t.upgradable) parts.push(`${t.upgradable} can be upgraded`);
-  if (!parts.length) return `${first} All healthy.`;
+  const capacity = t.cpus ? ` Nodes use ${capacityText(t)} of memory.`.replace(' vCPU, ', ' vCPU and ') : '';
+  if (!parts.length) return `${first} All healthy.${capacity}`;
   const text = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
-  return `${first} ${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+  return `${first} ${text.charAt(0).toUpperCase()}${text.slice(1)}.${capacity}`;
 }
 
 export function FleetView() {
@@ -37,6 +49,7 @@ export function FleetView() {
   const [search, setSearch] = React.useState('');
   const [tenant, setTenant] = React.useState(ALL);
   const [attentionOnly, setAttentionOnly] = React.useState(false);
+  const [showInfo, setShowInfo] = React.useState(false);
 
   const multiSupervisor = config.supervisors.length > 1;
   const supervisorNames = new Map(config.supervisors.map(s => [s.id, supervisorLabel(s)]));
@@ -45,6 +58,10 @@ export function FleetView() {
   const rollups = React.useMemo(() => rollupByTenant(allClusters), [allClusters]);
   const versions = React.useMemo(() => versionSpread(allClusters), [allClusters]);
   const workload = useWorkloadHealth(allClusters, config.refreshSeconds);
+  const findings = React.useMemo(() => fleetFindings(results ?? []), [results]);
+  const services: ServiceRow[] = (results ?? []).flatMap(r =>
+    (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
+  );
 
   const visible = allClusters.filter(c => {
     if (tenant !== ALL && c.tenantId !== tenant) return false;
@@ -151,6 +168,8 @@ export function FleetView() {
         </Box>
       </SectionBox>
 
+      <FindingsSection findings={findings} showInfo={showInfo} setShowInfo={setShowInfo} />
+
       {multiTenant && tenant === ALL && (
         <SectionBox title="Tenants">
           <SimpleTable
@@ -168,6 +187,7 @@ export function FleetView() {
               { label: 'Upgrading', getter: (r: TenantRollup) => r.upgrading },
               { label: 'Upgrades available', getter: (r: TenantRollup) => r.upgradable },
               { label: 'Kubernetes versions', getter: (r: TenantRollup) => r.versions.join(', ') },
+              { label: 'Node capacity', getter: (r: TenantRollup) => capacityText(r) },
               ...(multiSupervisor
                 ? [
                     {
@@ -232,6 +252,67 @@ export function FleetView() {
             </SectionBox>
           );
         })}
+
+      {services.length > 0 && tenant === ALL && (
+        <SectionBox title="Supervisor services">
+          <SimpleTable
+            columns={[
+              { label: 'Service', getter: (s: ServiceRow) => s.name },
+              ...(multiSupervisor ? [{ label: 'Supervisor', getter: (s: ServiceRow) => supervisorLabel(s.supervisor) }] : []),
+              { label: 'Namespace', getter: (s: ServiceRow) => s.namespace },
+              {
+                label: 'Pods',
+                getter: (s: ServiceRow) =>
+                  s.problems.length ? (
+                    <StatusLabel status="warning">{`${s.problems.length} of ${s.pods} with problems`}</StatusLabel>
+                  ) : (
+                    <StatusLabel status="success">{`${s.pods} OK`}</StatusLabel>
+                  ),
+              },
+              {
+                label: 'Logs',
+                getter: (s: ServiceRow) => (
+                  <Link to={headlampPodsPath(s.supervisor.headlampCluster, s.namespace)}>Open pods</Link>
+                ),
+              },
+            ]}
+            data={services}
+          />
+        </SectionBox>
+      )}
     </>
+  );
+}
+
+function FindingsSection({
+  findings,
+  showInfo,
+  setShowInfo,
+}: {
+  findings: ReturnType<typeof fleetFindings>;
+  showInfo: boolean;
+  setShowInfo: (v: boolean) => void;
+}) {
+  const counts = countBySeverity(findings);
+  const shown = showInfo ? findings : findings.filter(x => x.severity !== 'info');
+  const summary =
+    counts.critical + counts.warning === 0
+      ? 'Nothing needs action.'
+      : `${counts.critical} critical, ${counts.warning} ${counts.warning === 1 ? 'warning' : 'warnings'}.`;
+  return (
+    <SectionBox title="Findings">
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 1 }}>
+        <Typography>
+          {summary} {counts.info ? `${counts.info} for information.` : ''}
+        </Typography>
+        {counts.info > 0 && (
+          <FormControlLabel
+            control={<Switch checked={showInfo} onChange={e => setShowInfo(e.target.checked)} />}
+            label="Show information findings"
+          />
+        )}
+      </Box>
+      {shown.length > 0 && <FindingsTable findings={shown} />}
+    </SectionBox>
   );
 }
