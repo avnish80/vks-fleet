@@ -123,7 +123,8 @@ export async function fetchSupervisor(
   fleet = attachVms(fleet, vmObjects, classObjects);
   fleet = attachQuotas(fleet, quotaObjects);
   const classNamespaces = Array.from(new Set(fleet.map(c => c.classNamespace ?? DEFAULT_CLASS_NAMESPACE)));
-  fleet = attachClassUpdates(fleet, await fetchClassNames(client, classNamespaces));
+  const classNames = await fetchClassNames(client, classNamespaces);
+  fleet = attachClassUpdates(fleet, classNames);
 
   let services: ServiceHealth[] | undefined;
   if (namespaceList) {
@@ -138,6 +139,8 @@ export async function fetchSupervisor(
     scope: clusters.scope,
     warnings: Array.from(new Set(warnings)),
     services,
+    releases: versions,
+    classes: classNames,
     fetchedAt,
   };
 }

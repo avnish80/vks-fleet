@@ -92,3 +92,33 @@ export async function fetchReleaseVersions(
     warning: lastError ? `Upgrade availability unknown: ${describeError(lastError)}` : undefined,
   };
 }
+
+/**
+ * Versions a cluster may upgrade to next: newer builds in its current minor,
+ * and any release in the next minor (VKS moves one minor at a time).
+ * Newest first.
+ */
+export function upgradeTargets(current: string | undefined, available: string[]): string[] {
+  const cur = parseVersion(current);
+  if (!cur) return [];
+  const seen = new Set<string>();
+  return available
+    .map(parseVersion)
+    .filter((p): p is ParsedVersion => !!p)
+    .filter(
+      p =>
+        p.parts[0] === cur.parts[0] &&
+        ((p.parts[1] === cur.parts[1] && compare(p, cur) > 0) || p.parts[1] === cur.parts[1] + 1)
+    )
+    .sort((a, b) => compare(b, a))
+    .map(p => p.raw)
+    .filter(v => (seen.has(v) ? false : (seen.add(v), true)));
+}
+
+/** "v1.36.2+vmware.2" and "v1.37.1+vmware.1" → 'minor'; same minor → 'patch'. */
+export function upgradeKind(current: string | undefined, target: string): 'patch' | 'minor' | undefined {
+  const a = parseVersion(current);
+  const b = parseVersion(target);
+  if (!a || !b) return undefined;
+  return a.parts[1] === b.parts[1] ? 'patch' : 'minor';
+}

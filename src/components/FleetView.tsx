@@ -48,6 +48,7 @@ export function FleetView() {
 
   const [search, setSearch] = React.useState('');
   const [tenant, setTenant] = React.useState(ALL);
+  const [supervisorFilter, setSupervisorFilter] = React.useState(ALL);
   const [attentionOnly, setAttentionOnly] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
@@ -55,10 +56,19 @@ export function FleetView() {
   const multiSupervisor = config.supervisors.length > 1;
   const supervisorNames = new Map(config.supervisors.map(s => [s.id, supervisorLabel(s)]));
 
-  const allClusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
+  const allClusters = React.useMemo(
+    () =>
+      (results ?? [])
+        .filter(r => supervisorFilter === ALL || r.supervisor.id === supervisorFilter)
+        .flatMap(r => r.clusters),
+    [results, supervisorFilter]
+  );
   const rollups = React.useMemo(() => rollupByTenant(allClusters), [allClusters]);
   const workload = useWorkloadHealth(allClusters, config.refreshSeconds);
-  const findings = React.useMemo(() => fleetFindings(results ?? []), [results]);
+  const findings = React.useMemo(
+    () => fleetFindings((results ?? []).filter(r => supervisorFilter === ALL || r.supervisor.id === supervisorFilter)),
+    [results, supervisorFilter]
+  );
   const findingCounts = countBySeverity(findings);
   // Collapsed by default; open by default only when something is critical.
   const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
@@ -167,6 +177,26 @@ export function FleetView() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
+          {multiSupervisor && (
+            <TextField
+              select
+              size="small"
+              label="Supervisor"
+              value={supervisorFilter}
+              onChange={e => {
+                setSupervisorFilter(e.target.value);
+                setTenant(ALL);
+              }}
+              sx={{ minWidth: 200 }}
+            >
+              <MenuItem value={ALL}>All Supervisors</MenuItem>
+              {config.supervisors.map(s => (
+                <MenuItem key={s.id} value={s.id}>
+                  {supervisorLabel(s)}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           {multiTenant && (
             <TextField
               select
@@ -197,6 +227,17 @@ export function FleetView() {
           findings={tenantFindings}
           title={tenant === ALL ? 'Overview' : `Overview: ${tenantById.get(tenant)?.tenantName ?? tenant}`}
           onTenant={multiTenant ? setTenant : undefined}
+          supervisors={
+            multiSupervisor && supervisorFilter === ALL
+              ? results.map(r => ({
+                  id: r.supervisor.id,
+                  name: supervisorLabel(r.supervisor),
+                  error: r.error,
+                  clusters: r.clusters,
+                }))
+              : undefined
+          }
+          onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
         />
       )}
 

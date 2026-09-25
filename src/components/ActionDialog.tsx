@@ -14,7 +14,19 @@ import {
   Typography,
 } from '@mui/material';
 import React, { ReactNode } from 'react';
-import { ActionPlan, blocked, CheckLevel, currentTimeout, scalePlan, TimeoutKind, timeoutPlan } from '../actions';
+import {
+  ActionPlan,
+  blocked,
+  CheckLevel,
+  currentTimeout,
+  scalePlan,
+  TimeoutKind,
+  timeoutPlan,
+  upgradePlan,
+} from '../actions';
+import { headlampClient } from '../api/headlampClient';
+import { upgradeKind, upgradeTargets } from '../releases';
+import { usePolling } from '../usePolling';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
 import { FleetCluster, MachineInfo, NodePool } from '../types';
 
@@ -239,6 +251,87 @@ export function TimeoutDialog(props: {
           sx={{ maxWidth: 260 }}
         />
       )}
+    </ActionDialog>
+  );
+}
+
+/** PodDisruptionBudgets that currently allow no disruptions (and protect at least one pod). */
+async function blockingPdbs(contextName: string): Promise<{ names?: string[]; error?: string }> {
+  try {
+    const list = await headlampClient(contextName).get<{ items?: any[] }>('/apis/policy/v1/poddisruptionbudgets');
+    const names = (list?.items ?? [])
+      .filter(b => (b?.status?.disruptionsAllowed ?? 0) === 0 && (b?.status?.expectedPods ?? 0) > 0)
+      .map(b => `${b?.metadata?.namespace}/${b?.metadata?.name}`);
+    return { names };
+  } catch (err) {
+    return { error: describeError(err) };
+  }
+}
+
+export function UpgradeDialog(props: {
+  cluster: FleetCluster;
+  available: string[];
+  /** Headlamp context for the workload cluster, for the PodDisruptionBudget check. */
+  contextName?: string;
+  writer: SupervisorWriter;
+  onClose: () => void;
+  onApplied: (message: string) => void;
+}) {
+  const targets = upgradeTargets(props.cluster.kubernetesVersion, props.available);
+  const [target, setTarget] = React.useState(targets[0] ?? '');
+  const [moveClass, setMoveClass] = React.useState(false);
+  const pdbs = usePolling(
+    props.contextName ? `pdb/${props.contextName}` : null,
+    () => blockingPdbs(props.contextName as string),
+    60
+  );
+  const plan = upgradePlan(props.cluster, target, moveClass && props.cluster.classUpdate ? props.cluster.classUpdate : null, {
+    available: props.available,
+    blockingPdbs: pdbs?.names,
+    pdbCheck: !props.contextName
+      ? 'sign in to the cluster to check them.'
+      : pdbs === null
+      ? 'still checking…'
+      : pdbs.error,
+  });
+  return (
+    <ActionDialog plan={plan} writer={props.writer} onClose={props.onClose} onApplied={props.onApplied}>
+      {targets.length === 0 ? (
+        <Alert severity="info">
+          No newer release in this minor or the next is available on the Supervisor for {props.cluster.kubernetesVersion}.
+        </Alert>
+      ) : (
+        <TextField
+          select
+          size="small"
+          label="Upgrade to"
+          value={target}
+          onChange={e => setTarget(e.target.value)}
+          sx={{ maxWidth: 360 }}
+        >
+          {targets.map(v => (
+            <MenuItem key={v} value={v}>
+              {v} ({upgradeKind(props.cluster.kubernetesVersion, v) === 'minor' ? 'next minor' : 'patch'})
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+      {props.cluster.classUpdate && (
+        <FormControlLabel
+          control={<Checkbox checked={moveClass} onChange={e => setMoveClass(e.target.checked)} />}
+          label={`Also move from ${props.cluster.clusterClass} to ${props.cluster.classUpdate}`}
+        />
+      )}
+      <details>
+        <summary>
+          <Typography variant="body2" component="span">
+            Releases this Supervisor offers ({props.available.length})
+          </Typography>
+        </summary>
+        <Typography variant="body2" sx={{ mt: 1, overflowWrap: 'anywhere' }}>
+          {props.available.length ? [...props.available].sort().reverse().join(', ') : 'None could be read.'}
+        </Typography>
+      </details>
     </ActionDialog>
   );
 }

@@ -201,6 +201,10 @@ export interface SupervisorResult {
   warnings: string[];
   /** Supervisor services (svc-* namespaces); only readable with Supervisor-wide access. */
   services?: ServiceHealth[];
+  /** Kubernetes release versions the Supervisor offers (ready and compatible). */
+  releases?: string[];
+  /** ClusterClass names available in the class namespaces the clusters use. */
+  classes?: string[];
   fetchedAt: string;
 }
 

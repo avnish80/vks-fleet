@@ -4,6 +4,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
 import {
+  bucketOf,
   certRows,
   healthSlices,
   overviewNumbers,
@@ -36,12 +37,17 @@ export function Overview({
   findings,
   title,
   onTenant,
+  supervisors,
+  onSupervisor,
 }: {
   clusters: FleetCluster[];
   findings: Finding[];
   title: string;
   /** Called when a tenant bar is clicked; omit to make bars inert. */
   onTenant?: (tenantId: string) => void;
+  /** Per-Supervisor breakdown, shown when there's more than one. */
+  supervisors?: Array<{ id: string; name: string; error?: string; clusters: FleetCluster[] }>;
+  onSupervisor?: (id: string) => void;
 }) {
   const now = new Date();
   const n = overviewNumbers(clusters, findings);
@@ -97,6 +103,29 @@ export function Overview({
       </Box>
 
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 2 }}>
+        {supervisors && supervisors.length > 1 && (
+          <ChartCard title="Clusters by Supervisor" caption={onSupervisor ? 'Click a Supervisor to show only its clusters' : undefined}>
+            <BarList
+              rows={supervisors.map(s => {
+                const count = (b: 'healthy' | 'attention' | 'changing') =>
+                  s.clusters.filter(c => bucketOf(c.health) === b).length;
+                return {
+                  key: s.id,
+                  label: s.name,
+                  title: s.error ? `${s.name}: ${s.error}` : undefined,
+                  parts: [
+                    { label: 'Healthy', value: count('healthy'), tone: 'success' as Tone },
+                    { label: 'Needs attention', value: count('attention'), tone: 'warning' as Tone },
+                    { label: 'Changing', value: count('changing'), tone: 'info' as Tone },
+                  ],
+                  valueText: s.error ? 'Unreachable' : s.clusters.length,
+                  onClick: onSupervisor ? () => onSupervisor(s.id) : undefined,
+                };
+              })}
+            />
+          </ChartCard>
+        )}
+
         <ChartCard title="Cluster health" caption="From the Supervisor's view of each cluster">
           {clusters.length ? (
             <Donut slices={slices} centre={n.clusters} centreSub={n.clusters === 1 ? 'cluster' : 'clusters'} />

@@ -5,6 +5,13 @@
  */
 import { FleetCluster, Finding, ServiceHealth, Severity, SupervisorResult } from './types';
 
+/** "10s", "5m0s", "1h" → seconds. */
+function parseDurationSeconds(text: string): number | undefined {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(text.trim());
+  if (!m || !text.trim()) return undefined;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
 const DAY = 24 * 60 * 60 * 1000;
 export const CERT_CRITICAL_DAYS = 7;
 export const CERT_WARNING_DAYS = 30;
@@ -180,6 +187,30 @@ export function clusterFindings(c: FleetCluster, now: Date, fleetZones: number):
         `The cluster uses ${c.clusterClass}. Moving to the newer class brings the latest VKS defaults and fixes; plan it together with a version upgrade.`
       )
     );
+  }
+
+  // Timeouts left on node pools (e.g. after unblocking a deletion).
+  for (const p of c.nodePools) {
+    const deleting = c.machines.some(m => m.pool === p.name && m.deletingSince);
+    if (deleting) continue;
+    const short = p.nodeDrainTimeout && (parseDurationSeconds(p.nodeDrainTimeout) ?? Infinity) < 300;
+    if (p.nodeVolumeDetachTimeout || short) {
+      const what = [
+        p.nodeDrainTimeout ? `drain timeout ${p.nodeDrainTimeout}` : '',
+        p.nodeVolumeDetachTimeout ? `volume-detach timeout ${p.nodeVolumeDetachTimeout}` : '',
+      ]
+        .filter(Boolean)
+        .join(' and ');
+      out.push(
+        f(
+          c,
+          `timeouts-${p.name}`,
+          'warning',
+          `Node pool ${p.name} still has a ${what}`,
+          'Nothing is stuck deleting in this pool now. Clear it with Timeouts on the node pool, unless it is meant to stay: short timeouts stop pods without eviction during scale-downs and upgrades.'
+        )
+      );
+    }
   }
 
   // Resilience.

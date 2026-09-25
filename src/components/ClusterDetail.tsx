@@ -8,7 +8,7 @@ import {
 import { Alert, Box, Button, Typography } from '@mui/material';
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { pausePlan, replacePlan } from '../actions';
+import { pausePlan, replacePlan, upgradeProgress } from '../actions';
 import { headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
@@ -34,7 +34,8 @@ import {
 import { useClusterExtras } from '../useClusterExtras';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
-import { ActionDialog, ScaleDialog, TimeoutDialog } from './ActionDialog';
+import { ActionDialog, ScaleDialog, TimeoutDialog, UpgradeDialog } from './ActionDialog';
+import { BarList, ChartStyles } from './charts';
 import {
   capacityText,
   FindingsTable,
@@ -48,6 +49,7 @@ import {
 type OpenAction =
   | { kind: 'pause' }
   | { kind: 'resume' }
+  | { kind: 'upgrade' }
   | { kind: 'scale'; pool: NodePool }
   | { kind: 'timeouts'; pool: NodePool; context?: string }
   | { kind: 'replace'; machine: MachineInfo };
@@ -312,7 +314,17 @@ export function ClusterDetail() {
     setNotice(message);
     refresh();
   };
+  const available = results.find(r => r.supervisor.id === cluster.supervisorId)?.releases ?? [];
+  const progress = upgradeProgress(cluster);
+  const rolling =
+    !!progress &&
+    (cluster.upgrading ||
+      progress.controlPlane.updated < progress.controlPlane.total ||
+      progress.pools.some(p => p.updated < p.total));
   const actionButtons = [
+    <Button key="upgrade" size="small" variant="contained" onClick={() => setAction({ kind: 'upgrade' })}>
+      Upgrade
+    </Button>,
     <Button
       key="pause"
       size="small"
@@ -371,7 +383,9 @@ export function ClusterDetail() {
                 ? 'In progress'
                 : cluster.availableUpgrade
                 ? `${cluster.availableUpgrade.version} available (${cluster.availableUpgrade.kind} upgrade)`
-                : 'No newer release found',
+                : available.length
+                ? `No newer release found (${available.length} releases read from the Supervisor)`
+                : "Couldn't read the Supervisor's releases",
             },
             {
               name: 'Class',
@@ -404,6 +418,27 @@ export function ClusterDetail() {
           ]}
         />
       </SectionBox>
+
+      {rolling && progress && (
+        <SectionBox title={`Upgrade to ${cluster.kubernetesVersion} in progress`}>
+          <ChartStyles />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Nodes already running the new version. The control plane goes first, then each node pool one node at a
+            time. This page refreshes on its own.
+          </Typography>
+          <BarList
+            max={1}
+            rows={[progress.controlPlane, ...progress.pools]
+              .filter(p => p.total > 0)
+              .map(p => ({
+                key: p.name,
+                label: p.name,
+                parts: [{ label: 'Upgraded', value: p.total ? p.updated / p.total : 0, tone: p.updated === p.total ? 'success' : 'info' }],
+                valueText: `${p.updated} of ${p.total}`,
+              }))}
+          />
+        </SectionBox>
+      )}
 
       <SectionBox title="Inside the cluster">
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
@@ -634,6 +669,16 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      {writer && action?.kind === 'upgrade' && (
+        <UpgradeDialog
+          cluster={cluster}
+          available={available}
+          contextName={health?.contextName}
+          writer={writer}
+          onClose={closeAction}
+          onApplied={applied}
+        />
+      )}
       {writer && action?.kind === 'pause' && (
         <ActionDialog plan={pausePlan(cluster, true)} writer={writer} onClose={closeAction} onApplied={applied} />
       )}

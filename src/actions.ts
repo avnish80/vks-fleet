@@ -7,6 +7,7 @@
  * signed-in user's identity, and stamps the Cluster with what was done and why.
  */
 import { WriteRequest } from './api/client';
+import { upgradeKind } from './releases';
 import { FleetCluster, MachineInfo, NodePool } from './types';
 
 export const ACTION_ANNOTATION = 'vks-fleet/last-action';
@@ -379,3 +380,139 @@ export function timeoutPlan(c: FleetCluster, pool: NodePool, kind: TimeoutKind, 
   };
 }
 
+/* ---------------- Upgrade ---------------- */
+
+export interface UpgradeContext {
+  /** Releases the Supervisor offers, to confirm the target is one of them. */
+  available: string[];
+  /** PodDisruptionBudgets in the workload cluster that allow no disruptions right now, if known. */
+  blockingPdbs?: string[];
+  /** Why the PDB check couldn't run, if it couldn't. */
+  pdbCheck?: string;
+}
+
+/**
+ * Upgrades the cluster's Kubernetes version (and optionally its ClusterClass)
+ * by changing the Cluster's topology. VKS then rolls the control plane first
+ * and each node pool after it, one node at a time.
+ */
+export function upgradePlan(c: FleetCluster, target: string, newClass: string | null, ctx: UpgradeContext): ActionPlan {
+  const checks: Check[] = [];
+  const kind = upgradeKind(c.kubernetesVersion, target);
+  const current = c.kubernetesVersion;
+
+  if (!current) checks.push({ level: 'block', text: "The cluster's current version isn't known." });
+  if (!target) checks.push({ level: 'block', text: 'Choose a version to upgrade to.' });
+  else if (!ctx.available.includes(target)) {
+    checks.push({ level: 'block', text: `${target} isn't one of the releases this Supervisor offers.` });
+  }
+  if (c.upgrading) checks.push({ level: 'block', text: 'An upgrade is already in progress. Let it finish first.' });
+  if (c.paused) checks.push({ level: 'block', text: 'The cluster is paused. Resume it first.' });
+  if (c.health === 'failed' || c.health === 'provisioning' || c.health === 'deleting') {
+    checks.push({ level: 'block', text: `The cluster is ${c.health}. Upgrade a cluster that's up and settled.` });
+  } else if (c.health !== 'healthy') {
+    checks.push({ level: 'warn', text: `The cluster is ${c.health}. Check its findings before upgrading.` });
+  }
+  if (c.issues.length) {
+    checks.push({ level: 'block', text: `Fix these first: ${c.issues.join('; ')}.` });
+  }
+  if (c.healthCheck && !c.healthCheck.remediationAllowed) {
+    checks.push({ level: 'block', text: "Automatic node repair has stopped. Nodes that fail during the upgrade wouldn't be replaced." });
+  }
+  if (kind === 'minor') {
+    checks.push({ level: 'ok', text: 'Minor-version upgrade: one step, as VKS requires.' });
+  } else if (kind === 'patch') {
+    checks.push({ level: 'ok', text: 'Patch upgrade within the same minor version.' });
+  }
+  if ((c.controlPlane?.desired ?? 0) === 1) {
+    checks.push({
+      level: 'warn',
+      text: 'Single control-plane node: a new one is created before the old one is removed, but the API may be briefly unavailable during the switch.',
+    });
+  }
+  for (const p of c.nodePools) {
+    if (p.nodeDrainTimeout) {
+      checks.push({
+        level: 'warn',
+        text: `Pool ${p.name} has a drain timeout of ${p.nodeDrainTimeout}: pods that can't be evicted in time are stopped during the rolling upgrade.`,
+      });
+    }
+  }
+  if (ctx.blockingPdbs && ctx.blockingPdbs.length) {
+    checks.push({
+      level: 'warn',
+      text: `${ctx.blockingPdbs.length} PodDisruptionBudget${ctx.blockingPdbs.length === 1 ? ' allows' : 's allow'} no disruptions right now (${ctx.blockingPdbs
+        .slice(0, 5)
+        .join(', ')}${ctx.blockingPdbs.length > 5 ? ', …' : ''}). Node drains will wait on them.`,
+    });
+  } else if (ctx.blockingPdbs) {
+    checks.push({ level: 'ok', text: 'No PodDisruptionBudget is blocking disruptions, so drains should flow.' });
+  } else if (ctx.pdbCheck) {
+    checks.push({ level: 'warn', text: `PodDisruptionBudgets not checked: ${ctx.pdbCheck}` });
+  }
+  const tightQuota = (c.quota ?? []).filter(q => (q.ratio ?? 0) >= 0.9);
+  if (tightQuota.length) {
+    checks.push({
+      level: 'warn',
+      text: `Namespace quota is nearly full (${tightQuota.map(q => q.resource).join(', ')}). The rolling upgrade adds a node temporarily and may not fit.`,
+    });
+  }
+  if (newClass) {
+    checks.push({
+      level: 'warn',
+      text: `The cluster also moves from ${c.clusterClass} to ${newClass}. VKS checks the class is compatible; the dry run shows whether it accepts the change.`,
+    });
+  }
+  checks.push({
+    level: 'ok',
+    text: 'The control plane is upgraded first, then each node pool one node at a time. Progress shows on this page.',
+  });
+
+  const body: unknown[] = [
+    { op: 'test', path: '/spec/topology/version', value: current },
+    { op: 'replace', path: '/spec/topology/version', value: target },
+  ];
+  if (newClass && c.clusterClass) {
+    body.push({ op: 'test', path: '/spec/topology/class', value: c.clusterClass });
+    body.push({ op: 'replace', path: '/spec/topology/class', value: newClass });
+  }
+
+  return {
+    id: `${c.key}#upgrade#${target}#${newClass ?? ''}#${(ctx.blockingPdbs ?? []).length}#${ctx.pdbCheck ?? ''}`,
+    title: `Upgrade ${c.name}`,
+    summary: target
+      ? `From ${current ?? 'unknown'} to ${target}${newClass ? `, and to class ${newClass}` : ''}.`
+      : 'Choose the version to upgrade to.',
+    checks,
+    reasonRequired: true,
+    confirmText: c.name,
+    applyLabel: 'Upgrade',
+    requests: (reason, now) => [
+      { method: 'PATCH', path: clusterUrl(c), contentType: JSON_PATCH, body },
+      stampCluster(c, `upgrade to ${target}${newClass ? ` (class ${newClass})` : ''}`, reason, now),
+    ],
+  };
+}
+
+export interface PoolProgress {
+  name: string;
+  updated: number;
+  total: number;
+}
+
+/** How far a rolling upgrade has got: nodes already on the desired version, per group. */
+export function upgradeProgress(c: FleetCluster): { controlPlane: PoolProgress; pools: PoolProgress[] } | undefined {
+  const target = c.kubernetesVersion;
+  if (!target) return undefined;
+  const same = (v?: string) => (v ?? '').replace(/^v/, '') === target.replace(/^v/, '');
+  const live = c.machines.filter(m => !m.deletingSince);
+  const cp = live.filter(m => m.role === 'control-plane');
+  const pools = c.nodePools.map(p => {
+    const ms = live.filter(m => m.pool === p.name);
+    return { name: p.name, updated: ms.filter(m => same(m.version)).length, total: ms.length };
+  });
+  return {
+    controlPlane: { name: 'Control plane', updated: cp.filter(m => same(m.version)).length, total: cp.length },
+    pools,
+  };
+}

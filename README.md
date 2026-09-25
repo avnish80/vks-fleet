@@ -71,6 +71,11 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 
 The cluster page can make changes on the Supervisor:
 
+- **Upgrade:** pick a target from the releases the Supervisor actually offers, one minor version at a time, and optionally move to the newer ClusterClass. The preflight checks:
+  - blocking: already upgrading, paused, failed, stuck machines, automatic repair stopped
+  - warnings: single control plane, pool drain timeouts, PodDisruptionBudgets currently allowing no disruptions (checked live inside the cluster), nearly-full quota
+
+  The version change is a guarded JSON patch (it fails if the version changed meanwhile). The cluster page then shows upgrade progress per control plane and node pool.
 - **Pause / Resume:** stop or restart reconciliation, for example during maintenance.
 - **Scale** a node pool: blocked for autoscaled pools.
 - **Replace** a node. VKS only lets users change one thing on a Machine, the `cluster.x-k8s.io/remediate-machine` annotation, so machines covered by a MachineHealthCheck are replaced through it. The health check drains, deletes and recreates the node within its own limits. Other machines fall back to deleting the Machine. Blocked for the only control-plane node, while paused, or while automatic repair has stopped.
@@ -208,21 +213,9 @@ src/
 
 Everything except the hooks, `api/headlampClient.ts`, `settings/` and `components/` is plain TypeScript with no Headlamp import, so it can be unit-tested with a fake `SupervisorClient`, or reused later by a server-side aggregator.
 
-## Extending to multiple Supervisors
+## Multiple Supervisors
 
-These are already multi-Supervisor:
-
-- The config stores an array.
-- Every cluster key and URL carries the Supervisor ID.
-- `fetchFleet` fans out in parallel and isolates failures per Supervisor.
-- The UI adds a Supervisor column and filter once there's more than one.
-
-What's left:
-
-1. `settings/SettingsPanel.tsx`: render the form per entry, with add and remove.
-2. Optionally, a Supervisor filter in `FleetView.tsx` next to the tenant filter.
-
-Nothing else should need to change.
+Add as many Supervisors as you like in the plugin settings, each with its own namespaces, tenant label and tenant names. Every cluster key and URL carries the Supervisor ID, and they're read in parallel: an unreachable Supervisor shows an error banner and "Unreachable" in the overview while the rest of the fleet keeps working. With more than one, the fleet page adds a Supervisor filter, a Supervisor column and a "Clusters by Supervisor" chart.
 
 ## Extending to CAPI v1beta2
 
@@ -260,6 +253,7 @@ From v0.2.0, still to confirm:
 ## Known limits
 
 - **CAPI version:** the plugin reads `cluster.x-k8s.io/v1beta1`. Current Supervisors prefer v1beta2 but still serve v1beta1. A v1beta2 translator can be added next to `capi/v1beta1.ts`.
+- **Leftover timeouts:** a drain timeout under 5 minutes, or any volume-detach timeout, left on a pool with nothing deleting becomes a warning finding, so an unblocking fix isn't forgotten.
 - **Upgrade availability:** read from `tanzukubernetesreleases` (falling back to `kubernetesreleases`), skipping releases marked not ready or incompatible. The next minor version is preferred, since VKS upgrades one minor at a time.
 - **Inside-cluster checks:** these fan out from the browser, at half the fleet refresh rate. Fine for tens of clusters; a larger fleet should use the server-side aggregator. Pod checks read at most 1000 pods per cluster.
 - **Tokens expire:** tokens from `kubectl vsphere login` last about a working day. Expired ones show as "Sign-in expired".
