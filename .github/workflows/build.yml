@@ -62,16 +62,27 @@ jobs:
           tar -czf "$GITHUB_WORKSPACE/vks-fleet.tar.gz" -C out vks-fleet
           tar -tzf "$GITHUB_WORKSPACE/vks-fleet.tar.gz"
 
+      # The same plugin as a ConfigMap, for in-cluster deployments (deploy/).
+      - name: Plugin ConfigMap
+        working-directory: build/vks-fleet
+        run: |
+          kubectl create configmap vks-fleet-plugin \
+            --from-file=main.js=dist/main.js --from-file=package.json=package.json \
+            --dry-run=client -o yaml > "$GITHUB_WORKSPACE/vks-fleet-plugin-configmap.yaml"
+          ls -l "$GITHUB_WORKSPACE/vks-fleet-plugin-configmap.yaml"
+
       - uses: actions/upload-artifact@v4
         with:
           name: vks-fleet
-          path: vks-fleet.tar.gz
+          path: |
+            vks-fleet.tar.gz
+            vks-fleet-plugin-configmap.yaml
 
       - name: Create release (tags only)
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" vks-fleet.tar.gz \
+          gh release create "$GITHUB_REF_NAME" vks-fleet.tar.gz vks-fleet-plugin-configmap.yaml \
             --title "vks-fleet $GITHUB_REF_NAME" \
             --notes "Extract into the Headlamp plugins folder: tar -xzf vks-fleet.tar.gz -C <plugins-dir>"

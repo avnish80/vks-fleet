@@ -1,0 +1,19 @@
+# Exposes Headlamp on a load balancer IP, limited to the networks you list.
+# Everyone who can reach it acts as the refresher's vSphere account, so keep
+# the source ranges tight (e.g. the operators' jump or VPN subnet).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../..
+patches:
+  - target:
+      kind: Service
+      name: headlamp
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: LoadBalancer
+      - op: add
+        path: /spec/loadBalancerSourceRanges
+        value:
+          - 10.0.0.0/8   # replace with your operators' subnet

@@ -10,6 +10,7 @@ import {
   parseTenantNames,
 } from '../config';
 import { SupervisorConfig } from '../types';
+import { useManagedConfig } from './managed';
 import { settingsStore, useRawSettings } from './store';
 
 type Draft = Partial<SupervisorConfig>;
@@ -119,6 +120,7 @@ export function SettingsPanel() {
     setKeys(realigned);
   }
 
+  const managed = useManagedConfig();
   const write = (list: Draft[]) => settingsStore.update({ supervisors: list as SupervisorConfig[] });
   const idOf = (s: Draft) => (s.id?.trim() || s.headlampCluster?.trim().toLowerCase() || '');
   const ids = supervisors.map(idOf);
@@ -129,7 +131,42 @@ export function SettingsPanel() {
         Add each Supervisor your VKS clusters run on. Headlamp must already have a cluster entry (kubeconfig context)
         for each one.
       </Typography>
-      {supervisors.length === 0 && <Alert severity="info">No Supervisors yet. Add one to see its clusters.</Alert>}
+      {managed && (
+        <Alert
+          severity="info"
+          action={
+            supervisors.length === 0 ? (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  const list = (managed.supervisors ?? []) as Draft[];
+                  write(list);
+                  setKeys(list.map(() => nextKey.current++));
+                }}
+              >
+                Copy to edit
+              </Button>
+            ) : (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  write([]);
+                  setKeys([]);
+                }}
+              >
+                Use administrator settings
+              </Button>
+            )
+          }
+        >
+          {supervisors.length === 0
+            ? `Your administrator preset ${managed.supervisors?.length ?? 0} Supervisor${(managed.supervisors?.length ?? 0) === 1 ? '' : 's'}, and they're in use. Copy them here to change anything for this browser.`
+            : 'This browser uses its own settings instead of the administrator preset.'}
+        </Alert>
+      )}
+      {supervisors.length === 0 && !managed && <Alert severity="info">No Supervisors yet. Add one to see its clusters.</Alert>}
       {supervisors.map((s, i) => (
         <SupervisorForm
           key={keys[i] ?? i}

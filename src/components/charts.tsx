@@ -74,24 +74,38 @@ export function KpiTile({
   sub,
   tone = 'primary',
   meter,
+  onClick,
+  hint,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   tone?: Tone;
   meter?: { value: number; max: number; tone?: Tone };
+  /** Makes the tile a button that leads to the data behind it. */
+  onClick?: () => void;
+  /** Tooltip saying where a click goes. */
+  hint?: string;
 }) {
   const color = useTone();
   const ratio = meter && meter.max > 0 ? Math.min(1, meter.value / meter.max) : 0;
   return (
     <Paper
       variant="outlined"
+      onClick={onClick}
+      title={hint}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e: any) => (e.key === 'Enter' || e.key === ' ') && onClick() : undefined}
       sx={{
         p: 2,
         pl: 2.5,
         borderRadius: 2,
         position: 'relative',
         overflow: 'hidden',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'box-shadow 150ms, transform 150ms',
+        '&:hover': onClick ? { boxShadow: 3, transform: 'translateY(-1px)' } : undefined,
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -137,7 +151,18 @@ export interface Slice {
 }
 
 /** Donut with a centre total and a legend. */
-export function Donut({ slices, centre, centreSub }: { slices: Slice[]; centre: ReactNode; centreSub: string }) {
+export function Donut({
+  slices,
+  centre,
+  centreSub,
+  onSelect,
+}: {
+  slices: Slice[];
+  centre: ReactNode;
+  centreSub: string;
+  /** Called with the slice clicked (arc or legend). */
+  onSelect?: (slice: Slice) => void;
+}) {
   const color = useTone();
   const size = 156;
   const stroke = 20;
@@ -169,7 +194,11 @@ export function Donut({ slices, centre, centreSub }: { slices: Slice[]; centre: 
                     strokeWidth={stroke}
                     strokeDasharray={`${dash} ${c - dash}`}
                     strokeDashoffset={-offset}
-                  />
+                    style={{ cursor: onSelect ? 'pointer' : 'default' }}
+                    onClick={onSelect ? () => onSelect(s) : undefined}
+                  >
+                    <title>{`${s.label}: ${s.value}`}</title>
+                  </circle>
                 );
                 offset += len;
                 return el;
@@ -196,7 +225,21 @@ export function Donut({ slices, centre, centreSub }: { slices: Slice[]; centre: 
       </Box>
       <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
         {slices.map(s => (
-          <Box component="li" key={s.label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            component="li"
+            key={s.label}
+            onClick={onSelect ? () => onSelect(s) : undefined}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              cursor: onSelect ? 'pointer' : 'default',
+              borderRadius: 1,
+              px: 0.5,
+              mx: -0.5,
+              '&:hover': onSelect ? { bgcolor: 'action.hover' } : undefined,
+            }}
+          >
             <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: color(s.tone), flexShrink: 0 }} />
             <Typography variant="body2" sx={{ minWidth: 92 }}>
               {s.label}

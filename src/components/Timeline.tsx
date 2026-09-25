@@ -10,21 +10,51 @@ function day(t: string): string {
   return new Date(t).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Local calendar day as YYYY-MM-DD. */
+export function localDay(t: string | Date): string {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function clock(t: string): string {
   return new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Newest-first history of one cluster, grouped by day. */
-export function ClusterTimeline({ entries, cluster, limit = 30 }: { entries: TimelineEntry[]; cluster: FleetCluster; limit?: number }) {
+export function ClusterTimeline({
+  entries: allEntries,
+  cluster,
+  limit = 30,
+  day: initialDay,
+}: {
+  entries: TimelineEntry[];
+  cluster: FleetCluster;
+  limit?: number;
+  /** YYYY-MM-DD to show only that (local) day, e.g. from the overview heatmap. */
+  day?: string;
+}) {
   const tone = useTone();
   const [all, setAll] = React.useState(false);
+  const [dayFilter, setDayFilter] = React.useState<string | undefined>(initialDay);
+  React.useEffect(() => setDayFilter(initialDay), [initialDay]);
+  const entries = dayFilter ? allEntries.filter(e => localDay(e.time) === dayFilter) : allEntries;
   const shown = all ? entries : entries.slice(0, limit);
-  if (!entries.length) {
+  if (!entries.length && !dayFilter) {
     return <Typography color="text.secondary">Nothing recorded yet.</Typography>;
   }
   let lastDay = '';
   return (
     <Box>
+      {dayFilter && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+          <Typography variant="body2">
+            Showing {day(`${dayFilter}T12:00:00`)} only ({entries.length} entr{entries.length === 1 ? 'y' : 'ies'}).
+          </Typography>
+          <Button size="small" onClick={() => setDayFilter(undefined)}>
+            Show all days
+          </Button>
+        </Box>
+      )}
       <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, position: 'relative' }}>
         {shown.map((e, i) => {
           const d = day(e.time);
@@ -64,91 +94,142 @@ export function ClusterTimeline({ entries, cluster, limit = 30 }: { entries: Tim
   );
 }
 
-/** One lane per cluster over the last few days, a dot per entry. */
-export function FleetActivity({
+const TONE_RANK: Record<TimelineEntry['tone'], number> = { error: 0, warning: 1, success: 2, info: 3, neutral: 4 };
+
+/**
+ * Clusters × days: each cell counts that day's changes, coloured by the most
+ * serious one. Click a cell to open that cluster's timeline for that day.
+ */
+export function ActivityHeatmap({
   lanes,
   clusters,
   now,
   days = 7,
+  max = 12,
 }: {
   lanes: Map<string, TimelineEntry[]>;
   clusters: FleetCluster[];
   now: Date;
   days?: number;
+  max?: number;
 }) {
-  const theme: any = useTheme();
   const tone = useTone();
   const history = useHistory();
-  const muted = theme.palette?.text?.secondary ?? '#666';
-  const grid = theme.palette?.divider ?? '#ddd';
   const byKey = new Map(clusters.map(c => [c.key, c]));
-  const order = [...lanes.entries()]
-    .filter(([, es]) => es.length)
-    .sort((a, b) => (b[1][b[1].length - 1]?.time ?? '').localeCompare(a[1][a[1].length - 1]?.time ?? ''))
-    .slice(0, 10);
-  if (!order.length) {
+  const dayKeys = Array.from({ length: days }, (_, i) => localDay(new Date(now.getTime() - (days - 1 - i) * 86400000)));
+  const rows = [...lanes.entries()]
+    .map(([key, entries]) => ({ c: byKey.get(key), entries }))
+    .filter((r): r is { c: FleetCluster; entries: TimelineEntry[] } => !!r.c)
+    .sort((a, b) => b.entries.length - a.entries.length || a.c.name.localeCompare(b.c.name))
+    .slice(0, max);
+  if (!rows.some(r => r.entries.length)) {
     return (
-      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-        No activity in the last {days} days.
+      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+        No changes in the last {days} days.
       </Typography>
     );
   }
-  const W = 640;
-  const LABEL = 150;
-  const LANE = 30;
-  const H = order.length * LANE + 28;
-  const from = now.getTime() - days * 86400000;
-  const x = (t: string) => LABEL + ((new Date(t).getTime() - from) / (days * 86400000)) * (W - LABEL - 12);
-  const ticks = Array.from({ length: days + 1 }, (_, i) => new Date(from + i * 86400000));
+  const today = localDay(now);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Activity over the last ${days} days`}>
-      {ticks.map((t, i) => {
-        const tx = LABEL + (i / days) * (W - LABEL - 12);
-        return (
-          <g key={i}>
-            <line x1={tx} x2={tx} y1={0} y2={H - 20} stroke={grid} strokeWidth={1} />
-            {i < days && (
-              <text x={tx + 3} y={H - 6} fontSize={10} fill={muted}>
-                {t.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
-              </text>
-            )}
-          </g>
-        );
-      })}
-      {order.map(([key, entries], i) => {
-        const c = byKey.get(key);
-        const y = i * LANE + LANE / 2;
-        return (
-          <g key={key}>
-            <text
-              x={0}
-              y={y + 4}
-              fontSize={11}
-              fill={muted}
-              style={{ cursor: c ? 'pointer' : 'default' }}
-              onClick={() => c && history.push(clusterDeepLink(c, { hash: 'timeline' }))}
-            >
-              {(c?.name ?? key).length > 22 ? `${(c?.name ?? key).slice(0, 21)}…` : c?.name ?? key}
-            </text>
-            <line x1={LABEL} x2={W - 12} y1={y} y2={y} stroke={grid} strokeWidth={1} strokeDasharray="2 3" />
-            {entries.map((e, j) => (
-              <circle
-                key={j}
-                cx={x(e.time)}
-                cy={y}
-                r={5}
-                fill={tone(e.tone === 'neutral' ? 'neutral' : e.tone)}
-                stroke={theme.palette?.background?.paper ?? '#fff'}
-                strokeWidth={1.5}
-                style={{ cursor: c ? 'pointer' : 'default' }}
-                onClick={() => c && history.push(e.machine ? machinePath(c, e.machine) : clusterDeepLink(c, { hash: 'timeline' }))}
-              >
-                <title>{`${new Date(e.time).toLocaleString()}: ${e.text}`}</title>
-              </circle>
-            ))}
-          </g>
-        );
-      })}
-    </svg>
+    <Box sx={{ overflowX: 'auto' }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: `minmax(140px, 220px) repeat(${days}, minmax(44px, 1fr)) 56px`,
+          gap: '6px',
+          alignItems: 'center',
+          minWidth: 520,
+        }}
+      >
+        <Box />
+        {dayKeys.map(d => (
+          <Typography key={d} variant="caption" color="text.secondary" sx={{ textAlign: 'center', fontWeight: d === today ? 700 : 400 }}>
+            {d === today ? 'Today' : new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+          </Typography>
+        ))}
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>
+          Total
+        </Typography>
+        {rows.map(({ c, entries }) => (
+          <React.Fragment key={c.key}>
+            <Typography variant="body2" noWrap title={c.name}>
+              <Link to={clusterDeepLink(c, { hash: 'timeline' })}>{c.name}</Link>
+            </Typography>
+            {dayKeys.map(d => {
+              const es = entries.filter(e => localDay(e.time) === d);
+              const worst = es.reduce<TimelineEntry['tone'] | undefined>(
+                (w, e) => (w === undefined || TONE_RANK[e.tone] < TONE_RANK[w] ? e.tone : w),
+                undefined
+              );
+              const strength = es.length === 0 ? 0 : es.length === 1 ? 0.35 : es.length <= 3 ? 0.6 : 0.85;
+              const title = es.length
+                ? `${c.name}, ${d}\n${es
+                    .slice(0, 8)
+                    .map(e => `${new Date(e.time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} ${e.text}`)
+                    .join('\n')}${es.length > 8 ? `\n…and ${es.length - 8} more` : ''}`
+                : `${c.name}, ${d}: no changes`;
+              return (
+                <Box
+                  key={d}
+                  title={title}
+                  onClick={es.length ? () => history.push(`/vks-fleet/clusters/${c.supervisorId}/${c.namespace}/${c.name}?day=${d}#timeline`) : undefined}
+                  sx={{
+                    position: 'relative',
+                    height: 30,
+                    borderRadius: 1,
+                    bgcolor: 'action.hover',
+                    overflow: 'hidden',
+                    cursor: es.length ? 'pointer' : 'default',
+                    '&:hover': es.length ? { outline: '2px solid', outlineColor: 'text.secondary' } : undefined,
+                  }}
+                >
+                  {worst && (
+                    <Box sx={{ position: 'absolute', inset: 0, bgcolor: tone(worst === 'neutral' ? 'neutral' : worst), opacity: strength }} />
+                  )}
+                  {es.length > 0 && (
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        position: 'relative',
+                        textAlign: 'center',
+                        lineHeight: '30px',
+                        fontWeight: 600,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: strength >= 0.6 ? '#fff' : 'text.primary',
+                      }}
+                    >
+                      {es.length}
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
+            <Typography variant="body2" sx={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {entries.length}
+            </Typography>
+          </React.Fragment>
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1.5 }}>
+        {(
+          [
+            ['error', 'Failure'],
+            ['warning', 'Deletion or warning'],
+            ['success', 'Node added or recovered'],
+            ['info', 'Created or plugin action'],
+          ] as Array<[TimelineEntry['tone'], string]>
+        ).map(([t, label]) => (
+          <Box key={t} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: tone(t === 'neutral' ? 'neutral' : t) }} />
+            <Typography variant="caption" color="text.secondary">
+              {label}
+            </Typography>
+          </Box>
+        ))}
+        <Typography variant="caption" color="text.secondary">
+          Darker means more changes that day.
+        </Typography>
+      </Box>
+    </Box>
   );
 }

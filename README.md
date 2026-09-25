@@ -9,7 +9,26 @@ The same plugin serves both audiences. What each person sees is decided by their
 
 Phase 1 reads one Supervisor. The code is built for several (see "Extending to multiple Supervisors").
 
+## Ways to run it
+
+- **Operator deployment (recommended):** Headlamp inside a cluster (for example a small management VKS cluster), with the plugin from a ConfigMap, preset settings, and a job that keeps the Supervisor and cluster sign-ins fresh. See [`deploy/README.md`](deploy/README.md).
+- **Desktop app or a jump server:** the plugin tarball in Headlamp's plugins folder, as described below.
+
+**Preset settings:** a `config.json` in the plugin folder (same fields as the settings page) configures every browser that has no settings of its own. The deployment ships it from a ConfigMap. On a jump server you can drop one into `~/headlamp-plugins/vks-fleet/config.json`. The settings page shows when a preset is in use, and offers "Copy to edit" to override it for that browser.
+
 ## What it shows
+
+**Everything on the overview is clickable** and leads to the data behind it:
+
+- the Clusters tile opens the clusters that need attention
+- Nodes ready opens the fleet-wide Machines page (problems first)
+- Capacity scrolls to the capacity table; Tenants to the tenant rollup
+- Issues opens the issues; Upgrades lists the clusters that can be upgraded
+- a health slice or a version bar filters the cluster list
+- certificate, score and package bars open their source
+- heatmap cells open that cluster's timeline for that day
+
+Filters live in the URL (`?health=degraded`, `?version=v1.36.2+vmware.2`, `?upgradable=1`, `?tenant=…`), so a filtered view can be shared.
 
 **Overview** (top of the fleet page, follows the tenant filter):
 
@@ -18,6 +37,7 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 - Kubernetes versions in use and node capacity by tenant
 - days left on control-plane certificates
 - recent changes made through the plugin, from the `vks-fleet/last-action` stamps
+- an activity heatmap: clusters × the last 7 days, each cell counting that day's changes and coloured by the most serious one
 
 The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
 
@@ -30,7 +50,14 @@ The charts are plain SVG and CSS coloured from Headlamp's theme: no chart librar
 - failing pods not explained by a network problem
 - a Supervisor service with failing pods (critical for the VKS service itself)
 
+- cluster DNS (CoreDNS) down or degraded
+- volume claims stuck Pending
+- LoadBalancer services still without an external IP
+- disks failing to attach to a node VM (from Supervisor warnings; ignored for nodes being deleted)
+
 Findings that no rule explains are shown as their own issue, so nothing is hidden.
+
+**Runbooks:** each issue has step-by-step commands, pre-filled with its Supervisor and cluster contexts, namespace, node and pod, each with a Copy button (and Copy all). They're included in Copy diagnosis.
 
 **Every issue is clickable.** Its title and **Go to** button open the exact place:
 
@@ -84,6 +111,12 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 - actions: Replace, or Unblock deletion when it's stuck, and the pool's timeouts
 
 **Anatomy** (cluster page): a diagram of the cluster's VKS layers: tenant namespace, cluster (version, class, API endpoint), control plane and node pools (readiness, VM class, timeouts), and every machine with its VM (power, IP, zone, class). Coloured by health; deleting machines are dashed with how long; click a machine to open it or a pool to jump to its row. Machine and pool names drop the repeated cluster prefix (`np-1-7d8jrvmbxh`); the full name is in the tooltip.
+
+**Change audit:** who last changed the Cluster object and which parts (for example "VCF Automation: spec.topology.version", "kubectl (patch): spec.paused", "vks-fleet plugin: spec.topology.workers"), read from its managed fields, so it survives after events expire. Changes made through the plugin are recorded as `vks-fleet`. They also appear in the timeline.
+
+**Machines page:** every machine across the fleet with its state, VM, IP, zone and version; machines that need a look come first.
+
+**Export report:** Markdown (summary, issues needing action, clusters, tenants, versions) or CSV (one row per cluster), for the clusters currently shown.
 
 **Timeline:** rebuilt from what the Supervisor records (creation, nodes added and deleting, condition changes, plugin actions, Supervisor events) with no storage needed. The cluster page lists it by day; the overview shows the last 7 days as one lane per cluster, with every dot clickable.
 
@@ -248,6 +281,8 @@ src/
   issues.ts             Issues: findings and signals folded into causes; Copy diagnosis
   checks.ts             Best-practice scorecard per cluster
   timeline.ts           History rebuilt from timestamps
+  runbooks.ts           Pre-filled commands for each kind of issue
+  report.ts             Fleet report: Markdown and CSV
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes
@@ -262,7 +297,8 @@ src/
   summary.ts            Totals, tenant rollups, version spread
   useFleet.ts, useWorkload.ts, useClusterExtras.ts   Polling hooks
   routes.ts             URLs built from supervisor/namespace/name
-  settings/             ConfigStore wrapper and settings form
+  settings/             ConfigStore wrapper, settings form, preset config.json loader
+deploy/                 In-cluster operator deployment (kustomize) and the sign-in refresher
   components/           FleetView, Overview, charts, ClusterDetail, MachineDetail, ActionDialog, shared bits
   index.tsx             Sidebar, routes, settings registration
 ```

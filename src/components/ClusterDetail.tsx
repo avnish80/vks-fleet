@@ -12,7 +12,7 @@ import { pausePlan, replacePlan, upgradeProgress } from '../actions';
 import { headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
-import { AddonInfo } from '../extras';
+import { AddonInfo, ManagedChange } from '../extras';
 import { scorecard } from '../checks';
 import { buildIssues } from '../issues';
 import { clusterTimeline } from '../timeline';
@@ -824,13 +824,43 @@ export function ClusterDetail() {
         />
       )}
 
+      <Box id="audit" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Change audit">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Who last changed the Cluster object, and which parts, from its managed fields. It survives after events
+          expire; each tool keeps only its latest change. Changes made through this plugin show as vks-fleet.
+        </Typography>
+        {!extras ? (
+          <Typography>Loading…</Typography>
+        ) : extras.changes.length === 0 ? (
+          <Typography color="text.secondary">No change records available.</Typography>
+        ) : (
+          <SimpleTable
+            columns={[
+              { label: 'Who', getter: (ch: ManagedChange) => <span title={ch.manager}>{ch.who}</span> },
+              {
+                label: 'What',
+                getter: (ch: ManagedChange) => ch.fields.filter(f => !f.startsWith('status')).join(', ') || 'status only',
+              },
+              { label: 'How', getter: (ch: ManagedChange) => ch.operation },
+              { label: 'Last change', getter: (ch: ManagedChange) => when(ch.time) },
+            ]}
+            data={extras.changes}
+          />
+        )}
+      </SectionBox>
+
       <Box id="timeline" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Timeline">
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Rebuilt from what the Supervisor records: creation, nodes added and deleted, condition changes, actions taken
           through this plugin, and recent Supervisor events.
         </Typography>
-        <ClusterTimeline entries={clusterTimeline(cluster, extras?.events ?? [])} cluster={cluster} />
+        <ClusterTimeline
+          entries={clusterTimeline(cluster, extras?.events ?? [], extras?.changes ?? [])}
+          cluster={cluster}
+          day={new URLSearchParams(location.search).get('day') ?? undefined}
+        />
       </SectionBox>
 
       {extras?.raw !== undefined && (

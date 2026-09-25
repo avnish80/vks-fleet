@@ -4,9 +4,10 @@
  * and (on the cluster page) Supervisor events. No storage needed, so it only
  * reaches back as far as those timestamps do.
  */
+import { ManagedChange } from './extras';
 import { EventInfo, FleetCluster } from './types';
 
-export type TimelineKind = 'created' | 'node-added' | 'node-deleting' | 'condition' | 'action' | 'event';
+export type TimelineKind = 'created' | 'node-added' | 'node-deleting' | 'condition' | 'action' | 'event' | 'change';
 
 export interface TimelineEntry {
   time: string;
@@ -34,7 +35,7 @@ const POSITIVE = new Set([
   'SSOReconciled',
 ]);
 
-export function clusterTimeline(c: FleetCluster, events: EventInfo[] = []): TimelineEntry[] {
+export function clusterTimeline(c: FleetCluster, events: EventInfo[] = [], changes: ManagedChange[] = []): TimelineEntry[] {
   const base = { clusterKey: c.key, clusterName: c.name };
   const out: TimelineEntry[] = [];
   if (c.createdAt) out.push({ ...base, time: c.createdAt, kind: 'created', text: `Cluster created (${c.kubernetesVersion ?? 'version unknown'})`, tone: 'info' });
@@ -71,6 +72,19 @@ export function clusterTimeline(c: FleetCluster, events: EventInfo[] = []): Time
       kind: 'event',
       text: `${e.object ? `${e.object}: ` : ''}${e.reason ?? ''}${e.message ? `, ${e.message}` : ''}${e.count && e.count > 1 ? ` (x${e.count})` : ''}`,
       tone: e.type === 'Warning' ? 'warning' : 'neutral',
+    });
+  }
+  for (const ch of changes) {
+    if (!ch.time) continue;
+    // The creation write isn't a change; controller status writes are too noisy.
+    if (c.createdAt && Math.abs(new Date(ch.time).getTime() - new Date(c.createdAt).getTime()) < 60000) continue;
+    if (!ch.fields.some(f => f.startsWith('spec') || f === 'metadata.annotations' || f === 'metadata.labels')) continue;
+    out.push({
+      ...base,
+      time: ch.time,
+      kind: 'change',
+      text: `${ch.who} last changed ${ch.fields.filter(f => !f.startsWith('status')).slice(0, 3).join(', ')}`,
+      tone: ch.manager === 'vks-fleet' ? 'info' : 'neutral',
     });
   }
   return out.sort((a, b) => b.time.localeCompare(a.time));

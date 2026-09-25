@@ -1,0 +1,33 @@
+# In-cluster operator deployment of Headlamp with the vks-fleet plugin.
+#   1. kubectl create namespace vks-fleet
+#   2. kubectl -n vks-fleet apply -f https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet-plugin-configmap.yaml
+#   3. kubectl -n vks-fleet create secret generic vks-fleet-vsphere --from-literal=username=... --from-literal=password=...
+#   4. edit settings/config.json and refresher/refresher.env
+#   5. kubectl apply -k .      (or overlays/loadbalancer)
+# See README.md in this folder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vks-fleet
+resources:
+  - namespace.yaml
+  - headlamp.yaml
+  - refresher.yaml
+configMapGenerator:
+  - name: vks-fleet-settings
+    files:
+      - config.json=settings/config.json
+  - name: vks-fleet-refresher-script
+    files:
+      - refresh.py=refresher/refresh.py
+  - name: vks-fleet-refresher-env
+    envs:
+      - refresher/refresher.env
+generatorOptions:
+  # Stable names, so the Deployment and CronJob can reference them directly.
+  disableNameSuffixHash: true
+images:
+  # Pin these to the versions you've tested.
+  - name: ghcr.io/headlamp-k8s/headlamp
+    newTag: latest
+  - name: python
+    newTag: 3.12-slim

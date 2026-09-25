@@ -205,6 +205,8 @@ export interface SupervisorResult {
   releases?: string[];
   /** ClusterClass names available in the class namespaces the clusters use. */
   classes?: string[];
+  /** Recent Warning events on the Supervisor (last couple of hours). */
+  events?: EventInfo[];
   fetchedAt: string;
 }
 
@@ -257,6 +259,15 @@ export interface DeploymentIssue {
   desired: number;
 }
 
+export interface StuckObject {
+  namespace: string;
+  name: string;
+  /** Since when (creation time). */
+  since?: string;
+  /** Extra detail, e.g. the storage class. */
+  detail?: string;
+}
+
 export interface SandboxFailure {
   node: string;
   pods: number;
@@ -295,6 +306,12 @@ export interface WorkloadHealth {
   sandboxFailures: SandboxFailure[];
   /** Best-practice observations about workloads (user namespaces only). */
   checks?: WorkloadChecks;
+  /** Volume claims stuck Pending for more than a few minutes. */
+  pendingClaims?: StuckObject[];
+  /** LoadBalancer services still without an external IP after a few minutes. */
+  pendingLoadBalancers?: StuckObject[];
+  /** Cluster DNS (CoreDNS) availability, when readable. */
+  dns?: { available: number; desired: number };
   /** Parts that couldn't be read (e.g. "pods: Access denied (403)"). */
   partial: string[];
   error?: string;
@@ -352,6 +369,13 @@ export interface Scorecard {
 
 /* ---------------- Issues ---------------- */
 
+export interface RunbookStep {
+  title: string;
+  /** Commands to run, already filled in with this issue's names. */
+  commands?: string[];
+  note?: string;
+}
+
 export interface IssueLink {
   label: string;
   path: string;
@@ -376,5 +400,7 @@ export interface Issue {
   links: IssueLink[];
   /** Finding ids this issue explains (so they aren't listed twice). */
   findingIds: string[];
+  /** Step-by-step commands to investigate and fix it. */
+  runbook?: RunbookStep[];
   detectedAt: string;
 }

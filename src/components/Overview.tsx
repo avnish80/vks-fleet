@@ -1,7 +1,7 @@
 import { SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Typography } from '@mui/material';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useHistory } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
 import {
   bucketOf,
@@ -12,13 +12,21 @@ import {
   tenantHealth,
 } from '../overview';
 import { formatBytes } from '../quantity';
-import { clusterPath, PACKAGES_PATH } from '../routes';
+import { clusterDeepLink, clusterPath, MACHINES_PATH, PACKAGES_PATH } from '../routes';
 import { DriftRow, shortPackage } from '../packages';
 import { rollupByTenant, versionSpread } from '../summary';
 import { FleetCluster, Health, Scorecard, Severity } from '../types';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
-import { FleetActivity } from './Timeline';
+import { ActivityHeatmap } from './Timeline';
 import { fleetTimeline } from '../timeline';
+
+/** Filters the fleet page understands (kept in its URL). */
+export interface FleetFilter {
+  health?: Health;
+  version?: string;
+  attention?: boolean;
+  upgradable?: boolean;
+}
 
 const HEALTH_LABEL: Record<Health, { label: string; tone: Tone }> = {
   healthy: { label: 'Healthy', tone: 'success' },
@@ -44,6 +52,9 @@ export function Overview({
   onSupervisor,
   scores,
   packageStats,
+  onFilter,
+  onJump,
+  onOpenIssues,
 }: {
   clusters: FleetCluster[];
   /** Issues (or findings): anything with a severity. */
@@ -58,8 +69,16 @@ export function Overview({
   /** Per-Supervisor breakdown, shown when there's more than one. */
   supervisors?: Array<{ id: string; name: string; error?: string; clusters: FleetCluster[] }>;
   onSupervisor?: (id: string) => void;
+  /** Apply a filter to the cluster list and scroll to it. */
+  onFilter?: (f: FleetFilter) => void;
+  /** Scroll to a section of the fleet page (e.g. "capacity", "tenants"). */
+  onJump?: (section: string) => void;
+  /** Open the Issues section and scroll to it. */
+  onOpenIssues?: () => void;
 }) {
   const now = new Date();
+  const history = useHistory();
+  const healthOf = (label: string) => (Object.keys(HEALTH_LABEL) as Health[]).find(h => HEALTH_LABEL[h].label === label);
   const n = overviewNumbers(clusters, findings);
   const slices = healthSlices(clusters).map(s => ({ ...HEALTH_LABEL[s.health], value: s.count }));
   const tenants = tenantHealth(clusters);
@@ -79,6 +98,8 @@ export function Overview({
           sub={n.attention ? `${n.attention} need${n.attention === 1 ? 's' : ''} attention` : 'All healthy'}
           tone={n.attention ? 'warning' : 'success'}
           meter={{ value: n.healthy, max: n.clusters, tone: 'success' }}
+          onClick={onFilter ? () => onFilter(n.attention ? { attention: true } : {}) : undefined}
+          hint={n.attention ? 'Show the clusters that need attention' : 'Show the clusters'}
         />
         <KpiTile
           label="Nodes ready"
@@ -86,14 +107,25 @@ export function Overview({
           sub={n.nodes.deleting ? `${n.nodes.deleting} being deleted` : 'Control plane and workers'}
           tone={n.nodes.ready < n.nodes.total ? 'warning' : 'success'}
           meter={{ value: n.nodes.ready, max: n.nodes.total }}
+          onClick={() => history.push(MACHINES_PATH)}
+          hint="Open every machine in the fleet, problems first"
         />
         <KpiTile
           label="Node capacity"
           value={`${n.cpus} vCPU`}
           sub={`${formatBytes(n.memoryBytes)} memory`}
           tone="primary"
+          onClick={onJump ? () => onJump('capacity') : undefined}
+          hint="Capacity by cluster"
         />
-        <KpiTile label="Tenants" value={n.tenants} sub={`${n.clusters} cluster${n.clusters === 1 ? '' : 's'} between them`} tone="info" />
+        <KpiTile
+          label="Tenants"
+          value={n.tenants}
+          sub={`${n.clusters} cluster${n.clusters === 1 ? '' : 's'} between them`}
+          tone="info"
+          onClick={onJump ? () => onJump(n.tenants > 1 ? 'tenants' : 'clusters') : undefined}
+          hint="Clusters by tenant"
+        />
         <KpiTile
           label="Issues"
           value={actionable}
@@ -103,12 +135,16 @@ export function Overview({
               : 'Nothing needs action'
           }
           tone={n.findings.critical ? 'error' : n.findings.warning ? 'warning' : 'success'}
+          onClick={onOpenIssues}
+          hint="Open the issues"
         />
         <KpiTile
           label="Upgrades"
           value={n.upgradable}
           sub={n.upgrading ? `${n.upgrading} in progress` : 'Newer releases available'}
           tone="info"
+          onClick={onFilter ? () => onFilter({ upgradable: true }) : undefined}
+          hint="Show the clusters that can be upgraded"
         />
       </Box>
 
@@ -136,9 +172,14 @@ export function Overview({
           </ChartCard>
         )}
 
-        <ChartCard title="Cluster health" caption="From the Supervisor's view of each cluster">
+        <ChartCard title="Cluster health" caption="Click a slice to list those clusters">
           {clusters.length ? (
-            <Donut slices={slices} centre={n.clusters} centreSub={n.clusters === 1 ? 'cluster' : 'clusters'} />
+            <Donut
+              slices={slices}
+              centre={n.clusters}
+              centreSub={n.clusters === 1 ? 'cluster' : 'clusters'}
+              onSelect={onFilter ? s => onFilter({ health: healthOf(s.label) }) : undefined}
+            />
           ) : (
             <EmptyChart text="No clusters yet." />
           )}
@@ -177,7 +218,7 @@ export function Overview({
           )}
         </ChartCard>
 
-        <ChartCard title="Kubernetes versions" caption="Desired version per cluster">
+        <ChartCard title="Kubernetes versions" caption="Click a version to list its clusters">
           {versions.length ? (
             <BarList
               rows={versions.map(v => ({
@@ -185,6 +226,7 @@ export function Overview({
                 label: v.version,
                 parts: [{ label: 'Clusters', value: v.count, tone: 'primary' }],
                 valueText: v.count,
+                onClick: onFilter && v.version !== 'unknown' ? () => onFilter({ version: v.version }) : undefined,
               }))}
             />
           ) : (
@@ -200,7 +242,7 @@ export function Overview({
                 label: r.tenantName,
                 parts: [{ label: 'vCPU', value: r.cpus, tone: 'primary' }],
                 valueText: `${r.cpus} vCPU, ${formatBytes(r.memoryBytes)}`,
-                onClick: onTenant && rollups.length > 1 ? () => onTenant(r.tenantId) : undefined,
+                onClick: onTenant && rollups.length > 1 ? () => onTenant(r.tenantId) : onJump ? () => onJump('capacity') : undefined,
               }))}
             />
           ) : (
@@ -220,6 +262,7 @@ export function Overview({
                 }`,
                 parts: [{ label: 'Days left', value: Math.max(0, Math.min(r.daysLeft, 365)), tone: certTone(r.daysLeft) }],
                 valueText: `${r.daysLeft}d${r.rotating ? '' : ' (no rotation)'}`,
+                onClick: () => history.push(clusterDeepLink(r.cluster, { hash: 'summary', focus: 'certificates' })),
               }))}
             />
           ) : (
@@ -240,6 +283,7 @@ export function Overview({
                   title: `${s.cluster.name}: ${s.card.score}/100 over ${s.card.evaluated} of ${s.card.total} checks`,
                   parts: [{ label: 'Score', value: s.card.score, tone: s.card.score >= 80 ? 'success' : s.card.score >= 60 ? 'warning' : 'error' }],
                   valueText: s.card.score,
+                  onClick: () => history.push(clusterDeepLink(s.cluster, { hash: 'checks' })),
                 }))}
             />
           ) : (
@@ -248,8 +292,12 @@ export function Overview({
         </ChartCard>
 
         <Box sx={{ gridColumn: '1 / -1' }}>
-          <ChartCard title="Activity in the last 7 days" caption="Nodes added and deleted, condition changes and plugin actions. Click a dot to go there." minHeight={120}>
-            <FleetActivity lanes={fleetTimeline(clusters, now)} clusters={clusters} now={now} />
+          <ChartCard
+            title="Activity in the last 7 days"
+            caption="Changes per cluster and day: nodes added and deleted, condition changes, spec changes and plugin actions. Click a day to see what happened."
+            minHeight={120}
+          >
+            <ActivityHeatmap lanes={fleetTimeline(clusters, now)} clusters={clusters} now={now} />
           </ChartCard>
         </Box>
 
@@ -265,6 +313,7 @@ export function Overview({
                   label: <Link to={PACKAGES_PATH}>{shortPackage(d.refName)}</Link>,
                   parts: [{ label: 'Versions', value: d.distinct, tone: 'warning' as Tone }],
                   valueText: `${d.distinct} versions`,
+                  onClick: () => history.push(PACKAGES_PATH),
                 }))}
               />
             ) : (
@@ -282,7 +331,7 @@ export function Overview({
                     {ch.time ? `${formatDuration(now.getTime() - new Date(ch.time).getTime())} ago` : '—'}
                   </Typography>
                   <Box sx={{ minWidth: 0 }}>
-                    <Link to={clusterPath(ch.cluster)}>{ch.cluster.name}</Link>
+                    <Link to={clusterDeepLink(ch.cluster, { hash: 'audit' })}>{ch.cluster.name}</Link>
                     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                       {ch.text}
                     </Typography>

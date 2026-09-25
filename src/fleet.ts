@@ -13,7 +13,27 @@ import {
   VMOP_VERSIONS,
 } from './supervisor';
 import { labelTenantResolver, readNamespaces } from './tenancy';
-import { FleetCluster, ServiceHealth, SupervisorConfig, SupervisorResult } from './types';
+import { EventInfo, FleetCluster, ServiceHealth, SupervisorConfig, SupervisorResult } from './types';
+import { toEventInfo } from './workload';
+
+/** Supervisor warnings kept for issue rules (e.g. volume attach failures). */
+export const SUPERVISOR_EVENT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+async function supervisorWarnings(
+  client: import('./api/client').SupervisorClient,
+  operator: boolean,
+  namespaces: string[],
+  now: Date
+): Promise<EventInfo[]> {
+  const paths = operator
+    ? ['/api/v1/events?fieldSelector=type%3DWarning&limit=500']
+    : namespaces.map(ns => `/api/v1/namespaces/${encodeURIComponent(ns)}/events?fieldSelector=type%3DWarning&limit=300`);
+  const settled = await Promise.allSettled(paths.map(p => client.get<{ items?: any[] }>(p)));
+  return settled
+    .flatMap(r => (r.status === 'fulfilled' ? r.value?.items ?? [] : []))
+    .map(toEventInfo)
+    .filter(e => e.lastSeen && now.getTime() - new Date(e.lastSeen).getTime() <= SUPERVISOR_EVENT_WINDOW_MS);
+}
 
 /** How many minor versions `current` is behind the newest available release. */
 export function minorsBehind(current: string | undefined, available: string[]): number | undefined {
@@ -126,6 +146,8 @@ export async function fetchSupervisor(
   const classNames = await fetchClassNames(client, classNamespaces);
   fleet = attachClassUpdates(fleet, classNames);
 
+  const events = await supervisorWarnings(client, operator, rest, now);
+
   let services: ServiceHealth[] | undefined;
   if (namespaceList) {
     const s = await fetchServices(client, namespaceList.map(n => n.metadata.name), now);
@@ -141,6 +163,7 @@ export async function fetchSupervisor(
     services,
     releases: versions,
     classes: classNames,
+    events,
     fetchedAt,
   };
 }

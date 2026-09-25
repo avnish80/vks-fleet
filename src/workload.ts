@@ -5,7 +5,44 @@
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { matchesSelector } from './selector';
-import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, WorkloadChecks, WorkloadHealth } from './types';
+import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, StuckObject, WorkloadChecks, WorkloadHealth } from './types';
+
+/** Things stuck longer than this are reported. */
+export const STUCK_OBJECT_MS = 5 * 60 * 1000;
+
+const olderThan = (ts: string | undefined, now: Date, ms: number) => !!ts && now.getTime() - new Date(ts).getTime() > ms;
+
+export function pendingClaims(pvcs: any[], now: Date): StuckObject[] {
+  return pvcs
+    .filter(p => p?.status?.phase === 'Pending' && olderThan(p?.metadata?.creationTimestamp, now, STUCK_OBJECT_MS))
+    .map(p => ({
+      namespace: p?.metadata?.namespace ?? '',
+      name: p?.metadata?.name ?? '',
+      since: p?.metadata?.creationTimestamp,
+      detail: p?.spec?.storageClassName ? `storage class ${p.spec.storageClassName}` : 'no storage class',
+    }));
+}
+
+export function pendingLoadBalancers(services: any[], now: Date): StuckObject[] {
+  return services
+    .filter(
+      s =>
+        s?.spec?.type === 'LoadBalancer' &&
+        !(s?.status?.loadBalancer?.ingress ?? []).length &&
+        olderThan(s?.metadata?.creationTimestamp, now, STUCK_OBJECT_MS)
+    )
+    .map(s => ({ namespace: s?.metadata?.namespace ?? '', name: s?.metadata?.name ?? '', since: s?.metadata?.creationTimestamp }));
+}
+
+/** CoreDNS deployment availability (kube-system/coredns). */
+export function dnsAvailability(deployments: any[]): { available: number; desired: number } | undefined {
+  const d = deployments.find(x => x?.metadata?.namespace === 'kube-system' && x?.metadata?.name === 'coredns');
+  if (!d) return undefined;
+  return {
+    desired: typeof d?.spec?.replicas === 'number' ? d.spec.replicas : 1,
+    available: typeof d?.status?.availableReplicas === 'number' ? d.status.availableReplicas : 0,
+  };
+}
 
 export const POD_PAGE = 1000;
 const LIST_CAP = 50;
@@ -230,7 +267,7 @@ export async function fetchWorkloadHealth(
   contextName: string,
   now: Date = new Date()
 ): Promise<WorkloadHealth> {
-  const parts = ['version', 'nodes', 'pods', 'deployments', 'events', 'poddisruptionbudgets'] as const;
+  const parts = ['version', 'nodes', 'pods', 'deployments', 'events', 'poddisruptionbudgets', 'persistentvolumeclaims', 'services'] as const;
   const settled = await Promise.allSettled([
     client.get<any>('/version'),
     client.get<any>('/api/v1/nodes'),
@@ -238,6 +275,8 @@ export async function fetchWorkloadHealth(
     client.get<any>('/apis/apps/v1/deployments'),
     client.get<any>('/api/v1/events?fieldSelector=type%3DWarning&limit=500'),
     client.get<any>('/apis/policy/v1/poddisruptionbudgets'),
+    client.get<any>('/api/v1/persistentvolumeclaims'),
+    client.get<any>('/api/v1/services'),
   ]);
 
   const rejected = settled
@@ -246,8 +285,9 @@ export async function fetchWorkloadHealth(
 
   // Classify by the parts that carry health data; the version endpoint is
   // readable by almost anyone and says nothing about access to workloads.
-  const substantive = rejected.filter(x => x.part !== 'version' && x.part !== 'poddisruptionbudgets');
-  if (substantive.length === parts.length - 2) {
+  const optionalParts = new Set(['version', 'poddisruptionbudgets', 'persistentvolumeclaims', 'services']);
+  const substantive = rejected.filter(x => !optionalParts.has(x.part));
+  if (substantive.length === parts.length - optionalParts.size) {
     const statuses = substantive.map(x => statusOf(x.r.reason));
     if (statuses.includes(401)) {
       return emptyHealth('expired', contextName, 'Sign-in to this cluster has expired. Log in again.');
@@ -290,6 +330,12 @@ export async function fetchWorkloadHealth(
   if (Array.isArray(podList?.items) && Array.isArray(deps)) {
     health.checks = workloadChecks(podList.items, deps, Array.isArray(pdbItems) ? pdbItems : undefined);
   }
+
+  const pvcs = value(6)?.items;
+  if (Array.isArray(pvcs)) health.pendingClaims = pendingClaims(pvcs, now);
+  const svcs = value(7)?.items;
+  if (Array.isArray(svcs)) health.pendingLoadBalancers = pendingLoadBalancers(svcs, now);
+  if (Array.isArray(deps)) health.dns = dnsAvailability(deps);
 
   const nodesShort = !!health.nodes && health.nodes.ready < health.nodes.total;
   if (nodesShort || health.podIssueCount > 0 || health.deploymentIssues.length > 0) {

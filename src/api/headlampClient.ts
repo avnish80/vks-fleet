@@ -35,9 +35,12 @@ export async function listHeadlampClusters(): Promise<HeadlampClusterInfo[]> {
   }
 }
 
+function withParam(path: string, param: string): string {
+  return `${path}${path.includes('?') ? '&' : '?'}${param}`;
+}
+
 function withDryRun(path: string, dryRun: boolean): string {
-  if (!dryRun) return path;
-  return `${path}${path.includes('?') ? '&' : '?'}dryRun=All`;
+  return dryRun ? withParam(path, 'dryRun=All') : path;
 }
 
 /**
@@ -56,7 +59,8 @@ export function headlampWriter(headlampCluster: string): SupervisorWriter {
         },
       };
       if (req.body !== undefined) params.body = JSON.stringify(req.body);
-      return ApiProxy.request(withDryRun(req.path, dryRun), params, false);
+      const path = req.method === 'PATCH' ? withParam(req.path, 'fieldManager=vks-fleet') : req.path;
+      return ApiProxy.request(withDryRun(path, dryRun), params, false);
     },
   };
 }

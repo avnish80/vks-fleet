@@ -8,7 +8,22 @@
 import { formatDuration, STUCK_AFTER_MS } from './capi/v1beta1';
 import { fleetFindings } from './findings';
 import { clusterDeepLink, clusterPath, headlampNodePath, machinePath } from './routes';
-import { FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
+import {
+  attachRunbook,
+  dnsRunbook,
+  loadBalancerRunbook,
+  networkRunbook,
+  packageRunbook,
+  podsRunbook,
+  pvcRunbook,
+  repairStoppedRunbook,
+  RunbookContext,
+  serviceRunbook,
+  signIn,
+  stuckDeletionRunbook,
+  unreachableRunbook,
+} from './runbooks';
+import { EventInfo, FleetCluster, Finding, Issue, Severity, SupervisorResult, WorkloadHealth } from './types';
 import { ClusterPackages, isCorePackage, shortPackage } from './packages';
 import { isPlatformNamespace } from './workload';
 
@@ -41,8 +56,16 @@ function reasonsSummary(reasons: string[]): string {
     .join(', ');
 }
 
-function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings: Finding[], now: Date): Issue[] {
+function clusterIssues(
+  c: FleetCluster,
+  wl: WorkloadHealth | undefined,
+  findings: Finding[],
+  now: Date,
+  sup: string,
+  supEvents: EventInfo[]
+): Issue[] {
   const out: Issue[] = [];
+  const rb: RunbookContext = { c, sup, ctx: wl?.contextName ?? c.name };
   const mine = findings.filter(f => f.clusterKey === c.key);
   const podIssues = wl?.podIssues ?? [];
   const sandboxNodes = new Set((wl?.sandboxFailures ?? []).filter(s => s.attempts >= MIN_SANDBOX_ATTEMPTS).map(s => s.node));
@@ -71,6 +94,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       ? { label: `Machine ${machine.nodeName ?? machine.name}`, path: machinePath(c, machine.name) }
       : { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) };
     if (wl?.contextName) issue.links.push({ label: 'Node in Headlamp', path: headlampNodePath(wl.contextName, s.node) });
+    issue.runbook = networkRunbook(rb, s.node, machine);
     out.push(issue);
   }
 
@@ -101,6 +125,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     issue.affected.pods = podsHere.map(p => `${p.namespace}/${p.name}`);
     issue.links.unshift({ label: `Machine ${label}`, path: machinePath(c, m.name) });
     issue.primary = { label: `Machine ${label}`, path: machinePath(c, m.name) };
+    issue.runbook = stuckDeletionRunbook(rb, m);
     issue.findingIds = mine
       .filter(f => (/#issue-/.test(f.id) && f.title.includes(label)) || /#mhc-repairing$/.test(f.id))
       .map(f => f.id);
@@ -122,6 +147,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     issue.affected.nodes = notReady;
     issue.findingIds = [blockedRepair.id];
     issue.primary = { label: 'Machines', path: clusterDeepLink(c, { hash: 'machines' }) };
+    issue.runbook = repairStoppedRunbook(rb);
     out.push(issue);
   }
 
@@ -133,6 +159,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       cause: wl.error ?? 'Requests to the cluster time out or fail.',
       fix: "Check the control-plane VM and the cluster's load balancer IP. The Supervisor view still shows its machines.",
       primary: { label: 'Machines', path: clusterDeepLink(c, { hash: 'machines' }) },
+      runbook: unreachableRunbook(rb),
     });
   } else if (wl?.status === 'expired') {
     out.push({
@@ -141,6 +168,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
       cause: 'The token from kubectl vsphere login has run out.',
       fix: 'Log in again on the machine running Headlamp and reload its kubeconfig.',
       primary: { label: 'Sign-in command', path: clusterDeepLink(c, { hash: 'inside' }) },
+      runbook: [signIn(rb)],
     });
   }
 
@@ -160,7 +188,75 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
     }
     issue.affected.pods = unexplained.map(p => `${p.namespace}/${p.name}`);
     issue.primary = { label: 'Pods with problems', path: clusterDeepLink(c, { hash: 'inside' }) };
+    issue.runbook = podsRunbook(rb, issue.affected.pods);
     out.push(issue);
+  }
+
+  // Rule: cluster DNS down or degraded (everything that resolves names suffers).
+  if (wl?.dns && wl.dns.available < wl.dns.desired) {
+    out.push({
+      ...base(c, 'dns', wl.dns.available === 0 ? 'critical' : 'warning', now),
+      title: wl.dns.available === 0 ? `Cluster DNS is down in ${c.name}` : `Cluster DNS is degraded in ${c.name}`,
+      cause: `CoreDNS has ${wl.dns.available} of ${wl.dns.desired} replicas available. Service names stop resolving when none are.`,
+      fix: 'Find out why the CoreDNS pods are not ready (often node networking or scheduling), fix that, then restart CoreDNS.',
+      primary: { label: 'Pods with problems', path: clusterDeepLink(c, { hash: 'inside' }) },
+      runbook: dnsRunbook(rb),
+    });
+  }
+
+  // Rule: volume claims stuck Pending.
+  if (wl?.pendingClaims?.length) {
+    const claims = wl.pendingClaims;
+    const issue: Issue = {
+      ...base(c, 'pvc', 'warning', now),
+      title: `${claims.length} volume claim${claims.length === 1 ? '' : 's'} stuck pending in ${c.name}`,
+      cause: 'The cluster could not provision the volumes: usually a storage class the namespace has no quota or policy for, or storage quota exhausted.',
+      fix: "Check the claim's events and the Supervisor namespace's storage quota and policies.",
+      primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+      runbook: pvcRunbook(rb, claims),
+    };
+    issue.evidence = claims.slice(0, 5).map(p => `${p.namespace}/${p.name} (${p.detail ?? ''})`);
+    out.push(issue);
+  }
+
+  // Rule: LoadBalancer services still without an IP.
+  if (wl?.pendingLoadBalancers?.length) {
+    const svcs = wl.pendingLoadBalancers;
+    const issue: Issue = {
+      ...base(c, 'lb', 'warning', now),
+      title: `${svcs.length} LoadBalancer service${svcs.length === 1 ? '' : 's'} without an external IP in ${c.name}`,
+      cause: 'The Supervisor has not assigned a load balancer IP: often the namespace network has run out of external IPs, or the load balancer service failed.',
+      fix: "Check the service's events, and the Supervisor's warnings about IPs for this namespace.",
+      primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+      runbook: loadBalancerRunbook(rb, svcs),
+    };
+    issue.evidence = svcs.slice(0, 5).map(x => `${x.namespace}/${x.name}`);
+    out.push(issue);
+  }
+
+  // Rule: disks failing to attach to a node VM (Supervisor side).
+  const attach = new Map<string, { count: number; message?: string }>();
+  for (const e of supEvents) {
+    if (!/attach/i.test(`${e.reason ?? ''} ${e.object}`) || !/fail/i.test(e.reason ?? '')) continue;
+    const name = e.object.split('/').pop() ?? '';
+    const machine = c.machines.find(m => m.name === name);
+    if (!machine || machine.deletingSince) continue; // failures on a node being deleted are expected noise
+    const cur = attach.get(machine.name) ?? { count: 0 };
+    attach.set(machine.name, { count: cur.count + (e.count ?? 1), message: cur.message ?? e.message });
+  }
+  for (const [machineName, a] of attach) {
+    if (a.count < 3) continue;
+    const m = c.machines.find(x => x.name === machineName)!;
+    const node = m.nodeName ?? m.name;
+    out.push({
+      ...base(c, `attach-${machineName}`, 'warning', now),
+      title: `Volumes failing to attach to node ${node}`,
+      cause: a.message ?? 'The Supervisor keeps failing to attach disks to this node VM.',
+      evidence: [`${a.count} attach failures in the last two hours.`],
+      fix: 'Pods using those volumes stay in ContainerCreating. Check the attachment on the Supervisor; if it persists, replace the node.',
+      primary: { label: `Machine ${node}`, path: machinePath(c, machineName) },
+      runbook: attachRunbook(rb, machineName, node),
+    });
   }
   return out;
 }
@@ -168,6 +264,7 @@ function clusterIssues(c: FleetCluster, wl: WorkloadHealth | undefined, findings
 function serviceIssue(r: SupervisorResult, f: Finding, now: Date): Issue {
   const vks = (f.namespace ?? '').startsWith('svc-tkg');
   return {
+    runbook: f.namespace ? serviceRunbook(r.supervisor.headlampCluster, f.namespace) : undefined,
     id: f.id,
     severity: vks ? 'critical' : f.severity,
     supervisorId: r.supervisor.id,
@@ -211,7 +308,7 @@ function passthrough(f: Finding, clusters: Map<string, FleetCluster>, now: Date)
   };
 }
 
-function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date): Issue | undefined {
+function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date, sup: string): Issue | undefined {
   const failed = cp.items.filter(p => p.state === 'failed');
   if (!failed.length) return undefined;
   const core = failed.filter(p => isCorePackage(p.refName));
@@ -224,6 +321,7 @@ function packageIssue(c: FleetCluster, cp: ClusterPackages, now: Date): Issue | 
   for (const p of failed) issue.evidence.push(`${p.namespace}/${p.name} (${p.version ?? 'no version'}): ${p.message ?? 'failed'}`);
   if (core.length) issue.evidence.push('Core platform packages are affected, so networking, storage or sign-in may be impacted.');
   issue.primary = { label: 'Packages', path: clusterDeepLink(c, { hash: 'packages' }) };
+  issue.runbook = packageRunbook({ c, sup, ctx: cp.contextName }, failed);
   return issue;
 }
 
@@ -237,10 +335,13 @@ export function buildIssues(
   const findings = fleetFindings(results, now);
   const clusters = new Map(results.flatMap(r => r.clusters).map(c => [c.key, c]));
   const issues: Issue[] = [];
+  const supById = new Map(results.map(r => [r.supervisor.id, r]));
   for (const c of clusters.values()) {
-    issues.push(...clusterIssues(c, workload.get(c.key), findings, now));
+    const r = supById.get(c.supervisorId);
+    const sup = r?.supervisor.headlampCluster ?? c.supervisorId;
+    issues.push(...clusterIssues(c, workload.get(c.key), findings, now, sup, r?.events ?? []));
     const cp = packages?.get(c.key);
-    const pi = cp ? packageIssue(c, cp, now) : undefined;
+    const pi = cp ? packageIssue(c, cp, now, sup) : undefined;
     if (pi) issues.push(pi);
   }
   const explained = new Set(issues.flatMap(i => i.findingIds));
@@ -296,6 +397,15 @@ export function diagnosisMarkdown(issue: Issue, c?: FleetCluster, supervisorName
     lines.push('');
   }
   lines.push('### Suggested fix', '', issue.fix, '');
+  if (issue.runbook?.length) {
+    lines.push('### Runbook', '');
+    issue.runbook.forEach((st, i) => {
+      lines.push(`${i + 1}. ${st.title}`);
+      for (const cmd of st.commands ?? []) lines.push('', '   ```bash', ...cmd.split('\n').map(l => `   ${l}`), '   ```');
+      if (st.note) lines.push(`   ${st.note}`);
+      lines.push('');
+    });
+  }
   if (c?.issues.length) {
     lines.push('### Supervisor observations', '');
     for (const i of c.issues) lines.push(`- ${i}`);

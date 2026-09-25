@@ -6,11 +6,12 @@ import {
 import React from 'react';
 import { ClusterDetail } from './components/ClusterDetail';
 import { MachineDetail } from './components/MachineDetail';
+import { MachinesPage } from './components/MachinesPage';
 import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, PACKAGES_PATH, SEARCH_ROUTE } from './routes';
+import { CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
@@ -33,6 +34,7 @@ registerSidebarEntry({
 for (const child of [
   { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE },
   { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH },
+  { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
 ]) {
   registerSidebarEntry({ parent: 'vks-fleet', ...child, useClusterURL: false, sidebar: 'HOME' });
 }
@@ -45,6 +47,16 @@ registerRoute({
   useClusterURL: false,
   noAuthRequired: true,
   component: () => <SearchPage />,
+});
+
+registerRoute({
+  path: MACHINES_PATH,
+  sidebar: { item: 'vks-fleet-machines', sidebar: 'HOME' },
+  name: 'vks-fleet-machines',
+  exact: true,
+  useClusterURL: false,
+  noAuthRequired: true,
+  component: () => <MachinesPage />,
 });
 
 registerRoute({

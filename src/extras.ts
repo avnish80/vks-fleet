@@ -11,11 +11,60 @@ export interface AddonInfo {
   name: string;
 }
 
+export interface ManagedChange {
+  /** Raw field manager name, e.g. "manager", "kubectl-patch", "vks-fleet". */
+  manager: string;
+  /** Who that is, in plain words. */
+  who: string;
+  operation: string;
+  time?: string;
+  /** Top-level fields it last set, e.g. "spec.topology.version". */
+  fields: string[];
+}
+
 export interface ClusterExtras {
   addons: AddonInfo[];
   events: EventInfo[];
+  /** Last change per tool, from the Cluster's managedFields. */
+  changes: ManagedChange[];
   raw?: unknown;
   warnings: string[];
+}
+
+/** Friendly names for common field managers. */
+export function managerName(m: string): string {
+  if (m === 'vks-fleet') return 'vks-fleet plugin';
+  if (/^kubectl/.test(m)) return `kubectl (${m.replace(/^kubectl-?/, '') || 'apply'})`;
+  if (/^(manager|capi|cluster-api|topology|capv|capw|vmware-system|tkg|vks)/i.test(m)) return `VKS / Cluster API controller (${m})`;
+  if (/vcfa|cci|vra|vcd/i.test(m)) return `VCF Automation (${m})`;
+  if (/mozilla|chrome|safari|headlamp/i.test(m)) return `Headlamp or a browser (${m})`;
+  return m;
+}
+
+/** Field paths from a managedFields fieldsV1 tree, a few levels deep. */
+export function fieldPaths(tree: any, prefix = '', depth = 0): string[] {
+  if (!tree || typeof tree !== 'object' || depth > 2) return prefix ? [prefix] : [];
+  const keys = Object.keys(tree).filter(k => k.startsWith('f:'));
+  if (!keys.length) return prefix ? [prefix] : [];
+  return keys.flatMap(k => fieldPaths(tree[k], prefix ? `${prefix}.${k.slice(2)}` : k.slice(2), depth + 1));
+}
+
+export function managedChanges(managedFields: any[]): ManagedChange[] {
+  return (Array.isArray(managedFields) ? managedFields : [])
+    .filter(m => m && typeof m.manager === 'string')
+    .map(m => {
+      const fields = fieldPaths(m.fieldsV1)
+        .filter(f => !f.startsWith('metadata.managedFields'))
+        .map(f => f.replace(/^metadata\.annotations\..*/, 'metadata.annotations').replace(/^metadata\.labels\..*/, 'metadata.labels'));
+      return {
+        manager: m.manager,
+        who: managerName(m.manager),
+        operation: m.operation ?? '',
+        time: m.time,
+        fields: Array.from(new Set(fields)).slice(0, 12),
+      };
+    })
+    .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''));
 }
 
 const EVENT_CAP = 30;
@@ -61,10 +110,11 @@ export async function fetchClusterExtras(
   ]);
 
   const warnings: string[] = [];
-  const result: ClusterExtras = { addons: [], events: [], warnings };
+  const result: ClusterExtras = { addons: [], events: [], changes: [], warnings };
 
   if (raw.status === 'fulfilled' && raw.value) {
     const copy = JSON.parse(JSON.stringify(raw.value));
+    result.changes = managedChanges(copy?.metadata?.managedFields);
     if (copy?.metadata) delete copy.metadata.managedFields;
     result.raw = copy;
   } else if (raw.status === 'rejected') {

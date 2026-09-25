@@ -1,15 +1,29 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Box, Button, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  MenuItem,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useHistory, useLocation } from 'react-router-dom';
 import { scorecard } from '../checks';
 import { buildIssues, countIssues } from '../issues';
 import { packageDrift } from '../packages';
-import { clusterPath, headlampClusterPath, headlampPodsPath, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
+import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
+import { formatBytes } from '../quantity';
+import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
-import { FleetCluster, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
+import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
 import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import {
@@ -23,7 +37,7 @@ import {
   WorkloadCell,
 } from './common';
 import { IssuesList } from './IssuesList';
-import { Overview } from './Overview';
+import { FleetFilter, Overview } from './Overview';
 
 const ALL = '__all__';
 
@@ -51,9 +65,40 @@ export function FleetView() {
   const { results, refreshing, refresh } = useFleet(config.supervisors, config.refreshSeconds);
 
   const [search, setSearch] = React.useState('');
-  const [tenant, setTenant] = React.useState(ALL);
-  const [supervisorFilter, setSupervisorFilter] = React.useState(ALL);
-  const [attentionOnly, setAttentionOnly] = React.useState(false);
+  // Filters live in the URL, so overview clicks and shared links land on the same view.
+  const location = useLocation();
+  const history = useHistory();
+  const params = new URLSearchParams(location.search);
+  const tenant = params.get('tenant') ?? ALL;
+  const supervisorFilter = params.get('supervisor') ?? ALL;
+  const healthFilter = (params.get('health') ?? undefined) as Health | undefined;
+  const versionFilter = params.get('version') ?? undefined;
+  const attentionOnly = params.get('attention') === '1';
+  const upgradableOnly = params.get('upgradable') === '1';
+  const setParams = (patch: Record<string, string | undefined>, hash?: string) => {
+    const p = new URLSearchParams(location.search);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) p.set(k, v);
+      else p.delete(k);
+    }
+    const qs = p.toString();
+    history.replace(`${FLEET_PATH}${qs ? `?${qs}` : ''}${hash ? `#${hash}` : ''}`);
+  };
+  const setTenant = (t: string) => setParams({ tenant: t === ALL ? undefined : t });
+  const setSupervisorFilter = (id: string) => setParams({ supervisor: id === ALL ? undefined : id, tenant: undefined });
+  const setAttentionOnly = (b: boolean) => setParams({ attention: b ? '1' : undefined });
+  const jump = (id: string) =>
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  const applyFilter = (f: FleetFilter) => {
+    setParams({
+      health: f.health,
+      version: f.version,
+      attention: f.attention ? '1' : undefined,
+      upgradable: f.upgradable ? '1' : undefined,
+    });
+    jump('clusters');
+  };
+  const [exportOpen, setExportOpen] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
 
@@ -120,6 +165,9 @@ export function FleetView() {
     const wl = workload.byKey.get(c.key);
     const insideProblems = wl?.status === 'issues' || wl?.status === 'unreachable';
     if (attentionOnly && !needsAttention(c) && !c.upgrading && !insideProblems) return false;
+    if (healthFilter && c.health !== healthFilter) return false;
+    if (versionFilter && c.kubernetesVersion !== versionFilter) return false;
+    if (upgradableOnly && (!c.availableUpgrade || c.upgrading)) return false;
     const q = search.trim().toLowerCase();
     return !q || c.name.toLowerCase().includes(q) || c.namespace.toLowerCase().includes(q);
   });
@@ -135,6 +183,12 @@ export function FleetView() {
     </Button>,
     <Button key="packages" size="small" variant="outlined" component={Link} to={PACKAGES_PATH}>
       Packages
+    </Button>,
+    <Button key="machines" size="small" variant="outlined" component={Link} to={MACHINES_PATH}>
+      Machines
+    </Button>,
+    <Button key="export" size="small" variant="outlined" onClick={() => setExportOpen(true)}>
+      Export report
     </Button>,
     <Button key="refresh" variant="contained" size="small" onClick={refresh} disabled={refreshing}>
       {refreshing ? 'Refreshing' : 'Refresh'}
@@ -215,10 +269,7 @@ export function FleetView() {
               size="small"
               label="Supervisor"
               value={supervisorFilter}
-              onChange={e => {
-                setSupervisorFilter(e.target.value);
-                setTenant(ALL);
-              }}
+              onChange={e => setSupervisorFilter(e.target.value)}
               sx={{ minWidth: 200 }}
             >
               <MenuItem value={ALL}>All Supervisors</MenuItem>
@@ -272,9 +323,16 @@ export function FleetView() {
               : undefined
           }
           onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
+          onFilter={applyFilter}
+          onJump={jump}
+          onOpenIssues={() => {
+            setFindingsOpen(true);
+            jump('issues');
+          }}
         />
       )}
 
+      <Box id="tenants" sx={{ scrollMarginTop: 72 }} />
       {multiTenant && tenant === ALL && (
         <SectionBox title="Tenants">
           <SimpleTable
@@ -308,6 +366,29 @@ export function FleetView() {
         </SectionBox>
       )}
 
+      <Box id="clusters" sx={{ scrollMarginTop: 72 }} />
+      {(healthFilter || versionFilter || attentionOnly || upgradableOnly) && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1, px: 1 }}>
+          <Typography variant="body2">
+            Showing{' '}
+            {[
+              healthFilter && `${healthFilter} clusters`,
+              versionFilter && `clusters on ${versionFilter}`,
+              attentionOnly && 'clusters with problems or upgrades in progress',
+              upgradableOnly && 'clusters with an upgrade available',
+            ]
+              .filter(Boolean)
+              .join(', ')}{' '}
+            ({visible.length}).
+          </Typography>
+          <Button
+            size="small"
+            onClick={() => setParams({ health: undefined, version: undefined, attention: undefined, upgradable: undefined })}
+          >
+            Clear filters
+          </Button>
+        </Box>
+      )}
       {allClusters.length === 0 && !results.some(r => r.error) && (
         <SectionBox title="Clusters">
           <Typography>
@@ -346,6 +427,7 @@ export function FleetView() {
           );
         })}
 
+      <Box id="issues" sx={{ scrollMarginTop: 72 }} />
       <IssuesSection
         issues={tenantIssues}
         clusters={clusterByKey}
@@ -355,6 +437,40 @@ export function FleetView() {
         open={findingsOpen}
         setOpen={setFindingsOpen}
       />
+
+      <Box id="capacity" sx={{ scrollMarginTop: 72 }} />
+      {tenantClusters.length > 0 && (
+        <SectionBox title="Capacity">
+          <SimpleTable
+            columns={[
+              { label: 'Cluster', getter: (c: FleetCluster) => <Link to={clusterPath(c)}>{c.name}</Link> },
+              { label: 'Tenant', getter: (c: FleetCluster) => c.tenantName },
+              { label: 'Nodes', getter: (c: FleetCluster) => c.machines.filter(m => !m.deletingSince).length },
+              { label: 'vCPU', getter: (c: FleetCluster) => c.capacity?.cpus ?? '—' },
+              { label: 'Memory', getter: (c: FleetCluster) => (c.capacity ? formatBytes(c.capacity.memoryBytes) : '—') },
+              {
+                label: 'VM classes',
+                getter: (c: FleetCluster) =>
+                  Array.from(new Set(c.machines.map(m => m.vm?.className).filter(Boolean))).join(', ') || '—',
+              },
+            ]}
+            data={[...tenantClusters].sort((a, b) => (b.capacity?.cpus ?? 0) - (a.capacity?.cpus ?? 0))}
+          />
+        </SectionBox>
+      )}
+
+      {exportOpen && (
+        <ExportDialog
+          onClose={() => setExportOpen(false)}
+          make={() => ({
+            clusters: tenantClusters,
+            issues: tenantIssues,
+            scores: new Map(scores.map(x => [x.cluster.key, x.card])),
+            now: new Date(),
+            title: tenant === ALL ? 'VKS fleet report' : `VKS fleet report: ${tenantById.get(tenant)?.tenantName ?? tenant}`,
+          })}
+        />
+      )}
 
       {services.length > 0 && tenant === ALL && (
         <SectionBox title="Supervisor services">
@@ -436,5 +552,31 @@ function IssuesSection({
       </Box>
       {open && shown.length > 0 && <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />}
     </SectionBox>
+  );
+}
+
+function ExportDialog({ onClose, make }: { onClose: () => void; make: () => Parameters<typeof fleetReportMarkdown>[0] }) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return (
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Export fleet report</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          The clusters shown (respecting the Supervisor and tenant filters): health, versions, upgrades, capacity,
+          scores and the issues that need action.
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="contained" onClick={() => download(`vks-fleet-report-${stamp}.md`, fleetReportMarkdown(make()), 'text/markdown')}>
+            Markdown
+          </Button>
+          <Button variant="outlined" onClick={() => download(`vks-fleet-clusters-${stamp}.csv`, fleetReportCsv(make()), 'text/csv')}>
+            CSV (one row per cluster)
+          </Button>
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
