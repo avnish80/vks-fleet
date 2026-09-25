@@ -30,6 +30,7 @@ registerRoute({
   name: 'vks-fleet',
   exact: true,
   useClusterURL: false,
+  noAuthRequired: true,
   component: () => <FleetView />,
 });
 
@@ -39,6 +40,7 @@ registerRoute({
   name: 'vks-fleet-cluster',
   exact: true,
   useClusterURL: false,
+  noAuthRequired: true,
   component: () => <ClusterDetail />,
 });
 
