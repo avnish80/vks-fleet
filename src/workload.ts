@@ -4,7 +4,8 @@
  * away in Headlamp's own views of that cluster.
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
-import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, WorkloadHealth } from './types';
+import { matchesSelector } from './selector';
+import { DeploymentIssue, EventInfo, PodIssue, SandboxFailure, WorkloadChecks, WorkloadHealth } from './types';
 
 export const POD_PAGE = 1000;
 const LIST_CAP = 50;
@@ -49,7 +50,12 @@ export function podIssues(pods: any[], now: Date): PodIssue[] {
       }
     }
     if (reason) {
-      out.push({ namespace: p?.metadata?.namespace ?? '', name: p?.metadata?.name ?? '', reason });
+      out.push({
+        namespace: p?.metadata?.namespace ?? '',
+        name: p?.metadata?.name ?? '',
+        reason,
+        node: p?.spec?.nodeName || undefined,
+      });
     }
   }
   return out;
@@ -91,6 +97,82 @@ export function recentEvents(events: any[], now: Date, windowMs = WARNING_WINDOW
     .map(toEventInfo)
     .filter(e => e.lastSeen && now.getTime() - new Date(e.lastSeen).getTime() <= windowMs)
     .sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
+}
+
+/** Namespaces owned by the platform (VKS, Kubernetes, CNI, packages): excluded from workload checks. */
+const PLATFORM_NS = [
+  /^kube-/,
+  /^vmware-system/,
+  /^tkg-system/,
+  /^tanzu-/,
+  /^pinniped/,
+  /^secretgen/,
+  /^kapp-controller/,
+  /^cert-manager$/,
+  /^calico/,
+  /^multus/,
+  /^antrea/,
+  /^velero$/,
+];
+
+export function isPlatformNamespace(ns: string): boolean {
+  return PLATFORM_NS.some(r => r.test(ns));
+}
+
+function imageTag(image: string): string | undefined {
+  if (image.includes('@sha256:')) return 'digest';
+  const last = image.split('/').pop() ?? image;
+  const i = last.lastIndexOf(':');
+  return i >= 0 ? last.slice(i + 1) : undefined;
+}
+
+/**
+ * Best-practice observations about user workloads: privileged pods, missing
+ * limits, :latest images, replicated deployments without a PDB, single
+ * replicas, and whether a backup tool is installed.
+ */
+export function workloadChecks(pods: any[], deployments: any[], pdbs: any[] | undefined): WorkloadChecks {
+  const userPods = pods.filter(p => !isPlatformNamespace(p?.metadata?.namespace ?? '') && p?.status?.phase !== 'Succeeded');
+  const userDeps = deployments.filter(d => !isPlatformNamespace(d?.metadata?.namespace ?? ''));
+  const id = (o: any) => `${o?.metadata?.namespace}/${o?.metadata?.name}`;
+  const containers = (p: any): any[] => [...(p?.spec?.containers ?? []), ...(p?.spec?.initContainers ?? [])];
+
+  const privilegedPods = userPods.filter(p => containers(p).some(c => c?.securityContext?.privileged === true)).map(id);
+  const podsWithoutLimits = userPods
+    .filter(p => (p?.spec?.containers ?? []).some((c: any) => !c?.resources?.limits || Object.keys(c.resources.limits).length === 0))
+    .map(id);
+  const latestImages = Array.from(
+    new Set(
+      userPods.flatMap(p =>
+        containers(p)
+          .map(c => String(c?.image ?? ''))
+          .filter(img => {
+            const tag = imageTag(img);
+            return img && (tag === undefined || tag === 'latest');
+          })
+      )
+    )
+  );
+  const replicas = (d: any) => (typeof d?.spec?.replicas === 'number' ? d.spec.replicas : 1);
+  const protectedBy = (d: any) =>
+    (pdbs ?? []).some(
+      b =>
+        b?.metadata?.namespace === d?.metadata?.namespace &&
+        matchesSelector(b?.spec?.selector, d?.spec?.template?.metadata?.labels ?? {})
+    );
+  const unprotectedDeployments = pdbs ? userDeps.filter(d => replicas(d) > 1 && !protectedBy(d)).map(id) : [];
+  const singleReplicaDeployments = userDeps.filter(d => replicas(d) === 1).map(id);
+  const backup = deployments.some(d => /velero/i.test(d?.metadata?.name ?? '') || d?.metadata?.namespace === 'velero');
+  return {
+    privilegedPods,
+    podsWithoutLimits,
+    latestImages,
+    unprotectedDeployments,
+    singleReplicaDeployments,
+    backup,
+    podsChecked: userPods.length,
+    deploymentsChecked: userDeps.length,
+  };
 }
 
 /** Trims a CNI error to the part that says what went wrong. */
@@ -148,13 +230,14 @@ export async function fetchWorkloadHealth(
   contextName: string,
   now: Date = new Date()
 ): Promise<WorkloadHealth> {
-  const parts = ['version', 'nodes', 'pods', 'deployments', 'events'] as const;
+  const parts = ['version', 'nodes', 'pods', 'deployments', 'events', 'poddisruptionbudgets'] as const;
   const settled = await Promise.allSettled([
     client.get<any>('/version'),
     client.get<any>('/api/v1/nodes'),
     client.get<any>(`/api/v1/pods?limit=${POD_PAGE}`),
     client.get<any>('/apis/apps/v1/deployments'),
     client.get<any>('/api/v1/events?fieldSelector=type%3DWarning&limit=500'),
+    client.get<any>('/apis/policy/v1/poddisruptionbudgets'),
   ]);
 
   const rejected = settled
@@ -163,8 +246,8 @@ export async function fetchWorkloadHealth(
 
   // Classify by the parts that carry health data; the version endpoint is
   // readable by almost anyone and says nothing about access to workloads.
-  const substantive = rejected.filter(x => x.part !== 'version');
-  if (substantive.length === parts.length - 1) {
+  const substantive = rejected.filter(x => x.part !== 'version' && x.part !== 'poddisruptionbudgets');
+  if (substantive.length === parts.length - 2) {
     const statuses = substantive.map(x => statusOf(x.r.reason));
     if (statuses.includes(401)) {
       return emptyHealth('expired', contextName, 'Sign-in to this cluster has expired. Log in again.');
@@ -201,6 +284,11 @@ export async function fetchWorkloadHealth(
     health.recentWarningCount = recent.length;
     health.recentWarnings = recent.slice(0, LIST_CAP);
     health.sandboxFailures = sandboxFailures(recent);
+  }
+
+  const pdbItems = value(5)?.items;
+  if (Array.isArray(podList?.items) && Array.isArray(deps)) {
+    health.checks = workloadChecks(podList.items, deps, Array.isArray(pdbItems) ? pdbItems : undefined);
   }
 
   const nodesShort = !!health.nodes && health.nodes.ready < health.nodes.total;

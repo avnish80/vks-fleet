@@ -244,6 +244,8 @@ export interface PodIssue {
   namespace: string;
   name: string;
   reason: string;
+  /** Node the pod is scheduled on, if any. */
+  node?: string;
 }
 
 export interface DeploymentIssue {
@@ -289,6 +291,8 @@ export interface WorkloadHealth {
   recentWarningCount: number;
   /** Pods whose network couldn't be set up in the last hour, grouped by node. */
   sandboxFailures: SandboxFailure[];
+  /** Best-practice observations about workloads (user namespaces only). */
+  checks?: WorkloadChecks;
   /** Parts that couldn't be read (e.g. "pods: Access denied (403)"). */
   partial: string[];
   error?: string;
@@ -300,4 +304,73 @@ export function clusterKey(supervisorId: string, namespace: string, name: string
 
 export function supervisorLabel(s: SupervisorConfig): string {
   return s.displayName?.trim() || s.id;
+}
+
+/* ---------------- Checks ---------------- */
+
+export interface WorkloadChecks {
+  privilegedPods: string[];
+  /** Pods with at least one container that sets no resource limits. */
+  podsWithoutLimits: string[];
+  /** Containers using a ":latest" or untagged image. */
+  latestImages: string[];
+  /** Deployments with more than one replica and no PodDisruptionBudget. */
+  unprotectedDeployments: string[];
+  singleReplicaDeployments: string[];
+  /** Whether a backup tool (Velero) is installed, if it could be determined. */
+  backup?: boolean;
+  /** How many user pods and deployments were looked at. */
+  podsChecked: number;
+  deploymentsChecked: number;
+}
+
+export type CheckStatus = 'pass' | 'warn' | 'fail' | 'unknown';
+export type CheckCategory = 'Resilience' | 'Lifecycle' | 'Security' | 'Operations';
+
+export interface CheckResult {
+  id: string;
+  category: CheckCategory;
+  title: string;
+  status: CheckStatus;
+  detail: string;
+  /** How to fix it, when it isn't passing. */
+  fix?: string;
+  /** Relative importance in the score. */
+  weight: number;
+}
+
+export interface Scorecard {
+  clusterKey: string;
+  /** 0..100 over the checks that could be evaluated. */
+  score: number;
+  checks: CheckResult[];
+  evaluated: number;
+  total: number;
+}
+
+/* ---------------- Issues ---------------- */
+
+export interface IssueLink {
+  label: string;
+  path: string;
+}
+
+/** One problem, with its cause and everything it explains, folded from related findings and signals. */
+export interface Issue {
+  id: string;
+  severity: Severity;
+  supervisorId: string;
+  clusterKey?: string;
+  clusterName?: string;
+  namespace?: string;
+  tenantName?: string;
+  title: string;
+  cause: string;
+  evidence: string[];
+  affected: { clusters: string[]; tenants: string[]; nodes: string[]; pods: string[] };
+  fix: string;
+  links: IssueLink[];
+  /** Finding ids this issue explains (so they aren't listed twice). */
+  findingIds: string[];
+  detectedAt: string;
 }

@@ -14,7 +14,7 @@ import {
 import { formatBytes } from '../quantity';
 import { clusterPath } from '../routes';
 import { rollupByTenant, versionSpread } from '../summary';
-import { Finding, FleetCluster, Health } from '../types';
+import { FleetCluster, Health, Scorecard, Severity } from '../types';
 import { BarList, ChartCard, ChartStyles, Donut, EmptyChart, KpiTile, Legend, Tone } from './charts';
 
 const HEALTH_LABEL: Record<Health, { label: string; tone: Tone }> = {
@@ -39,9 +39,13 @@ export function Overview({
   onTenant,
   supervisors,
   onSupervisor,
+  scores,
 }: {
   clusters: FleetCluster[];
-  findings: Finding[];
+  /** Issues (or findings): anything with a severity. */
+  findings: Array<{ severity: Severity }>;
+  /** Checks scorecards for the clusters shown. */
+  scores?: Array<{ cluster: FleetCluster; card: Scorecard }>;
   title: string;
   /** Called when a tenant bar is clicked; omit to make bars inert. */
   onTenant?: (tenantId: string) => void;
@@ -85,7 +89,7 @@ export function Overview({
         />
         <KpiTile label="Tenants" value={n.tenants} sub={`${n.clusters} cluster${n.clusters === 1 ? '' : 's'} between them`} tone="info" />
         <KpiTile
-          label="Findings"
+          label="Issues"
           value={actionable}
           sub={
             actionable
@@ -214,6 +218,26 @@ export function Overview({
             />
           ) : (
             <EmptyChart text="No certificate dates reported." />
+          )}
+        </ChartCard>
+
+        <ChartCard title="Checks score" caption="Best-practice score per cluster, lowest first">
+          {scores && scores.length ? (
+            <BarList
+              max={100}
+              rows={[...scores]
+                .sort((a, b) => a.card.score - b.card.score)
+                .slice(0, 8)
+                .map(s => ({
+                  key: s.cluster.key,
+                  label: <Link to={`${clusterPath(s.cluster)}#checks`}>{s.cluster.name}</Link>,
+                  title: `${s.cluster.name}: ${s.card.score}/100 over ${s.card.evaluated} of ${s.card.total} checks`,
+                  parts: [{ label: 'Score', value: s.card.score, tone: s.card.score >= 80 ? 'success' : s.card.score >= 60 ? 'warning' : 'error' }],
+                  valueText: s.card.score,
+                }))}
+            />
+          ) : (
+            <EmptyChart text="No clusters to score." />
           )}
         </ChartCard>
 

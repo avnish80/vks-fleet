@@ -2,7 +2,8 @@ import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-
 import { Box, Button, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { countBySeverity, fleetFindings } from '../findings';
+import { scorecard } from '../checks';
+import { buildIssues, countIssues } from '../issues';
 import { clusterPath, headlampClusterPath, headlampPodsPath } from '../routes';
 import { usePluginConfig } from '../settings/store';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
@@ -19,6 +20,7 @@ import {
   VersionCell,
   WorkloadCell,
 } from './common';
+import { IssuesList } from './IssuesList';
 import { Overview } from './Overview';
 
 const ALL = '__all__';
@@ -65,26 +67,30 @@ export function FleetView() {
   );
   const rollups = React.useMemo(() => rollupByTenant(allClusters), [allClusters]);
   const workload = useWorkloadHealth(allClusters, config.refreshSeconds);
-  const findings = React.useMemo(
-    () => fleetFindings((results ?? []).filter(r => supervisorFilter === ALL || r.supervisor.id === supervisorFilter)),
+  const scopedResults = React.useMemo(
+    () => (results ?? []).filter(r => supervisorFilter === ALL || r.supervisor.id === supervisorFilter),
     [results, supervisorFilter]
   );
-  const findingCounts = countBySeverity(findings);
-  // Collapsed by default; open by default only when something is critical.
-  const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
+  const issues = React.useMemo(() => buildIssues(scopedResults, workload.byKey), [scopedResults, workload.byKey]);
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
   const tenantNamespaces = new Set(tenantClusters.map(c => `${c.supervisorId}/${c.namespace}`));
-  const tenantFindings =
+  const tenantIssues =
     tenant === ALL
-      ? findings
-      : findings.filter(f =>
-          f.scope === 'cluster'
-            ? !!f.clusterKey && tenantKeys.has(f.clusterKey)
-            : f.scope === 'namespace'
-            ? tenantNamespaces.has(`${f.supervisorId}/${f.namespace}`)
+      ? issues
+      : issues.filter(i =>
+          i.clusterKey
+            ? tenantKeys.has(i.clusterKey)
+            : i.namespace && !i.namespace.startsWith('svc-')
+            ? tenantNamespaces.has(`${i.supervisorId}/${i.namespace}`)
             : false
         );
+  const findingCounts = countIssues(tenantIssues);
+  // Collapsed by default; open by default only when something is critical.
+  const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
+  const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
+  const scores = tenantClusters.map(c => ({ cluster: c, card: scorecard(c, workload.byKey.get(c.key), fleetZones) }));
+  const clusterByKey = new Map(allClusters.map(c => [c.key, c]));
   const services: ServiceRow[] = (results ?? []).flatMap(r =>
     (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
   );
@@ -164,7 +170,7 @@ export function FleetView() {
         <Typography sx={{ mb: 2 }}>
           {summarySentence(allClusters)}
           {findingCounts.critical + findingCounts.warning > 0
-            ? ` Findings below: ${findingCounts.critical} critical, ${findingCounts.warning} ${
+            ? ` Issues below: ${findingCounts.critical} critical, ${findingCounts.warning} ${
                 findingCounts.warning === 1 ? 'warning' : 'warnings'
               }.`
             : ''}
@@ -224,7 +230,8 @@ export function FleetView() {
       {allClusters.length > 0 && (
         <Overview
           clusters={tenantClusters}
-          findings={tenantFindings}
+          findings={tenantIssues}
+          scores={scores}
           title={tenant === ALL ? 'Overview' : `Overview: ${tenantById.get(tenant)?.tenantName ?? tenant}`}
           onTenant={multiTenant ? setTenant : undefined}
           supervisors={
@@ -312,8 +319,10 @@ export function FleetView() {
           );
         })}
 
-      <FindingsSection
-        findings={tenantFindings}
+      <IssuesSection
+        issues={tenantIssues}
+        clusters={clusterByKey}
+        supervisorNames={supervisorNames}
         showInfo={showInfo}
         setShowInfo={setShowInfo}
         open={findingsOpen}
@@ -357,44 +366,48 @@ export function FleetView() {
   );
 }
 
-function FindingsSection({
-  findings,
+function IssuesSection({
+  issues,
+  clusters,
+  supervisorNames,
   showInfo,
   setShowInfo,
   open,
   setOpen,
 }: {
-  findings: ReturnType<typeof fleetFindings>;
+  issues: ReturnType<typeof buildIssues>;
+  clusters: Map<string, FleetCluster>;
+  supervisorNames: Map<string, string>;
   showInfo: boolean;
   setShowInfo: (v: boolean) => void;
   open: boolean;
   setOpen: (v: boolean) => void;
 }) {
-  const counts = countBySeverity(findings);
-  const shown = showInfo ? findings : findings.filter(x => x.severity !== 'info');
+  const counts = countIssues(issues);
+  const shown = showInfo ? issues : issues.filter(x => x.severity !== 'info');
   const summary =
     counts.critical + counts.warning === 0
       ? 'Nothing needs action.'
       : `${counts.critical} critical, ${counts.warning} ${counts.warning === 1 ? 'warning' : 'warnings'}.`;
   const toggle = [
     <Button key="toggle" size="small" variant="outlined" onClick={() => setOpen(!open)}>
-      {open ? 'Hide findings' : 'Show findings'}
+      {open ? 'Hide issues' : 'Show issues'}
     </Button>,
   ];
   return (
-    <SectionBox title="Findings" headerProps={{ actions: toggle }}>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: open ? 1 : 0 }}>
+    <SectionBox title="Issues" headerProps={{ actions: toggle }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: open ? 1.5 : 0 }}>
         <Typography>
           {summary} {counts.info ? `${counts.info} for information.` : ''}
         </Typography>
         {open && counts.info > 0 && (
           <FormControlLabel
             control={<Switch checked={showInfo} onChange={e => setShowInfo(e.target.checked)} />}
-            label="Show information findings"
+            label="Show information issues"
           />
         )}
       </Box>
-      {open && shown.length > 0 && <FindingsTable findings={shown} />}
+      {open && shown.length > 0 && <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />}
     </SectionBox>
   );
 }

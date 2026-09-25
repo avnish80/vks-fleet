@@ -3,7 +3,7 @@
  * summaries can feed a report or a future server-side aggregator.
  */
 import { needsAttention } from './summary';
-import { FleetCluster, Finding, Health, Severity } from './types';
+import { FleetCluster, Health, Severity } from './types';
 
 export type HealthBucket = 'healthy' | 'attention' | 'changing';
 
@@ -125,7 +125,7 @@ export interface OverviewNumbers {
   upgrading: number;
 }
 
-export function overviewNumbers(clusters: FleetCluster[], findings: Finding[]): OverviewNumbers {
+export function overviewNumbers(clusters: FleetCluster[], findings: Array<{ severity: Severity }>): OverviewNumbers {
   const findingCounts: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
   for (const f of findings) findingCounts[f.severity] += 1;
   return {

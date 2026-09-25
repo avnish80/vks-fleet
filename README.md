@@ -21,6 +21,26 @@ Phase 1 reads one Supervisor. The code is built for several (see "Extending to m
 
 The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
 
+**Issues:** findings and signals folded into problems with a cause. Each issue shows the evidence, what it affects (clusters, tenants, nodes, pods), what to do, and links to the right pages, plus **Copy diagnosis**: a Markdown write-up for a ticket, a chat or an AI assistant. Rules built from real incidents:
+
+- a node whose pod networking fails, with the CNI error and the pods stuck there (critical when platform pods such as DNS or sign-in are hit)
+- a deletion stuck for more than 30 minutes, with the pool's timeouts and the pods on the node
+- automatic repair stopped
+- a cluster API that can't be reached, or an expired sign-in
+- failing pods not explained by a network problem
+- a Supervisor service with failing pods (critical for the VKS service itself)
+
+Findings that no rule explains are shown as their own issue, so nothing is hidden.
+
+**Checks:** a best-practice scorecard per cluster (0 to 100; a warning counts half; checks that need a sign-in don't count until they can run).
+
+- Resilience: control plane of 3, zone spread, pools of 2 or more, node repair configured, PodDisruptionBudgets on replicated workloads
+- Lifecycle: version current, class current, certificate rotation
+- Operations: not paused, no leftover timeouts, backup (Velero) installed
+- Security: no privileged pods, resource limits set, no `:latest` images (user namespaces only)
+
+The overview shows the lowest scores; the cluster page shows every check with how to fix it.
+
 **Findings:** things an operator should know or do, each with what to do about it. They're computed from everything below, fleet-wide and per cluster:
 
 - node VMs powered off
@@ -194,6 +214,8 @@ src/
   releases.ts           Kubernetes releases and upgrade detection
   supervisor.ts         Node VMs, VM class sizes, capacity, quotas, class currency, Supervisor services
   findings.ts           Findings rules: severity, what's wrong, what to do
+  issues.ts             Issues: findings and signals folded into causes; Copy diagnosis
+  checks.ts             Best-practice scorecard per cluster
   actions.ts            Action plans: checks, confirmations and the exact writes
   machine.ts            Machine page data: machine, VM, events; node, pods, drain blockers, pinned pods
   overview.ts           Numbers behind the overview tiles and charts

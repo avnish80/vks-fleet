@@ -13,7 +13,8 @@ import { headlampWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
 import { serverHost } from '../contexts';
 import { AddonInfo } from '../extras';
-import { clusterFindings, namespaceFindings } from '../findings';
+import { scorecard } from '../checks';
+import { buildIssues } from '../issues';
 import { formatBytes } from '../quantity';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import { usePluginConfig } from '../settings/store';
@@ -36,9 +37,10 @@ import { useFleet } from '../useFleet';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog, ScaleDialog, TimeoutDialog, UpgradeDialog } from './ActionDialog';
 import { BarList, ChartStyles } from './charts';
+import { ChecksPanel } from './ChecksPanel';
+import { IssuesList } from './IssuesList';
 import {
   capacityText,
-  FindingsTable,
   HealthLabel,
   LoginHint,
   replicas,
@@ -299,7 +301,12 @@ export function ClusterDetail() {
   const fleetZones = new Set(
     results.flatMap(r => r.clusters.flatMap(c => c.machines.map(m => m.failureDomain))).filter(Boolean)
   ).size;
-  const findings = [...clusterFindings(cluster, new Date(), fleetZones), ...namespaceFindings(cluster)];
+  const clusterIssues = buildIssues(results, workload.byKey).filter(
+    i => i.clusterKey === cluster.key || (!i.clusterKey && i.namespace === cluster.namespace && i.supervisorId === cluster.supervisorId)
+  );
+  const card = scorecard(cluster, health, fleetZones);
+  const clusterMap = new Map([[cluster.key, cluster]]);
+  const supervisorNames = new Map([[supervisor.id, supervisorLabel(supervisor)]]);
   const vksNamespace = results.flatMap(r => r.services ?? []).find(s => s.namespace.startsWith('svc-tkg-'))?.namespace;
   const supervisorHost = serverHost(workload.contexts.find(c => c.name === supervisor.headlampCluster)?.server);
   const addons: AddonInfo[] =
@@ -345,9 +352,9 @@ export function ClusterDetail() {
           </Alert>
         )}
         <SupervisorBanners results={results} />
-        {findings.length > 0 && (
+        {clusterIssues.length > 0 && (
           <Box sx={{ mb: 2 }}>
-            <FindingsTable findings={findings} showCluster={false} />
+            <IssuesList issues={clusterIssues} clusters={clusterMap} supervisorNames={supervisorNames} showCluster={false} />
           </Box>
         )}
         <NameValueTable
@@ -439,6 +446,10 @@ export function ClusterDetail() {
           />
         </SectionBox>
       )}
+
+      <Box id="checks">
+        <ChecksPanel card={card} />
+      </Box>
 
       <SectionBox title="Inside the cluster">
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
