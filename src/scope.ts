@@ -26,13 +26,48 @@ export function scopeResults(results: SupervisorResult[], org: string): Supervis
 }
 
 /** Orgs present in the data, for the switcher. */
-export function orgsOf(results: SupervisorResult[]): Array<{ id: string; name: string; clusters: number }> {
-  const m = new Map<string, { id: string; name: string; clusters: number }>();
+export interface OrgInfo {
+  id: string;
+  name: string;
+  namespaces: string[];
+  clusters: number;
+  /** Clusters not healthy. */
+  attention: number;
+  vms: number;
+}
+
+/**
+ * Every org the data shows: from its namespaces (so orgs with only VMs count),
+ * its clusters, and (when the inventory is loaded) its VM Service VMs.
+ */
+export function orgsOf(results: SupervisorResult[], inventories?: Map<string, Inventory> | null): OrgInfo[] {
+  const m = new Map<string, OrgInfo>();
+  const get = (id: string, name: string) => {
+    let o = m.get(id);
+    if (!o) {
+      o = { id, name, namespaces: [], clusters: 0, attention: 0, vms: 0 };
+      m.set(id, o);
+    }
+    return o;
+  };
   for (const r of results) {
+    const nsOrg = new Map<string, OrgInfo>();
+    for (const n of r.namespaces ?? []) {
+      const o = get(n.tenantId, n.tenantName);
+      if (!o.namespaces.includes(n.name)) o.namespaces.push(n.name);
+      nsOrg.set(n.name, o);
+    }
     for (const c of r.clusters) {
-      const cur = m.get(c.tenantId) ?? { id: c.tenantId, name: c.tenantName, clusters: 0 };
-      cur.clusters += 1;
-      m.set(c.tenantId, cur);
+      const o = get(c.tenantId, c.tenantName);
+      o.clusters += 1;
+      if (c.health !== 'healthy') o.attention += 1;
+      if (!o.namespaces.includes(c.namespace)) o.namespaces.push(c.namespace);
+      nsOrg.set(c.namespace, o);
+    }
+    for (const v of inventories?.get(r.supervisor.id)?.vms ?? []) {
+      if (v.cluster) continue;
+      const o = nsOrg.get(v.namespace);
+      if (o) o.vms += 1;
     }
   }
   return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));

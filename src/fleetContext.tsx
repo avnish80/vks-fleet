@@ -9,7 +9,8 @@ import { headlampClient, listHeadlampClusters, supervisorClient, supervisorWrite
 import { fetchInventory } from './inventory';
 import { fetchOrgLimits, NamespaceLimits, OrgQuota } from './limits';
 import { detectPersona, PersonaInfo, whoAmI } from './persona';
-import { ALL_ORGS, orgsOf, scopeInventory, scopeResults } from './scope';
+import { ALL_ORGS, OrgInfo, orgsOf, scopeInventory, scopeResults } from './scope';
+import { useHistory, useLocation } from 'react-router-dom';
 import { usePluginConfig } from './settings/store';
 import { Inventory, PluginConfig, SupervisorConfig, SupervisorResult } from './types';
 import { useFleet } from './useFleet';
@@ -35,7 +36,10 @@ export interface FleetData {
   canWrite: (supervisorId: string) => boolean;
   org: string;
   setOrg: (org: string) => void;
-  orgs: Array<{ id: string; name: string; clusters: number }>;
+  orgs: OrgInfo[];
+  /** Inventory and limits for every org (the cards compare orgs even while one is selected). */
+  inventoryAll: Map<string, Inventory> | null;
+  limitsAll: Map<string, NamespaceLimits>;
   /** VCFA orgs found in Headlamp's contexts (used when nothing is configured). */
   discovered: SupervisorConfig[];
   /** Identities this Headlamp can act as (when switching is allowed). */
@@ -63,6 +67,8 @@ const Ctx = createContext<FleetData | null>(null);
 export function FleetProvider({ children }: { children: ReactNode }) {
   const settings = usePluginConfig();
   const view = useView();
+  const location = useLocation();
+  const history = useHistory();
   const discovered =
     usePolling('vcfa-discovery', async () => discoverVcfaOrgs(await listHeadlampClusters()), 120) ?? [];
   const { identities, canSwitch: canSwitchIdentity, active, supervisors } = identityPlan(settings, discovered, view?.identity);
@@ -99,11 +105,18 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       300
     ) ?? new Map<string, PersonaInfo>();
 
-  const orgs = orgsOf(results ?? []);
+  const orgIds = orgsOf(results ?? []);
+  // ?org= (or the older ?tenant=) in a link selects that org.
+  const linked = new URLSearchParams(location.search).get('org') ?? new URLSearchParams(location.search).get('tenant');
+  React.useEffect(() => {
+    if (linked && linked !== view?.org && orgIds.some(o => o.id === linked || o.name === linked)) {
+      viewStore.update({ org: orgIds.find(o => o.id === linked || o.name === linked)!.id });
+    }
+  }, [linked, orgIds.map(o => o.id).join(',')]);
   const primary = config.supervisors[0] ? personas.get(config.supervisors[0].id) : undefined;
   const tenantView = primary?.persona === 'tenant' || primary?.persona === 'tenant-readonly';
   const wanted = view?.org ?? ALL_ORGS;
-  const org = tenantView || !orgs.some(o => o.id === wanted) ? ALL_ORGS : wanted;
+  const org = tenantView || !orgIds.some(o => o.id === wanted) ? ALL_ORGS : wanted;
 
   // Namespace inventory: fetched once for every page, refreshed every minute.
   const invKey = (results ?? [])
@@ -157,11 +170,11 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       ),
     300
   );
-  const limits = new Map<string, NamespaceLimits>();
+  const limitsAll = new Map<string, NamespaceLimits>();
   for (const r of results ?? []) {
     for (const n of r.namespaces ?? []) {
-      if (n.limits && (!scopedNs || scopedNs.has(n.name))) {
-        limits.set(n.name, {
+      if (n.limits) {
+        limitsAll.set(n.name, {
           namespace: n.name,
           source: 'supervisor',
           cpuLimitMHz: n.limits.cpuMHz,
@@ -173,7 +186,9 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       }
     }
   }
-  for (const o of orgLimits ?? []) for (const l of o.limits) if (!scopedNs || scopedNs.has(l.namespace)) limits.set(l.namespace, l);
+  for (const o of orgLimits ?? []) for (const l of o.limits) limitsAll.set(l.namespace, l);
+  const limits = new Map(Array.from(limitsAll.entries()).filter(([ns]) => !scopedNs || scopedNs.has(ns)));
+  const orgs = orgsOf(results ?? [], inventoryAll);
   const orgName = orgs.find(o => o.id === org)?.name;
   const orgQuotas = (orgLimits ?? []).map(o => o.quota).filter((q): q is OrgQuota => !!q && (org === ALL_ORGS || q.org === orgName || q.org === org));
   const limitProblems = (orgLimits ?? []).filter(o => o.error).map(o => ({ org: o.org, error: o.error!, expired: o.expired }));
@@ -195,7 +210,16 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     persona: primary,
     canWrite: id => (config.readOnly ? false : personas.get(id)?.canWrite ?? true),
     org,
-    setOrg: o => viewStore.update({ org: o }),
+    setOrg: o => {
+      viewStore.update({ org: o });
+      // Keep the choice in the address, so a link shows the same org.
+      const p = new URLSearchParams(location.search);
+      p.delete('tenant');
+      if (o === ALL_ORGS) p.delete('org');
+      else p.set('org', o);
+      const qs = p.toString();
+      history.replace(`${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`);
+    },
     orgs,
     discovered,
     identities,
@@ -204,6 +228,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     canSwitchIdentity,
     userNames,
     inventory,
+    inventoryAll,
+    limitsAll,
     limits,
     orgQuotas,
     limitProblems,

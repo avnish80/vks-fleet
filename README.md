@@ -26,6 +26,7 @@ The Supervisor's permissions are the boundary; the plugin adapts its view to the
 | **Read-only admin** | an account that can list everywhere but not change clusters | every org, with an **Org** switcher | nothing: actions are hidden |
 | **Tenant** | an org user through VCF Automation | only that org's namespaces and clusters | what the org role allows (an org admin can act) |
 
+- **Org cards** at the top of the fleet page, one per org plus "All orgs". Each shows its namespaces, clusters (and how many need attention), VMs, storage used against quota, and memory against the namespace limits. Click one to scope everything to that org, and again (or All orgs) to go back. Orgs with only VMs are included. With an org selected, an **org summary** shows its VCF Automation org quota and each namespace's class, memory against limit and storage, with shortcuts to Capacity, Security and Showback. The choice goes into the address (`?org=…`), so a link opens on the same org.
 - **The Org switcher** scopes every plugin page (overview, issues, clusters, machines, packages, search, capacity, upgrades, baseline, cleanup, access) and is remembered between pages. When an operator narrows to one org, a note says actions still use operator rights.
 - **Actions follow permissions:** buttons are hidden where the identity can't make changes.
 - **Read-only view:** a setting (and the `readOnly` preset) turns actions off even for an account that could make changes, for example on a NOC screen.

@@ -20,6 +20,8 @@ import { buildIssues, countIssues } from '../issues';
 import { activeSilences, partitionIssues } from '../silences';
 import { Silence } from '../types';
 import { SinceLastVisit } from './Awareness';
+import { OrgCards, OrgSummary } from './OrgCards';
+import { ALL_ORGS } from '../scope';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
 import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
@@ -68,14 +70,15 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const { config, results, refreshing, refresh, inventory, limits, orgQuotas } = useFleetData();
+  const { config, results, refreshing, refresh, inventory, limits, orgQuotas, setOrg } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.
   const location = useLocation();
   const history = useHistory();
   const params = new URLSearchParams(location.search);
-  const tenant = params.get('tenant') ?? ALL;
+  // Orgs are chosen once, for every page (the cards below, or the bar at the top).
+  const tenant = ALL;
   const supervisorFilter = params.get('supervisor') ?? ALL;
   const healthFilter = (params.get('health') ?? undefined) as Health | undefined;
   const versionFilter = params.get('version') ?? undefined;
@@ -90,7 +93,7 @@ export function FleetView() {
     const qs = p.toString();
     history.replace(`${FLEET_PATH}${qs ? `?${qs}` : ''}${hash ? `#${hash}` : ''}`);
   };
-  const setTenant = (t: string) => setParams({ tenant: t === ALL ? undefined : t });
+  const setTenant = (t: string) => setOrg(t === ALL ? ALL_ORGS : t);
   const setSupervisorFilter = (id: string) => setParams({ supervisor: id === ALL ? undefined : id, tenant: undefined });
   const setAttentionOnly = (b: boolean) => setParams({ attention: b ? '1' : undefined });
   const jump = (id: string) =>
@@ -312,23 +315,6 @@ export function FleetView() {
               ))}
             </TextField>
           )}
-          {multiTenant && (
-            <TextField
-              select
-              size="small"
-              label="Tenant"
-              value={tenant}
-              onChange={e => setTenant(e.target.value)}
-              sx={{ minWidth: 200 }}
-            >
-              <MenuItem value={ALL}>All tenants</MenuItem>
-              {rollups.map(r => (
-                <MenuItem key={r.tenantId} value={r.tenantId}>
-                  {r.tenantName}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
           <FormControlLabel
             control={<Switch checked={attentionOnly} onChange={e => setAttentionOnly(e.target.checked)} />}
             label="Only clusters with problems or upgrades in progress"
@@ -336,6 +322,8 @@ export function FleetView() {
         </Box>
       </SectionBox>
 
+      <OrgCards />
+      <OrgSummary />
       {allClusters.length > 0 && (
         <Box sx={{ px: 2 }}>
           <SinceLastVisit
