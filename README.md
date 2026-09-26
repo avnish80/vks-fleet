@@ -168,6 +168,9 @@ Limits cap what VMs actually use. Best-effort VM classes reserve nothing, so VMs
 
 **Capacity** (sidebar: Capacity, or the Node capacity tile), per Supervisor namespace:
 
+- **A resource table:** CPU, memory and each storage class, with **Limit** (VCF Automation or vCenter), **Allocated** (what nodes and VMs are configured with; for storage, what volumes request), **Consumed** (in use now: metrics-server for CPU and memory, the storage quota for storage) and **Free**. It notes when guests use more memory than the limit, which means ESXi is reclaiming memory.
+- **Quota sources** at the top: for each VCF Automation org, which context the quota was read through and whether that worked, expired, or found no org-level context.
+
 - quota against use, as bars
 - the VM classes the namespace can use, with sizes
 - what each cluster holds, and what it's using (metrics-server)

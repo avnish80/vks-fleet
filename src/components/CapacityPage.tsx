@@ -1,7 +1,7 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, MenuItem, TextField, Typography } from '@mui/material';
 import { useFleetData } from '../fleetContext';
-import { Configured, configuredByNamespace, NamespaceLimits, OrgQuota, overcommit } from '../limits';
+import { Configured, configuredByNamespace, Consumed, NamespaceLimits, OrgQuota, overcommit, resourceRows, ResourceRow, storageByClass } from '../limits';
 import { UsageBar } from './InventoryViews';
 import React from 'react';
 import { Link } from 'react-router-dom';
@@ -204,21 +204,69 @@ function LimitsView({ limits, configured, storageUsed }: { limits: NamespaceLimi
   );
 }
 
+const cores = (v: number) => (v >= 10 ? `${Math.round(v)}` : v.toFixed(1));
+
+/** Limit, allocated, consumed and free, side by side. */
+function ResourceTable({ rows }: { rows: ResourceRow[] }) {
+  const fmt = (r: ResourceRow, v: number | undefined, col: 'limit' | 'allocated' | 'consumed') => {
+    if (col === 'limit' && r.limitText) return r.limitText;
+    if (v === undefined) return '—';
+    if (r.unit === 'cpu') return col === 'limit' ? '—' : `${cores(v)} ${col === 'consumed' ? 'cores' : 'vCPU'}`;
+    return formatBytes(v);
+  };
+  return (
+    <SimpleTable
+      columns={[
+        { label: 'Resource', getter: (r: ResourceRow) => <b>{r.resource}</b> },
+        { label: 'Limit', getter: (r: ResourceRow) => fmt(r, r.limit, 'limit') },
+        { label: 'Allocated', getter: (r: ResourceRow) => fmt(r, r.allocated, 'allocated') },
+        { label: 'Consumed', getter: (r: ResourceRow) => fmt(r, r.consumed, 'consumed') },
+        { label: 'Free', getter: (r: ResourceRow) => (r.free === undefined ? '—' : formatBytes(r.free)) },
+        {
+          label: 'Against limit',
+          getter: (r: ResourceRow) =>
+            r.ratio === undefined ? (
+              '—'
+            ) : r.resource === 'Memory' ? (
+              <StatusLabel status={r.ratio > 4 ? 'error' : r.ratio > 2 ? 'warning' : 'success'}>{`${x(r.ratio)} allocated`}</StatusLabel>
+            ) : (
+              <UsageBar used={r.consumed ?? 0} total={r.limit ?? 0} text={`${Math.round(r.ratio * 100)}% used`} />
+            ),
+        },
+        { label: 'Note', getter: (r: ResourceRow) => r.note ?? '' },
+      ]}
+      data={rows}
+    />
+  );
+}
+
 function NamespaceCard({
   ns,
   usage,
   limits,
   configured,
   storageUsed,
+  consumed,
+  storage,
 }: {
   ns: NamespaceHeadroom;
   usage: Map<string, { cpuPct: number; memPct: number }>;
   limits?: NamespaceLimits;
   configured?: Configured;
   storageUsed: Map<string, number>;
+  consumed?: Consumed;
+  storage: ReturnType<typeof storageByClass>;
 }) {
   return (
     <SectionBox title={`${ns.tenantName}: ${ns.namespace}`}>
+      <Box sx={{ mb: 2 }}>
+        <ResourceTable rows={resourceRows(limits, configured, consumed, storage)} />
+        <Typography variant="caption" color="text.secondary">
+          Limit: what the namespace may use{limits ? (limits.source === 'vcfa' ? ` (VCF Automation, class ${limits.className ?? '?'})` : ' (vCenter)') : ''}.
+          Allocated: what nodes and VMs are configured with (for storage, what volumes request). Consumed: what's in use now
+          (metrics-server for CPU and memory; the storage quota for storage).
+        </Typography>
+      </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 2, mb: 2 }}>
         <Box>
           <Typography sx={{ fontWeight: 600, mb: 1 }}>Limits</Typography>
@@ -303,7 +351,7 @@ function NamespaceCard({
   );
 }
 
-function OrgQuotaCard({ q }: { q: OrgQuota }) {
+function OrgQuotaCard({ q, consumedByClass }: { q: OrgQuota; consumedByClass: Map<string, number> }) {
   return (
     <SectionBox title={`${q.org}: org quota${q.region ? ` in ${q.region}` : ''}`}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -315,6 +363,10 @@ function OrgQuotaCard({ q }: { q: OrgQuota }) {
             {st.storageClass}
           </Typography>
           <UsageBar used={st.allocatedBytes} total={st.capacityBytes} text={`${formatBytes(st.allocatedBytes)} of ${formatBytes(st.capacityBytes)} allocated`} />
+          <Typography variant="caption" color="text.secondary">
+            Consumed across the org's namespaces: {formatBytes(consumedByClass.get(st.storageClass) ?? 0)} · unallocated:{' '}
+            {formatBytes(Math.max(0, st.capacityBytes - st.allocatedBytes))}
+          </Typography>
         </Box>
       ))}
       {q.vmClasses.length > 0 && (
@@ -327,7 +379,7 @@ function OrgQuotaCard({ q }: { q: OrgQuota }) {
 }
 
 export function CapacityPage() {
-  const { config, results, inventory, limits, orgQuotas, limitProblems } = useFleetData();
+  const { config, results, inventory, limits, orgQuotas, limitProblems, quotaSources } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   if (results === null) return <Loader title="Loading capacity" />;
@@ -339,6 +391,18 @@ export function CapacityPage() {
   );
   const spaces = namespaceHeadroom(results);
   const configured = configuredByNamespace(results, inventory);
+  const allQuotas = Array.from(inventory?.values() ?? []).flatMap(i => i.quotas);
+  const allVolumes = Array.from(inventory?.values() ?? []).flatMap(i => i.volumes);
+  const consumedFor = (ns: string): Consumed => {
+    const cs = clusters.filter(c => c.namespace === ns);
+    const us = cs.map(c => workload.byKey.get(c.key)?.utilisation).filter((u): u is NonNullable<typeof u> => !!u);
+    return {
+      cpuCores: us.reduce((n, u) => n + u.nodes.reduce((m, x) => m + x.cpuUsed, 0), 0),
+      memoryBytes: us.reduce((n, u) => n + u.nodes.reduce((m, x) => m + x.memUsed, 0), 0),
+      reporting: us.length,
+      of: cs.length,
+    };
+  };
   const storageUsedFor = (ns: string) =>
     new Map(
       Array.from(inventory?.values() ?? [])
@@ -350,6 +414,36 @@ export function CapacityPage() {
     <>
       <ChartStyles />
       <SectionBox title="Capacity">
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Quota sources:
+          </Typography>
+          {quotaSources.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              no VCF Automation org context in Headlamp's kubeconfig (create one with vcf context create); vCenter-managed limits
+              are read from the Supervisor.
+            </Typography>
+          ) : (
+            quotaSources.map(q => (
+              <StatusLabel
+                key={q.org}
+                status={q.status === 'ok' ? 'success' : q.status === 'reading' ? '' : q.status === 'no-context' ? 'warning' : 'error'}
+              >
+                {`${q.org}: ${
+                  q.status === 'ok'
+                    ? `read through "${q.context}" (${q.detail})`
+                    : q.status === 'reading'
+                    ? 'reading…'
+                    : q.status === 'no-context'
+                    ? `no org-level context named "${q.org}" in the kubeconfig`
+                    : q.status === 'expired'
+                    ? `sign-in expired (vcf context refresh ${q.org})`
+                    : `failed: ${q.detail}`
+                }`}
+              </StatusLabel>
+            ))
+          )}
+        </Box>
         <Alert severity="info">
           Per Supervisor namespace: quota against what's used, the VM classes it can use, what each cluster holds, the extra
           a rolling upgrade takes while it runs (one new node per pool plus one control-plane node), and a what-if for
@@ -364,7 +458,20 @@ export function CapacityPage() {
         ))}
       </SectionBox>
       {orgQuotas.map(q => (
-        <OrgQuotaCard key={q.org} q={q} />
+        <OrgQuotaCard
+          key={q.org}
+          q={q}
+          consumedByClass={
+            new Map(
+              q.storage.map(st => [
+                st.storageClass,
+                allQuotas
+                  .filter(x => x.policy === st.storageClass && (results.flatMap(r => r.namespaces ?? []).find(n => n.name === x.namespace)?.tenantName === q.org || limits.get(x.namespace)?.source === 'vcfa'))
+                  .reduce((n, x) => n + x.used, 0),
+              ])
+            )
+          }
+        />
       ))}
       {spaces.map(ns => (
         <NamespaceCard
@@ -374,6 +481,12 @@ export function CapacityPage() {
           limits={limits.get(ns.namespace)}
           configured={configured.get(ns.namespace)}
           storageUsed={storageUsedFor(ns.namespace)}
+          consumed={consumedFor(ns.namespace)}
+          storage={storageByClass(
+            limits.get(ns.namespace),
+            allQuotas.filter(q => q.namespace === ns.namespace),
+            allVolumes.filter(v => v.namespace === ns.namespace)
+          )}
         />
       ))}
     </>

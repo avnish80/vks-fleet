@@ -12,7 +12,21 @@ export interface IdentityPlan {
  * Which identities this Headlamp holds (configured entries plus VCFA orgs
  * found in its contexts), whether the switch is offered, and which one is in use.
  */
+export function enrichFromDiscovery(s: SupervisorConfig, discovered: SupervisorConfig[]): SupervisorConfig {
+  if (s.mode !== 'vcfa') return s;
+  const d = discovered.find(x => (s.org && x.org === s.org) || x.id === s.id || x.headlampCluster === s.headlampCluster);
+  if (!d) return s;
+  return {
+    ...s,
+    org: s.org ?? d.org,
+    orgContext: s.orgContext ?? d.orgContext,
+    namespaceProjects: { ...(d.namespaceProjects ?? {}), ...(s.namespaceProjects ?? {}) },
+    namespaceContexts: { ...(d.namespaceContexts ?? {}), ...(s.namespaceContexts ?? {}) },
+  };
+}
+
 export function identityPlan(settings: PluginConfig, discovered: SupervisorConfig[], wanted?: string): IdentityPlan {
+  settings = { ...settings, supervisors: settings.supervisors.map(s => enrichFromDiscovery(s, discovered)) };
   const identities = [
     ...settings.supervisors,
     ...discovered.filter(d => !settings.supervisors.some(x => x.id === d.id || x.headlampCluster === d.headlampCluster)),

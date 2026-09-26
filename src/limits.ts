@@ -178,3 +178,102 @@ export function configuredByNamespace(results: SupervisorResult[], inventories: 
 }
 
 export const overcommit = (configured: number, limit?: number) => (limit ? configured / limit : undefined);
+
+export interface ResourceRow {
+  resource: string;
+  unit: 'cpu' | 'bytes';
+  limit?: number;
+  /** For CPU: the limit in MHz (a different unit from vCPUs). */
+  limitText?: string;
+  allocated?: number;
+  consumed?: number;
+  free?: number;
+  /** allocated / limit, when both are in the same unit. */
+  ratio?: number;
+  note?: string;
+}
+
+export interface Consumed {
+  cpuCores: number;
+  memoryBytes: number;
+  /** Clusters reporting metrics, out of the namespace's clusters. */
+  reporting: number;
+  of: number;
+}
+
+/**
+ * Limit, allocated, consumed and free for one namespace:
+ *  - CPU and memory: limit from VCF Automation or vCenter; allocated = what nodes
+ *    and VMs are configured with; consumed = what cluster nodes use now (metrics-server).
+ *  - Storage per class: limit (VCF Automation, else the storage policy quota);
+ *    allocated = volumes' requested sizes; consumed = what the storage quota
+ *    counts as used (VM disks, snapshots, volumes).
+ */
+export function resourceRows(
+  limits: NamespaceLimits | undefined,
+  configured: Configured | undefined,
+  consumed: Consumed | undefined,
+  storage: Array<{ storageClass: string; limit?: number; used?: number; requested?: number }>
+): ResourceRow[] {
+  const rows: ResourceRow[] = [];
+  const partial = consumed && consumed.reporting < consumed.of ? `${consumed.reporting} of ${consumed.of} clusters report metrics` : undefined;
+  rows.push({
+    resource: 'CPU',
+    unit: 'cpu',
+    limitText: limits?.cpuLimitMHz !== undefined ? `${(limits.cpuLimitMHz / 1000).toFixed(1)} GHz` : undefined,
+    allocated: configured?.vcpu,
+    consumed: consumed?.reporting ? consumed.cpuCores : undefined,
+    note: [limits?.cpuLimitMHz !== undefined ? 'limit is in GHz, allocation in vCPUs' : undefined, partial, consumed?.reporting ? 'VMs not included in "consumed"' : undefined]
+      .filter(Boolean)
+      .join('; ') || undefined,
+  });
+  const memLimit = limits?.memoryLimitBytes;
+  const memUsed = consumed?.reporting ? consumed.memoryBytes : undefined;
+  rows.push({
+    resource: 'Memory',
+    unit: 'bytes',
+    limit: memLimit,
+    allocated: configured?.memoryBytes,
+    consumed: memUsed,
+    free: memLimit !== undefined && memUsed !== undefined ? Math.max(0, memLimit - memUsed) : undefined,
+    ratio: memLimit && configured ? configured.memoryBytes / memLimit : undefined,
+    note:
+      [
+        memLimit !== undefined && memUsed !== undefined && memUsed > memLimit
+          ? 'guests report more in use than the limit, so ESXi is reclaiming memory from them (ballooning or swap)'
+          : undefined,
+        partial,
+        consumed?.reporting ? 'VMs not included in "consumed"' : undefined,
+      ]
+        .filter(Boolean)
+        .join('; ') || undefined,
+  });
+  for (const st of storage) {
+    rows.push({
+      resource: `Storage: ${st.storageClass}`,
+      unit: 'bytes',
+      limit: st.limit,
+      allocated: st.requested,
+      consumed: st.used,
+      free: st.limit !== undefined && st.used !== undefined ? Math.max(0, st.limit - st.used) : undefined,
+      ratio: st.limit && st.used !== undefined ? st.used / st.limit : undefined,
+    });
+  }
+  return rows;
+}
+
+/** Storage per class for a namespace: VCFA limits, storage quota limit and use, volume requests. */
+export function storageByClass(
+  limits: NamespaceLimits | undefined,
+  quotas: Array<{ policy: string; limit: number; used: number }>,
+  volumes: Array<{ storageClass?: string; size?: number }>
+): Array<{ storageClass: string; limit?: number; used?: number; requested?: number }> {
+  const classes = new Set<string>([...(limits?.storage ?? []).map(s => s.storageClass), ...quotas.map(q => q.policy)]);
+  const base = (c: string) => c.replace(/-latebinding$/, '');
+  return Array.from(classes).map(c => ({
+    storageClass: c,
+    limit: limits?.storage.find(s => s.storageClass === c)?.limitBytes ?? quotas.find(q => q.policy === c)?.limit,
+    used: quotas.find(q => q.policy === c)?.used,
+    requested: volumes.filter(v => v.storageClass && base(v.storageClass) === c).reduce((n, v) => n + (v.size ?? 0), 0),
+  }));
+}

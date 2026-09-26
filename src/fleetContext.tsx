@@ -54,6 +54,8 @@ export interface FleetData {
   orgQuotas: OrgQuota[];
   /** Orgs whose VCFA quotas couldn't be read, with why. */
   limitProblems: Array<{ org: string; error: string; expired?: boolean }>;
+  /** Per VCFA org: which context the quota was read through, and how it went. */
+  quotaSources: Array<{ org: string; context?: string; status: 'ok' | 'expired' | 'error' | 'no-context' | 'reading'; detail?: string }>;
 }
 
 const Ctx = createContext<FleetData | null>(null);
@@ -139,7 +141,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   // Quotas live in VCF Automation: read them (read-only) through every org-level
   // VCFA context this Headlamp holds, whichever identity is active.
-  const vcfaOrgs = identities.filter(i => i.mode === 'vcfa' && i.orgContext && i.org);
+  const allVcfa = identities.filter(i => i.mode === 'vcfa' && i.org);
+  const vcfaOrgs = allVcfa.filter(i => i.orgContext);
   const orgKey = vcfaOrgs.map(i => `${i.org}:${i.orgContext}:${Object.values(i.namespaceProjects ?? {}).join(',')}`).join('|');
   const orgLimits = usePolling(
     orgKey || null,
@@ -172,6 +175,13 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const orgName = orgs.find(o => o.id === org)?.name;
   const orgQuotas = (orgLimits ?? []).map(o => o.quota).filter((q): q is OrgQuota => !!q && (org === ALL_ORGS || q.org === orgName || q.org === org));
   const limitProblems = (orgLimits ?? []).filter(o => o.error).map(o => ({ org: o.org, error: o.error!, expired: o.expired }));
+  const quotaSources: FleetData['quotaSources'] = Array.from(new Map(allVcfa.map(i => [i.org!, i])).values()).map(i => {
+    if (!i.orgContext) return { org: i.org!, status: 'no-context' as const };
+    const r = (orgLimits ?? []).find(o => o.org === i.org);
+    if (!r) return { org: i.org!, context: i.orgContext, status: 'reading' as const };
+    if (r.error) return { org: i.org!, context: i.orgContext, status: r.expired ? ('expired' as const) : ('error' as const), detail: r.error };
+    return { org: i.org!, context: i.orgContext, status: 'ok' as const, detail: `${r.limits.length} namespace${r.limits.length === 1 ? '' : 's'}` };
+  });
 
   const value: FleetData = {
     config,
@@ -195,6 +205,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     limits,
     orgQuotas,
     limitProblems,
+    quotaSources,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
