@@ -36,3 +36,12 @@ export function usableAddresses(cidr: string): number {
 }
 
 export const isIPv4 = (s: string) => ipToInt(s) !== undefined;
+
+/** Whether two CIDR ranges share any address. */
+export function cidrOverlap(a: string, b: string): boolean {
+  const x = parseCidr(a);
+  const y = parseCidr(b);
+  if (!x || !y) return false;
+  const end = (c: { base: number; prefix: number }) => c.base + 2 ** (32 - c.prefix) - 1;
+  return x.base <= end(y) && y.base <= end(x);
+}

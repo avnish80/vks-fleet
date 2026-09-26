@@ -61,6 +61,8 @@ export interface PluginConfig {
   silences?: Silence[];
   /** Display names for org (tenant) IDs, applied to every Supervisor. */
   orgNames?: Record<string, string>;
+  /** kube-bench image for node scans (mirror it for air-gapped sites). */
+  nodeScanImage?: string;
 }
 
 export interface Silence {
@@ -631,6 +633,8 @@ export interface SubnetInfo {
   capacity: number;
   /** What's attached: VMs and clusters. */
   members: string[];
+  /** A subnet shared with other namespaces or projects (VCF shared subnets). */
+  shared?: boolean;
 }
 
 export interface VpcInfo {

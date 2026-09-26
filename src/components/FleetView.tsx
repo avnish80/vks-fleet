@@ -21,6 +21,7 @@ import { activeSilences, partitionIssues } from '../silences';
 import { Silence } from '../types';
 import { SinceLastVisit } from './Awareness';
 import { complianceIssues } from '../complianceReport';
+import { isolationIssues, isolationReport } from '../isolation';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
 import { ALL_ORGS } from '../scope';
@@ -72,7 +73,7 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const { config, results, refreshing, refresh, inventory, limits, orgQuotas, setOrg } = useFleetData();
+  const { config, results, refreshing, refresh, inventory, limits, orgQuotas, setOrg, all, inventoryAll, org } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.
@@ -155,9 +156,15 @@ export function FleetView() {
         [
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
+          ...(all && inventoryAll
+            ? isolationIssues(
+                isolationReport(all, inventoryAll, null).filter(r => org === '__all__' || r.orgId === org),
+                all[0]?.supervisor.id ?? ''
+              )
+            : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

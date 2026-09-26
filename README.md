@@ -289,6 +289,25 @@ Each control shows its **owner**: **VKS** (platform configuration, set by VKS), 
 
 Titles are the plugin's own, and each control references the CIS section it aligns with. This is not a certified CIS assessment.
 
+**Node scan (kube-bench).** **Run node scan…** on a cluster's Compliance section runs **kube-bench**, the open-source CIS scanner, for the file-permission and ownership checks the API can't see:
+
+- **What it creates:** a `vks-fleet-scan` namespace, labelled privileged for Pod Security, because kube-bench reads host files through host PID and read-only host paths. Then two short-lived Jobs: one on a control-plane node, which tolerates the control-plane taint, and one on a worker.
+- **Dry run first,** then each step is shown as it happens. Image pull failures ("mirror the image for air-gapped sites") and scheduling problems are reported clearly.
+- **Results** are summarised into the `vks-fleet-scan/kube-bench-results` ConfigMap, which keeps the last 5 runs per target **in the cluster itself**. The Jobs are deleted afterwards (and expire within the hour regardless).
+- **In the benchmark:** the file-permission controls take their result from the latest scan, and the cluster section lists every kube-bench check (failures and warnings first) with what was found and the remediation.
+- **The image** defaults to `docker.io/aquasec/kube-bench:latest`; set your own mirrored and pinned image in the dialog, and it's remembered.
+
+**Tenant isolation** (on the Compliance page, for operators and read-only admins): a per-org check, from the Supervisor's view, that orgs are separated:
+
+- **Own VPC:** a VPC name and outbound NAT address not used by another org.
+- **Public addresses not shared:** load balancer VIPs and VMs on public subnets.
+- **Routed ranges don't overlap:** public ranges must not; transit-gateway ranges are flagged for review, since they only conflict if the orgs share a gateway. Private VPC ranges may repeat by design.
+- **No shared subnets.**
+- **No people with access to more than one org:** fine for platform administrators, worth checking otherwise.
+- **Firewall policies present and applied.**
+
+Failures become fleet issues, and a Markdown report can be downloaded.
+
 **Pages that read inside clusters** (Security, Applications, Packages, Compliance) say so plainly when the selected org has no VKS clusters, instead of waiting. **Orgs shown only by their ID** get a "Name this org" button on their card; names are kept with the plugin settings and apply everywhere.
 
 **Packages** (sidebar: Packages), per signed-in cluster:
@@ -498,6 +517,9 @@ src/
   awareness.ts          Since-last-visit and command palette helpers
   compliance.ts         CIS-aligned controls, evidence parsing and evaluation
   complianceReport.ts   Drift, compliance issues, evidence exports
+  nodeScan.ts           kube-bench Jobs, result parsing and history
+  nodeScanRunner.ts     Node scan orchestration (namespace, Jobs, results, clean-up)
+  isolation.ts          Tenant isolation report
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

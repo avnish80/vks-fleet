@@ -13,6 +13,10 @@ import { ChartStyles, KpiTile } from './charts';
 import { complianceStore, useComplianceStore } from './complianceStore';
 import { NoClusters } from './EmptyState';
 import { SignInHelper } from './SignInHelper';
+import { IsolationSection } from './IsolationSection';
+import { NodeScanDialog } from './NodeScanDialog';
+import { BenchTest, latest, mergeNodeScan, NodeScanRun } from '../nodeScan';
+import { useNodeScans } from '../useNodeScans';
 import { removeSilence, SilenceDialog } from './SilenceDialog';
 
 const STATUS: Record<ControlStatus, { text: string; status: 'success' | 'warning' | 'error' | '' }> = {
@@ -25,13 +29,17 @@ const STATUS: Record<ControlStatus, { text: string; status: 'success' | 'warning
 const OWNER: Record<ControlResult['owner'], string> = { vks: 'VKS', you: 'Cluster owner', shared: 'Shared' };
 
 export function CompliancePage() {
-  const { config, results } = useFleetData();
+  const { config, results, canWrite } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const targets = clusters
     .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
     .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName);
   const scans = useClusterScans(targets, config.baseline?.allowedRegistries ?? []);
+  const [scanVersion, setScanVersion] = React.useState(0);
+  const nodeScans = useNodeScans(targets, scanVersion);
+  const [scanning, setScanning] = React.useState<{ cluster: string; contextName: string } | null>(null);
+  const [showAllTests, setShowAllTests] = React.useState<Record<string, boolean>>({});
   const store = useComplianceStore() ?? {};
   const [owner, setOwner] = React.useState<'all' | 'you' | 'vks'>('all');
   const [level, setLevel] = React.useState<1 | 2>(2);
@@ -41,7 +49,9 @@ export function CompliancePage() {
   if (results === null) return <Loader title="Loading clusters" />;
   if (clusters.length === 0) return <NoClusters title="Compliance" what="compliance information" />;
   if (targets.length > 0 && scans === null) return <Loader title="Running the checks" />;
-  const list: ClusterScan[] = scans ?? [];
+  // Node scans (kube-bench) fill in the file-permission controls the API can't see.
+  const list: ClusterScan[] = (scans ?? []).map(s => ({ ...s, compliance: mergeNodeScan(s.compliance, nodeScans.get(s.clusterKey) ?? []) }));
+  const clusterOf = new Map(clusters.map(c => [c.key, c]));
   const silences = activeSilences(config.silences);
   const baselines = store.baselines ?? {};
   const keep = (r: ControlResult) =>
@@ -101,6 +111,8 @@ export function CompliancePage() {
         </Box>
       </SectionBox>
 
+      <IsolationSection />
+
       {list.length > 0 && (
         <SectionBox title="By section">
           <Box sx={{ overflowX: 'auto' }}>
@@ -155,6 +167,13 @@ export function CompliancePage() {
               title={`${s.clusterName}: ${sc.scored ? `${sc.pct}%` : 'not scored'} (${sc.scored} of ${sc.total} checks scored)`}
               headerProps={{
                 actions: [
+                  ...(clusterOf.get(s.clusterKey) && canWrite(clusterOf.get(s.clusterKey)!.supervisorId)
+                    ? [
+                        <Button key="scan" size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName })}>
+                          Run node scan…
+                        </Button>,
+                      ]
+                    : []),
                   <Button key="base" size="small" onClick={() => complianceStore.update({ baselines: { ...baselines, [s.clusterKey]: snapshot(s.compliance) } })}>
                     {baselines[s.clusterKey] ? 'Save as new baseline' : 'Save as baseline'}
                   </Button>,
@@ -215,12 +234,83 @@ export function CompliancePage() {
                 ]}
                 data={rows}
               />
+              <NodeScanResults
+                runs={nodeScans.get(s.clusterKey) ?? []}
+                showAll={!!showAllTests[s.clusterKey]}
+                toggle={() => setShowAllTests({ ...showAllTests, [s.clusterKey]: !showAllTests[s.clusterKey] })}
+              />
             </SectionBox>
           </Box>
         );
       })}
 
+      {scanning && (
+        <NodeScanDialog
+          cluster={scanning.cluster}
+          contextName={scanning.contextName}
+          image={config.nodeScanImage}
+          onClose={() => setScanning(null)}
+          onDone={() => setScanVersion(v => v + 1)}
+        />
+      )}
+
       {waiving && <SilenceDialog match={{ issueId: waiving.issueId }} label={waiving.label} onClose={() => setWaiving(null)} />}
     </>
   );
 }
+
+const TEST_TONE: Record<BenchTest['status'], 'success' | 'error' | 'warning' | ''> = { PASS: 'success', FAIL: 'error', WARN: 'warning', INFO: '' };
+
+/** The latest kube-bench results for a cluster (failures and warnings first). */
+function NodeScanResults({ runs, showAll, toggle }: { runs: NodeScanRun[]; showAll: boolean; toggle: () => void }) {
+  const cp = latest(runs, 'control-plane');
+  const worker = latest(runs, 'worker');
+  if (!cp && !worker) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+        No node scan yet. Run one for the file-permission checks.
+      </Typography>
+    );
+  }
+  const tests = [...(cp?.tests ?? []), ...(worker?.tests ?? [])];
+  const shown = showAll ? tests : tests.filter(t => t.status === 'FAIL' || t.status === 'WARN');
+  const count = (st: BenchTest['status']) => tests.filter(t => t.status === st).length;
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
+        <Typography sx={{ fontWeight: 600 }}>Node scan (kube-bench)</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {[cp && `control plane ${new Date(cp.at).toLocaleString()}${cp.node ? ` on ${cp.node}` : ''}`, worker && `worker ${new Date(worker.at).toLocaleString()}${worker.node ? ` on ${worker.node}` : ''}`]
+            .filter(Boolean)
+            .join(' · ')}
+          {cp?.benchmark ? ` · ${cp.benchmark}` : ''} · {count('PASS')} pass, {count('FAIL')} fail, {count('WARN')} warn
+        </Typography>
+        <Button size="small" onClick={toggle}>
+          {showAll ? 'Only failures and warnings' : `Show all ${tests.length}`}
+        </Button>
+      </Box>
+      <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem' }}>
+        <tbody>
+          {shown.map(t => (
+            <Box component="tr" key={`${t.id}-${t.desc}`} sx={{ borderTop: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
+              <Box component="td" sx={{ p: 0.75, whiteSpace: 'nowrap' }}>
+                <StatusLabel status={TEST_TONE[t.status]}>{t.status}</StatusLabel>
+              </Box>
+              <Box component="td" sx={{ p: 0.75, whiteSpace: 'nowrap', fontWeight: 600 }}>
+                {t.id}
+              </Box>
+              <Box component="td" sx={{ p: 0.75 }}>
+                {t.desc}
+                {t.actual ? <Typography variant="caption" color="text.secondary" display="block">Found: {t.actual}</Typography> : null}
+              </Box>
+              <Box component="td" sx={{ p: 0.75, color: 'text.secondary' }}>
+                {t.status === 'PASS' ? '' : t.remediation}
+              </Box>
+            </Box>
+          ))}
+        </tbody>
+      </Box>
+    </Box>
+  );
+}
+

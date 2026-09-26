@@ -162,6 +162,7 @@ export function parseSubnets(
       used,
       capacity,
       members: [...clusterMembers, ...vmMembers],
+      shared: (o.status as any)?.shared === true || (o.spec as any)?.shared === true,
     };
   };
   return [...subnets.map(s => one(s, 'Subnet')), ...subnetSets.map(s => one(s, 'SubnetSet'))];
