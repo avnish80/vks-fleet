@@ -24,6 +24,7 @@ import { ActionDialog } from './ActionDialog';
 import { BatchActionDialog, BatchItem } from './BatchActionDialog';
 import { ChartStyles, KpiTile, useTone } from './charts';
 import { SignInHelper } from './SignInHelper';
+import { NoClusters } from './EmptyState';
 
 const STATE: Record<PackageState, { text: string; status: 'success' | 'warning' | 'error' | '' }> = {
   ok: { text: 'Reconciled', status: 'success' },
@@ -81,6 +82,7 @@ export function PackagesPage() {
   const [fleetVersion, setFleetVersion] = React.useState<Record<string, string>>({});
 
   if (results === null) return <Loader title="Loading clusters" />;
+  if (clusters.length === 0) return <NoClusters title="Packages" what="package information" />;
 
   const byKey = new Map(clusters.map(c => [c.key, c]));
   const all: ClusterPackages[] = packages ? Array.from(packages.values()) : [];

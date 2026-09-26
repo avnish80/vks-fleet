@@ -11,9 +11,10 @@ export interface ScanTarget {
 /** Applications, security posture and GitOps for every signed-in cluster, every few minutes. */
 export function useClusterScans(targets: ScanTarget[], allowedRegistries: string[], seconds = 300): ClusterScan[] | null {
   const id = targets.length ? JSON.stringify([targets.map(t => [t.key, t.contextName]), allowedRegistries]) : null;
-  return usePolling(
+  const polled = usePolling(
     id,
     () => Promise.all(targets.map(t => fetchClusterScan(headlampClient(t.contextName), t.key, t.name, t.contextName, allowedRegistries))),
     seconds
   );
+  return targets.length ? polled : [];
 }

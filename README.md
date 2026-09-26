@@ -274,6 +274,23 @@ A **fleet matrix** shows every cluster against every check.
 
 Each finding is also an issue with a runbook. The runbooks use server-side dry runs, for example trying a Pod Security level before enforcing it.
 
+**Compliance** (sidebar: Compliance): 53 checks aligned with the CIS Kubernetes Benchmark, evaluated through the Kubernetes API, with nothing installed in the clusters:
+
+- **Control plane** (API server, controller manager, scheduler, etcd): flags read from the static pods' command lines. Covers authorization, admission plugins, profiling, TLS to etcd and kubelets, encryption at rest, and audit logging and retention.
+- **Worker nodes:** each kubelet's live configuration (`nodes/<node>/proxy/configz`, up to six nodes per cluster). Covers anonymous auth, Webhook authorization, the client CA, the read-only port, streaming timeouts, certificate rotation and kernel defaults.
+- **Policies:** RBAC (cluster-admin, Secret readers, wildcards, pod creation, bind/escalate/impersonate, system:masters), default service-account tokens, Pod Security (admission levels, privileged, host namespaces, escalation, root, capabilities, hostPath, host ports), network policies, Secrets as environment variables, seccomp, and use of the default namespace.
+
+Each control shows its **owner**: **VKS** (platform configuration, set by VKS), **you** (how the cluster is used) or **shared**. So a report separates what the platform already handles from what the team must fix.
+
+- **Honest scoring.** Checks that need a node-level scan (file permissions) are marked "needs node scan". Data that can't be read is "not readable". Neither ever counts as a pass, and every score says how many checks it covers.
+- **The page:** a fleet score, a clusters × sections matrix, filters (owner, level, failing only), and per control the evidence, the remediation, and **Waive…** (an accepted risk with a reason and an expiry of up to a year).
+- **Drift:** save a baseline per cluster, and changes since then are shown. A control that goes from pass to fail becomes an issue.
+- **Evidence exports** for auditors: Markdown (a summary plus every control per cluster, with waivers) and CSV.
+
+Titles are the plugin's own, and each control references the CIS section it aligns with. This is not a certified CIS assessment.
+
+**Pages that read inside clusters** (Security, Applications, Packages, Compliance) say so plainly when the selected org has no VKS clusters, instead of waiting. **Orgs shown only by their ID** get a "Name this org" button on their card; names are kept with the plugin settings and apply everywhere.
+
 **Packages** (sidebar: Packages), per signed-in cluster:
 
 - **Installed packages,** marked **managed by VKS** (installed and upgraded with the cluster, so not changed here) or managed by you.
@@ -479,6 +496,8 @@ src/
   guestActions.ts       In-cluster actions: Pod Security, network policies, package update/pause/reconcile
   silences.ts           Silences and maintenance mode
   awareness.ts          Since-last-visit and command palette helpers
+  compliance.ts         CIS-aligned controls, evidence parsing and evaluation
+  complianceReport.ts   Drift, compliance issues, evidence exports
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

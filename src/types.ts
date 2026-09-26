@@ -59,6 +59,8 @@ export interface PluginConfig {
   links?: Array<{ label: string; url: string }>;
   /** Muted issues, maintenance windows and accepted findings. */
   silences?: Silence[];
+  /** Display names for org (tenant) IDs, applied to every Supervisor. */
+  orgNames?: Record<string, string>;
 }
 
 export interface Silence {

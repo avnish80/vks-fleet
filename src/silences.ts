@@ -12,6 +12,8 @@ export const DURATIONS: Array<{ label: string; hours: number }> = [
   { label: '1 week', hours: 24 * 7 },
   { label: '30 days', hours: 24 * 30 },
   { label: '90 days', hours: 24 * 90 },
+  { label: '180 days', hours: 24 * 180 },
+  { label: '1 year', hours: 24 * 365 },
 ];
 
 export function activeSilences(all: Silence[] | undefined, now: Date = new Date()): Silence[] {

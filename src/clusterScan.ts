@@ -10,6 +10,7 @@
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { parseConditions } from './capi/v1beta1';
+import { componentFlags, ControlResult, evaluateCompliance } from './compliance';
 import { refusedPods } from './pss';
 import { isPlatformNamespace } from './workload';
 
@@ -86,6 +87,10 @@ export interface ClusterScan {
   security: SecurityFinding[];
   gitops: GitOpsApp[];
   namespaces: NamespacePosture[];
+  /** CIS-aligned benchmark results. */
+  compliance: ControlResult[];
+  /** When this scan ran. */
+  at: string;
   errors: string[];
 }
 
@@ -365,7 +370,7 @@ export async function fetchClusterScan(
       return undefined;
     }
   };
-  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles] = await Promise.all([
+  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles, nodes, sas] = await Promise.all([
     read('Deployments', ['/apis/apps/v1/deployments']),
     read('StatefulSets', ['/apis/apps/v1/statefulsets']),
     read('DaemonSets', ['/apis/apps/v1/daemonsets']),
@@ -379,7 +384,19 @@ export async function fetchClusterScan(
     read('Network policies', ['/apis/networking.k8s.io/v1/networkpolicies']),
     read('Services', ['/api/v1/services']),
     read('Cluster roles', ['/apis/rbac.authorization.k8s.io/v1/clusterroles']),
+    read('Nodes', ['/api/v1/nodes']),
+    read('Service accounts', ['/api/v1/serviceaccounts']),
   ]);
+  // Kubelet live configuration, from up to six nodes (control plane first).
+  const nodeNames = (nodes ?? [])
+    .sort((a: any, b: any) => Number(!!b?.metadata?.labels?.['node-role.kubernetes.io/control-plane']) - Number(!!a?.metadata?.labels?.['node-role.kubernetes.io/control-plane']))
+    .slice(0, 6)
+    .map((n: any) => n.metadata.name);
+  const kubelets = (
+    await Promise.allSettled(nodeNames.map(n => client.get<any>(`/api/v1/nodes/${encodeURIComponent(n)}/proxy/configz`)))
+  )
+    .map((r, i) => (r.status === 'fulfilled' && r.value?.kubeletconfig ? { node: nodeNames[i], config: r.value.kubeletconfig } : undefined))
+    .filter((x): x is { node: string; config: any } => !!x);
   return {
     clusterKey,
     clusterName,
@@ -402,6 +419,32 @@ export async function fetchClusterScan(
       ...parseFlux(clusterKey, clusterName, 'HelmRelease', hrs ?? []),
     ],
     namespaces: namespacePosture(nss ?? [], pods ?? [], netpols ?? [], svcs ?? []),
+    compliance: evaluateCompliance({
+      apiserver: componentFlags(pods ?? [], 'kube-apiserver'),
+      controllerManager: componentFlags(pods ?? [], 'kube-controller-manager'),
+      scheduler: componentFlags(pods ?? [], 'kube-scheduler'),
+      etcd: componentFlags(pods ?? [], 'etcd'),
+      kubelets,
+      pods: pods ?? [],
+      namespaces: nss ?? [],
+      networkPolicies: netpols ?? [],
+      clusterRoles: croles ?? [],
+      clusterRoleBindings: crbs ?? [],
+      serviceAccounts: sas ?? [],
+      unreadable: (
+        [
+          ['pods', pods],
+          ['namespaces', nss],
+          ['networkPolicies', netpols],
+          ['clusterRoles', croles],
+          ['clusterRoleBindings', crbs],
+          ['serviceAccounts', sas],
+        ] as const
+      )
+        .filter(([, v]) => v === undefined)
+        .map(([k]) => k),
+    }),
+    at: now.toISOString(),
     errors,
   };
 }

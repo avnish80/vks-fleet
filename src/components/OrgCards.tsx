@@ -1,5 +1,6 @@
 import { SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Box, Button, Paper, Typography } from '@mui/material';
+import { Box, Button, Paper, TextField, Typography } from '@mui/material';
+import { settingsStore, useRawSettings } from '../settings/store';
 import React, { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useFleetData } from '../fleetContext';
@@ -69,6 +70,43 @@ function Card({ selected, onClick, children }: { selected: boolean; onClick: () 
  * The orgs on the Supervisor as cards: pick one to see only its things on
  * every page (the choice is remembered, and kept in the address as ?org=).
  */
+/** Gives an org shown only by its ID a readable name (kept with the plugin settings). */
+function NameOrg({ id }: { id: string }) {
+  const raw = useRawSettings();
+  const [open, setOpen] = React.useState(false);
+  const [name, setName] = React.useState('');
+  if (!open) {
+    return (
+      <Button
+        size="small"
+        onClick={e => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        Name this org
+      </Button>
+    );
+  }
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }} onClick={e => e.stopPropagation()}>
+      <TextField size="small" autoFocus placeholder="e.g. org1" value={name} onChange={e => setName(e.target.value)} />
+      <Button
+        size="small"
+        disabled={!name.trim()}
+        onClick={() => {
+          settingsStore.update({ orgNames: { ...(raw.orgNames ?? {}), [id]: name.trim() } });
+          setOpen(false);
+        }}
+      >
+        Save
+      </Button>
+    </Box>
+  );
+}
+
+const looksLikeId = (o: OrgInfo) => o.name === o.id && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(o.id);
+
 export function OrgCards() {
   const { orgs, org, setOrg, persona } = useFleetData();
   const stats = useOrgStats();
@@ -102,6 +140,7 @@ export function OrgCards() {
                   <StatusLabel status="success">Healthy</StatusLabel>
                 ) : null}
               </Box>
+              {looksLikeId(o) && <NameOrg id={o.id} />}
               <Typography variant="body2" color="text.secondary">
                 {o.namespaces.length} namespace{o.namespaces.length === 1 ? '' : 's'} · {o.clusters} cluster{o.clusters === 1 ? '' : 's'} · {o.vms} VM
                 {o.vms === 1 ? '' : 's'}

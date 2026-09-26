@@ -11,6 +11,7 @@ import { activeSilences } from '../silences';
 import { Silence } from '../types';
 import { ActionDialog } from './ActionDialog';
 import { SignInHelper } from './SignInHelper';
+import { NoClusters } from './EmptyState';
 import { removeSilence, SilenceDialog } from './SilenceDialog';
 import { useFleetData } from '../fleetContext';
 import { formatBytes } from '../quantity';
@@ -63,6 +64,7 @@ export function AppsPage() {
   const { config: appsConfig } = useFleetData();
   const [open, setOpen] = React.useState<string | null>(null);
   const [onlyShared, setOnlyShared] = React.useState(false);
+  if (!loading && clusters.length === 0) return <NoClusters title="Applications" what="workload information" />;
   if (loading || !scans) return <Loader title="Reading workloads in the clusters" />;
   const apps = groupApps(scans.flatMap(s => s.workloads));
   const shown = onlyShared ? apps.filter(a => a.clusters.length > 1) : apps;
@@ -261,6 +263,7 @@ export function SecurityPage() {
   const [silencing, setSilencing] = React.useState<{ issueId: string; label: string } | null>(null);
   const [posture, setPosture] = React.useState<{ scan: ClusterScan; ns: NamespacePosture } | null>(null);
   const [deny, setDeny] = React.useState<{ scan: ClusterScan; ns: NamespacePosture; variant: 'other-namespaces' | 'all' } | null>(null);
+  if (!loading && clusters.length === 0) return <NoClusters title="Security posture" what="security information" />;
   if (loading || !scans) return <Loader title="Checking security posture" />;
   const silences = activeSilences(config.silences);
   const accepted = (s: ClusterScan, f: SecurityFinding) => silences.find(x => x.match.issueId === securityIssueId(s.clusterKey, f));

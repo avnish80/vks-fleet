@@ -96,7 +96,11 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     }
   }
   const refresh = Number(raw?.refreshSeconds);
+  // Org names set once (e.g. from the org cards) apply to every Supervisor entry.
+  const orgNames = raw?.orgNames && typeof raw.orgNames === 'object' ? sanitizeNames(raw.orgNames) : {};
+  for (const sv of supervisors) sv.tenantNames = { ...orgNames, ...sv.tenantNames };
   return {
+    orgNames,
     supervisors,
     refreshSeconds:
       Number.isFinite(refresh) && refresh >= MIN_REFRESH_SECONDS ? refresh : DEFAULT_REFRESH_SECONDS,
