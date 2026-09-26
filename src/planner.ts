@@ -8,6 +8,7 @@ import { blocked, Check, upgradePlan, upgradeProgress } from './actions';
 import { fits, quotaLines, upgradeSurge } from './headroom';
 import { formatBytes } from './quantity';
 import { upgradeTargets } from './releases';
+import { Configured, NamespaceLimits, overcommit } from './limits';
 import { FleetCluster, VmClassInfo } from './types';
 
 export interface PlanEntry {
@@ -27,7 +28,9 @@ export function readiness(
   entry: PlanEntry | undefined,
   available: string[],
   classes: VmClassInfo[],
-  blockingPdbs?: string[]
+  blockingPdbs?: string[],
+  limits?: NamespaceLimits,
+  configured?: Configured
 ): Readiness {
   if (!entry || !entry.target) {
     return { level: 'nothing', checks: [{ level: 'ok', text: 'No newer release to move to.' }] };
@@ -51,6 +54,17 @@ export function readiness(
               .join(', ')} ${tight.length === 1 ? "doesn't" : "don't"} have that free.`,
           }
         : { level: 'ok', text: `Quota has room for the upgrade's extra ${surge.cpus} vCPU and ${formatBytes(surge.memoryBytes)}.` }
+    );
+  }
+  if (limits?.memoryLimitBytes && configured && surge.memoryBytes) {
+    const during = overcommit(configured.memoryBytes + surge.memoryBytes, limits.memoryLimitBytes)!;
+    checks.push(
+      during > 4
+        ? {
+            level: 'warn',
+            text: `While it runs, memory in ${c.namespace} is ${during.toFixed(1)}× the namespace limit (${formatBytes(limits.memoryLimitBytes)}); new nodes may start slowly under load.`,
+          }
+        : { level: 'ok', text: `Memory stays within ${during.toFixed(1)}× the namespace limit while it runs.` }
     );
   }
   return {

@@ -24,6 +24,8 @@ import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
 import { useClusterScans } from '../useClusterScans';
+import { configuredByNamespace } from '../limits';
+import { limitIssues } from '../limitIssues';
 import { compliance, evaluateBaseline } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
@@ -62,7 +64,7 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const { config, results, refreshing, refresh, inventory } = useFleetData();
+  const { config, results, refreshing, refresh, inventory, limits, orgQuotas } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.
@@ -139,9 +141,10 @@ export function FleetView() {
         backups ?? undefined,
         config.baseline?.backupWithinHours,
         inventory ?? undefined,
-        scans ?? undefined
+        scans ?? undefined,
+        limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas)
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

@@ -74,6 +74,8 @@ function normalizeSupervisor(raw: Partial<SupervisorConfig>): SupervisorConfig |
     mode: raw.mode === 'vcfa' ? 'vcfa' : 'supervisor',
     org: raw.org?.trim() || undefined,
     namespaceContexts: raw.namespaceContexts ? sanitizeNames(raw.namespaceContexts) : undefined,
+    namespaceProjects: raw.namespaceProjects ? sanitizeNames(raw.namespaceProjects) : undefined,
+    orgContext: raw.orgContext?.trim() || undefined,
   };
 }
 

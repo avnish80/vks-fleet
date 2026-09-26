@@ -396,7 +396,8 @@ export function buildIssues(
   backups?: Map<string, BackupStatus>,
   backupWithinHours = 26,
   inventories?: Map<string, Inventory>,
-  scans?: ClusterScan[]
+  scans?: ClusterScan[],
+  extra: Issue[] = []
 ): Issue[] {
   const findings = fleetFindings(results, now);
   const clusters = new Map(results.flatMap(r => r.clusters).map(c => [c.key, c]));
@@ -479,6 +480,7 @@ export function buildIssues(
     if (inv) issues.push(...inventoryIssues(inv, r.supervisor.headlampCluster, now));
   }
   for (const f of findings) if (!explained.has(f.id)) issues.push(passthrough(f, clusters, now));
+  issues.push(...extra);
   return issues.sort(
     (a, b) => RANK[a.severity] - RANK[b.severity] || (a.clusterName ?? '').localeCompare(b.clusterName ?? '')
   );

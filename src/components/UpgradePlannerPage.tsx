@@ -33,6 +33,7 @@ import { upgradeKind, upgradeTargets } from '../releases';
 import { clusterPath } from '../routes';
 import { FleetCluster, SupervisorResult } from '../types';
 import { usePolling } from '../usePolling';
+import { configuredByNamespace } from '../limits';
 import { useWorkloadHealth } from '../useWorkload';
 import { blockingPdbs } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
@@ -63,7 +64,7 @@ type Row = { c: FleetCluster; r: SupervisorResult; entry: PlanEntry; ready: Read
 type RunResult = { cluster: string; ok: boolean; message: string };
 
 export function UpgradePlannerPage() {
-  const { config, results, refresh, canWrite } = useFleetData();
+  const { config, results, refresh, canWrite, limits, inventory } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const stored = usePlanRaw()?.entries ?? {};
@@ -90,13 +91,19 @@ export function UpgradePlannerPage() {
 
   if (results === null) return <Loader title="Loading clusters" />;
 
+  const configured = configuredByNamespace(results, inventory);
   const resultOf = new Map(results.flatMap(r => r.clusters.map(c => [c.key, r] as [string, SupervisorResult])));
   const suggested = suggestWaves(clusters, c => resultOf.get(c.key)?.releases ?? []);
   const entryOf = (c: FleetCluster): PlanEntry => stored[c.key] ?? suggested.get(c.key) ?? { wave: 0, target: '', moveClass: false };
   const rows: Row[] = clusters.map(c => {
     const r = resultOf.get(c.key)!;
     const entry = entryOf(c);
-    return { c, r, entry, ready: readiness(c, entry, r.releases ?? [], r.vmClasses ?? [], pdbs?.get(c.key)) };
+    return {
+      c,
+      r,
+      entry,
+      ready: readiness(c, entry, r.releases ?? [], r.vmClasses ?? [], pdbs?.get(c.key), limits.get(c.namespace), configured.get(c.namespace)),
+    };
   });
   const save = (c: FleetCluster, patch: Partial<PlanEntry>) =>
     planStore.update({ entries: { ...stored, [c.key]: { ...entryOf(c), ...patch } } });

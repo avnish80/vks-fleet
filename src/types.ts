@@ -36,6 +36,10 @@ export interface SupervisorConfig {
   org?: string;
   /** Namespace → Headlamp cluster (context) serving it (vcfa mode). */
   namespaceContexts?: Record<string, string>;
+  /** The org-level VCFA context (e.g. "org2"), for org objects such as quotas. */
+  orgContext?: string;
+  /** Namespace → VCFA project (from "<org>:<namespace>:<project>" contexts). */
+  namespaceProjects?: Record<string, string>;
 }
 
 export interface PluginConfig {
@@ -269,7 +273,13 @@ export interface SupervisorResult {
   /** Leftovers on the Supervisor that belong to clusters that no longer exist. */
   cleanup?: CleanupItem[];
   /** Org namespaces (holding clusters, VMs or other workloads) and their tenant. */
-  namespaces?: Array<{ name: string; tenantId: string; tenantName: string }>;
+  namespaces?: Array<{
+    name: string;
+    tenantId: string;
+    tenantName: string;
+    /** Resource-pool limits the Supervisor records on the namespace (vCenter-managed namespaces). */
+    limits?: { cpuMHz?: number; memoryBytes?: number };
+  }>;
   fetchedAt: string;
 }
 

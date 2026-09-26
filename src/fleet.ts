@@ -14,6 +14,7 @@ import {
   VMOP_VERSIONS,
 } from './supervisor';
 import { findLeftovers } from './cleanup';
+import { annotationLimits } from './limits';
 import { labelTenantResolver, readNamespaces } from './tenancy';
 import { EventInfo, FleetCluster, ServiceHealth, SupervisorConfig, SupervisorResult } from './types';
 import { toEventInfo } from './workload';
@@ -188,7 +189,8 @@ export async function fetchSupervisor(
     .sort()
     .map(ns => {
       const t = tenantOf(ns);
-      return { name: ns, tenantId: t.tenantId, tenantName: t.tenantName };
+      const obj = namespaceList?.find(n => n.metadata.name === ns);
+      return { name: ns, tenantId: t.tenantId, tenantName: t.tenantName, limits: annotationLimits(obj?.metadata.annotations) };
     });
   const cleanup = findLeftovers(
     supervisor.id,

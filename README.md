@@ -34,6 +34,14 @@ The Supervisor's permissions are the boundary; the plugin adapts its view to the
   - For shared instances, turn the switch off with `"identitySwitch": false` in the preset. A preset's `identitySwitch: false` and `readOnly: true` can't be undone from a browser.
 - **Links to other views:** `"links": [{"label": "Read-only view", "url": "https://…"}]` in the preset (or the settings page) adds buttons to the bar, for moving between the per-persona instances.
 
+**Keeping VCF Automation contexts signed in on a jump server.** Access tokens last about an hour, and `vcf context refresh` prompts for the API token, so cron re-creates the context from a file only root can read:
+
+```bash
+read -s TOKEN && printf '%s' "$TOKEN" > /root/.vcfa-org2-token && chmod 600 /root/.vcfa-org2-token && unset TOKEN
+# crontab -e
+*/45 * * * * vcf context create org2 --endpoint https://<vcf-automation> --api-token "$(cat /root/.vcfa-org2-token)" --tenant-name <org> --insecure-skip-tls-verify >/dev/null 2>&1 && docker restart headlamp
+```
+
 **Tenants through VCF Automation.** Org users live in VCF Automation, not vSphere SSO, so they sign in with the VCF CLI:
 
 ```bash
@@ -148,6 +156,15 @@ With more than one tenant it adds a tenant rollup (including node capacity in vC
 - shows progress per cluster (nodes on the new version)
 
 The plan is kept per browser.
+
+**Quotas and limits.** In VCF 9 with VCF Automation, quotas aren't Kubernetes ResourceQuotas on the Supervisor. They live in VCF Automation:
+
+- **Per namespace:** the `SupervisorNamespace` object (namespace class plus overrides): a CPU limit in MHz, a memory limit, storage per storage class, allowed VM classes, per zone.
+- **Per org:** `RegionStorageClassQuota` (the storage quota per region, and how much of it is allocated to namespaces).
+
+The plugin reads these through the org-level VCF Automation context (`<org>`, created by `vcf context create`) of every org whose context Headlamp holds, whichever identity is active. It reads them read-only, every 5 minutes. Namespaces managed in vCenter instead record their limits on the namespace (`vmware-system-resource-pool-cpu-limit` and `-memory-limit`), and those are used when set.
+
+Limits cap what VMs actually use. Best-effort VM classes reserve nothing, so VMs can be **configured** well beyond the limit: the Capacity page shows the **overcommit ratio**. A namespace configured with 110 GiB but limited to 19.5 GiB is 5.6× overcommitted, and under load its VMs share the 19.5 GiB (ballooning and swapping). Overcommit above 2× is a warning and above 4× critical. An org that has allocated more than 85% of a storage quota is a warning.
 
 **Capacity** (sidebar: Capacity, or the Node capacity tile), per Supervisor namespace:
 

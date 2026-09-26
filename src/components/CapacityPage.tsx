@@ -1,6 +1,8 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, MenuItem, TextField, Typography } from '@mui/material';
 import { useFleetData } from '../fleetContext';
+import { Configured, configuredByNamespace, NamespaceLimits, OrgQuota, overcommit } from '../limits';
+import { UsageBar } from './InventoryViews';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { classSize, fits, NamespaceHeadroom, namespaceHeadroom, QuotaLine, upgradeSurge } from '../headroom';
@@ -20,7 +22,7 @@ function usageTone(ratio: number): Tone {
   return 'success';
 }
 
-function WhatIf({ ns }: { ns: NamespaceHeadroom }) {
+function WhatIf({ ns, limits, configured }: { ns: NamespaceHeadroom; limits?: NamespaceLimits; configured?: Configured }) {
   const [clusterKey, setClusterKey] = React.useState(ns.clusters[0]?.key ?? '');
   const cluster = ns.clusters.find(c => c.key === clusterKey) ?? ns.clusters[0];
   const [pool, setPool] = React.useState(cluster?.nodePools[0]?.name ?? '');
@@ -64,13 +66,20 @@ function WhatIf({ ns }: { ns: NamespaceHeadroom }) {
         {n} × {className || 'VM class'} = <b>{delta.cpus} vCPU</b> and <b>{formatBytes(delta.memoryBytes)}</b> more.
         {poolInfo?.vmClass && className !== poolInfo.vmClass ? ` Note: pool ${pool} uses ${poolInfo.vmClass}; changing its class replaces every node in it.` : ''}
       </Typography>
+      {size && limits && configured && (limits.memoryLimitBytes || limits.cpuLimitMHz) && (
+        <LimitWhatIf limits={limits} configured={configured} delta={delta} reserved={size.reserved ? delta.memoryBytes : 0} className={className} />
+      )}
       {!size ? (
         <Typography variant="body2" color="text.secondary">This VM class's size isn't known.</Typography>
+      ) : limits && limits.vmClasses.length > 0 && !limits.vmClasses.includes(className) ? (
+        <StatusLabel status="error">{`${className} isn't allowed in ${ns.namespace}`}</StatusLabel>
       ) : lines.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          No CPU or memory quota on {ns.namespace}, so only the vSphere cluster's own capacity limits this (the Supervisor API
-          doesn't show that).
-        </Typography>
+        limits ? null : (
+          <Typography variant="body2" color="text.secondary">
+            No limits found for {ns.namespace}. With VCF Automation, quotas are read through the org's VCFA context (vcf
+            context create); namespaces managed in vCenter show their limits here.
+          </Typography>
+        )
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           {lines.map(l => (
@@ -87,15 +96,139 @@ function WhatIf({ ns }: { ns: NamespaceHeadroom }) {
   );
 }
 
-function NamespaceCard({ ns, usage }: { ns: NamespaceHeadroom; usage: Map<string, { cpuPct: number; memPct: number }> }) {
+function ratioTone(r?: number): Tone {
+  if (r === undefined || r <= 1) return 'success';
+  if (r <= 2) return 'info';
+  if (r <= 4) return 'warning';
+  return 'error';
+}
+
+const x = (r?: number) => (r === undefined ? '—' : `${r < 10 ? r.toFixed(1) : Math.round(r)}×`);
+
+/** What adding nodes does to the namespace's limits. */
+function LimitWhatIf({
+  limits,
+  configured,
+  delta,
+  reserved,
+  className,
+}: {
+  limits: NamespaceLimits;
+  configured: Configured;
+  delta: { cpus: number; memoryBytes: number };
+  reserved: number;
+  className: string;
+}) {
+  const before = overcommit(configured.memoryBytes, limits.memoryLimitBytes);
+  const after = overcommit(configured.memoryBytes + delta.memoryBytes, limits.memoryLimitBytes);
+  const reservedAfter = configured.reservedBytes + reserved;
+  const reservationFits = !limits.memoryLimitBytes || reservedAfter <= limits.memoryLimitBytes;
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 1 }}>
+      {limits.memoryLimitBytes && (
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+          <StatusLabel status={ratioTone(after) === 'error' ? 'error' : ratioTone(after) === 'warning' ? 'warning' : 'success'}>{`Memory ${x(before)} → ${x(after)}`}</StatusLabel>
+          <Typography variant="body2">
+            Configured memory against the {formatBytes(limits.memoryLimitBytes)} limit. Best-effort VMs can go over it; under load
+            they then share the limit.
+          </Typography>
+        </Box>
+      )}
+      {reserved > 0 && (
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <StatusLabel status={reservationFits ? 'success' : 'error'}>{reservationFits ? 'Reservation fits' : "Reservation doesn't fit"}</StatusLabel>
+          <Typography variant="body2">
+            {className} reserves its memory: {formatBytes(reservedAfter)} reserved in total against the {formatBytes(limits.memoryLimitBytes ?? 0)} limit.
+          </Typography>
+        </Box>
+      )}
+      {limits.cpuLimitMHz && (
+        <Typography variant="body2" color="text.secondary">
+          CPU: {configured.vcpu + delta.cpus} vCPU would share the {(limits.cpuLimitMHz / 1000).toFixed(1)} GHz limit (a limit in MHz,
+          so it can't be compared to vCPUs exactly).
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+/** A namespace's limits against what its VMs are configured with. */
+function LimitsView({ limits, configured, storageUsed }: { limits: NamespaceLimits; configured?: Configured; storageUsed: Map<string, number> }) {
+  const mem = overcommit(configured?.memoryBytes ?? 0, limits.memoryLimitBytes);
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+      <Typography variant="body2" color="text.secondary">
+        {limits.source === 'vcfa'
+          ? `From VCF Automation: namespace class ${limits.className ?? '?'}${limits.zones.length ? `, zone ${limits.zones.join(', ')}` : ''}.`
+          : 'From the Supervisor (resource-pool limits set in vCenter).'}
+      </Typography>
+      {limits.memoryLimitBytes !== undefined && (
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Memory: {formatBytes(configured?.memoryBytes ?? 0)} configured, {formatBytes(limits.memoryLimitBytes)} limit
+            {mem !== undefined && mem > 1 ? ` (${x(mem)} overcommitted)` : ''}
+          </Typography>
+          <UsageBar
+            used={configured?.memoryBytes ?? 0}
+            total={limits.memoryLimitBytes}
+            text={x(mem)}
+            warn={0.99}
+            crit={2}
+          />
+          {mem !== undefined && mem > 1 && (
+            <Typography variant="caption" color="text.secondary">
+              Best-effort VMs reserve nothing, so this is allowed, but under load they share {formatBytes(limits.memoryLimitBytes)} of real
+              memory: expect ballooning and swapping.
+            </Typography>
+          )}
+        </Box>
+      )}
+      {limits.cpuLimitMHz !== undefined && (
+        <Typography variant="body2">
+          <b>CPU:</b> {configured?.vcpu ?? 0} vCPU configured, sharing a {(limits.cpuLimitMHz / 1000).toFixed(1)} GHz limit
+          {limits.cpuReservationMHz ? ` (${(limits.cpuReservationMHz / 1000).toFixed(1)} GHz reserved)` : ''}.
+        </Typography>
+      )}
+      {limits.storage.map(st => {
+        const used = storageUsed.get(st.storageClass) ?? 0;
+        return (
+          <Box key={st.storageClass}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Storage ({st.storageClass})
+            </Typography>
+            <UsageBar used={used} total={st.limitBytes} text={`${formatBytes(used)} of ${formatBytes(st.limitBytes)}`} />
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+function NamespaceCard({
+  ns,
+  usage,
+  limits,
+  configured,
+  storageUsed,
+}: {
+  ns: NamespaceHeadroom;
+  usage: Map<string, { cpuPct: number; memPct: number }>;
+  limits?: NamespaceLimits;
+  configured?: Configured;
+  storageUsed: Map<string, number>;
+}) {
   return (
     <SectionBox title={`${ns.tenantName}: ${ns.namespace}`}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 2, mb: 2 }}>
         <Box>
-          <Typography sx={{ fontWeight: 600, mb: 1 }}>Quota</Typography>
-          {ns.quota.length === 0 ? (
+          <Typography sx={{ fontWeight: 600, mb: 1 }}>Limits</Typography>
+          {limits ? (
+            <LimitsView limits={limits} configured={configured} storageUsed={storageUsed} />
+          ) : ns.quota.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No quota set on this namespace. Clusters here use {ns.used.cpus} vCPU and {formatBytes(ns.used.memoryBytes)}.
+              No limits found. Namespaces created through VCF Automation keep their quota there: the plugin reads it through
+              the org's VCFA context (vcf context create), when this Headlamp has one. Clusters here are configured with{' '}
+              {configured?.vcpu ?? ns.used.cpus} vCPU and {formatBytes(configured?.memoryBytes ?? ns.used.memoryBytes)}.
             </Typography>
           ) : (
             <BarList
@@ -117,6 +250,9 @@ function NamespaceCard({ ns, usage }: { ns: NamespaceHeadroom; usage: Map<string
             <SimpleTable
               columns={[
                 { label: 'Class', getter: (c: VmClassInfo) => c.name },
+                ...(limits?.vmClasses.length
+                  ? [{ label: 'Allowed', getter: (c: VmClassInfo) => (limits.vmClasses.includes(c.name) ? 'Yes' : 'No') }]
+                  : []),
                 { label: 'vCPU', getter: (c: VmClassInfo) => c.cpus ?? '—' },
                 { label: 'Memory', getter: (c: VmClassInfo) => (c.memoryBytes ? formatBytes(c.memoryBytes) : '—') },
                 { label: 'Type', getter: (c: VmClassInfo) => (c.reserved ? 'Guaranteed' : 'Best effort') },
@@ -161,14 +297,37 @@ function NamespaceCard({ ns, usage }: { ns: NamespaceHeadroom; usage: Map<string
         data={ns.clusters}
       />
       <Box sx={{ mt: 2 }}>
-        <WhatIf ns={ns} />
+        <WhatIf ns={ns} limits={limits} configured={configured} />
       </Box>
     </SectionBox>
   );
 }
 
+function OrgQuotaCard({ q }: { q: OrgQuota }) {
+  return (
+    <SectionBox title={`${q.org}: org quota${q.region ? ` in ${q.region}` : ''}`}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        From VCF Automation. "Allocated" is what this org has handed to its namespaces as their storage limits.
+      </Typography>
+      {q.storage.map(st => (
+        <Box key={st.storageClass} sx={{ mb: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {st.storageClass}
+          </Typography>
+          <UsageBar used={st.allocatedBytes} total={st.capacityBytes} text={`${formatBytes(st.allocatedBytes)} of ${formatBytes(st.capacityBytes)} allocated`} />
+        </Box>
+      ))}
+      {q.vmClasses.length > 0 && (
+        <Typography variant="body2">
+          VM class quotas: {q.vmClasses.map(v => `${v.vmClass}${v.limit !== undefined ? ` ${v.used ?? 0}/${v.limit}` : ''}`).join(', ')}
+        </Typography>
+      )}
+    </SectionBox>
+  );
+}
+
 export function CapacityPage() {
-  const { config, results } = useFleetData();
+  const { config, results, inventory, limits, orgQuotas, limitProblems } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   if (results === null) return <Loader title="Loading capacity" />;
@@ -179,6 +338,14 @@ export function CapacityPage() {
       .map(([k, u]) => [k, { cpuPct: u.cpuPct, memPct: u.memPct }])
   );
   const spaces = namespaceHeadroom(results);
+  const configured = configuredByNamespace(results, inventory);
+  const storageUsedFor = (ns: string) =>
+    new Map(
+      Array.from(inventory?.values() ?? [])
+        .flatMap(i => i.quotas)
+        .filter(q => q.namespace === ns)
+        .map(q => [q.policy, q.used] as [string, number])
+    );
   return (
     <>
       <ChartStyles />
@@ -188,9 +355,26 @@ export function CapacityPage() {
           a rolling upgrade takes while it runs (one new node per pool plus one control-plane node), and a what-if for
           adding nodes. The vSphere cluster's own free capacity isn't visible through the Supervisor API.
         </Alert>
+        {limitProblems.map(p => (
+          <Alert key={p.org} severity={p.expired ? 'error' : 'warning'} sx={{ mt: 1 }}>
+            {p.expired
+              ? `The VCF Automation sign-in for ${p.org} has expired, so its quotas aren't shown. Run: vcf context refresh ${p.org}`
+              : `Couldn't read ${p.org}'s quotas from VCF Automation: ${p.error}`}
+          </Alert>
+        ))}
       </SectionBox>
+      {orgQuotas.map(q => (
+        <OrgQuotaCard key={q.org} q={q} />
+      ))}
       {spaces.map(ns => (
-        <NamespaceCard key={`${ns.supervisorId}/${ns.namespace}`} ns={ns} usage={usage} />
+        <NamespaceCard
+          key={`${ns.supervisorId}/${ns.namespace}`}
+          ns={ns}
+          usage={usage}
+          limits={limits.get(ns.namespace)}
+          configured={configured.get(ns.namespace)}
+          storageUsed={storageUsedFor(ns.namespace)}
+        />
       ))}
     </>
   );

@@ -40,6 +40,9 @@ export function discoverVcfaOrgs(contexts: HeadlampClusterInfo[]): SupervisorCon
         if (!namespaceContexts[v.namespace]) namespaceContexts[v.namespace] = v.context;
       }
       const namespaces = Object.keys(namespaceContexts).sort();
+      const namespaceProjects: Record<string, string> = {};
+      for (const v of list) if (!namespaceProjects[v.namespace]) namespaceProjects[v.namespace] = v.project;
+      const orgCtx = contexts.find(c => c.name === org);
       return {
         id: `vcfa-${org.toLowerCase().replace(/[^a-z0-9.-]+/g, '-')}`.replace(/-+$/, ''),
         headlampCluster: namespaceContexts[namespaces[0]],
@@ -50,6 +53,8 @@ export function discoverVcfaOrgs(contexts: HeadlampClusterInfo[]): SupervisorCon
         mode: 'vcfa' as const,
         org,
         namespaceContexts,
+        namespaceProjects,
+        orgContext: orgCtx?.name,
       };
     });
 }

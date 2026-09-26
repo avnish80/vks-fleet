@@ -5,8 +5,9 @@
  */
 import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 import React, { createContext, ReactNode, useContext } from 'react';
-import { listHeadlampClusters, supervisorClient, supervisorWriter } from './api/headlampClient';
+import { headlampClient, listHeadlampClusters, supervisorClient, supervisorWriter } from './api/headlampClient';
 import { fetchInventory } from './inventory';
+import { fetchOrgLimits, NamespaceLimits, OrgQuota } from './limits';
 import { detectPersona, PersonaInfo, whoAmI } from './persona';
 import { ALL_ORGS, orgsOf, scopeInventory, scopeResults } from './scope';
 import { usePluginConfig } from './settings/store';
@@ -47,6 +48,12 @@ export interface FleetData {
   userNames: Map<string, string>;
   /** VMs, networking and storage per Supervisor, narrowed to the selected org (null while loading). */
   inventory: Map<string, Inventory> | null;
+  /** Namespace limits (from VCF Automation or the Supervisor), by namespace name. */
+  limits: Map<string, NamespaceLimits>;
+  /** Org quotas from VCF Automation. */
+  orgQuotas: OrgQuota[];
+  /** Orgs whose VCFA quotas couldn't be read, with why. */
+  limitProblems: Array<{ org: string; error: string; expired?: boolean }>;
 }
 
 const Ctx = createContext<FleetData | null>(null);
@@ -130,6 +137,42 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     ? new Map(Array.from(inventoryAll.entries()).map(([k, v]) => [k, scopeInventory(v, scopedNs)] as [string, Inventory]))
     : null;
 
+  // Quotas live in VCF Automation: read them (read-only) through every org-level
+  // VCFA context this Headlamp holds, whichever identity is active.
+  const vcfaOrgs = identities.filter(i => i.mode === 'vcfa' && i.orgContext && i.org);
+  const orgKey = vcfaOrgs.map(i => `${i.org}:${i.orgContext}:${Object.values(i.namespaceProjects ?? {}).join(',')}`).join('|');
+  const orgLimits = usePolling(
+    orgKey || null,
+    () =>
+      Promise.all(
+        vcfaOrgs.map(async i => ({
+          org: i.org!,
+          ...(await fetchOrgLimits(headlampClient(i.orgContext!), i.org!, Array.from(new Set(Object.values(i.namespaceProjects ?? {}).concat(['default-project']))))),
+        }))
+      ),
+    300
+  );
+  const limits = new Map<string, NamespaceLimits>();
+  for (const r of results ?? []) {
+    for (const n of r.namespaces ?? []) {
+      if (n.limits && (!scopedNs || scopedNs.has(n.name))) {
+        limits.set(n.name, {
+          namespace: n.name,
+          source: 'supervisor',
+          cpuLimitMHz: n.limits.cpuMHz,
+          memoryLimitBytes: n.limits.memoryBytes,
+          storage: [],
+          vmClasses: [],
+          zones: [],
+        });
+      }
+    }
+  }
+  for (const o of orgLimits ?? []) for (const l of o.limits) if (!scopedNs || scopedNs.has(l.namespace)) limits.set(l.namespace, l);
+  const orgName = orgs.find(o => o.id === org)?.name;
+  const orgQuotas = (orgLimits ?? []).map(o => o.quota).filter((q): q is OrgQuota => !!q && (org === ALL_ORGS || q.org === orgName || q.org === org));
+  const limitProblems = (orgLimits ?? []).filter(o => o.error).map(o => ({ org: o.org, error: o.error!, expired: o.expired }));
+
   const value: FleetData = {
     config,
     all: results,
@@ -149,6 +192,9 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     canSwitchIdentity,
     userNames,
     inventory,
+    limits,
+    orgQuotas,
+    limitProblems,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -30,6 +30,9 @@ Environment (vcfa mode):
                        org2-ns1-mrrtd=urn:vcloud:namespace:cee559b7-…@default-project
   VCFA_API_TOKEN       the org user's API token (from Secret vks-fleet-vcfa)
   VCFA_INSECURE        "true" to skip TLS verification (lab certificates)
+  VCFA_ORG_SERVER      optional: the org-level server address from your VCF CLI
+                       context (kubectl config view), to add a "<label>" context
+                       the plugin uses for the org's quotas
 """
 import json
 import io
@@ -207,7 +210,7 @@ def vcfa_access_token(endpoint, tenant, api_token, insecure):
     return token
 
 
-def vcfa_kubeconfig(endpoint, label, namespaces, token, insecure):
+def vcfa_kubeconfig(endpoint, label, namespaces, token, insecure, org_server=None):
     """A kubeconfig (JSON is valid YAML) with one context per namespace, like the VCF CLI writes."""
     clusters, contexts = [], []
     for ns, urn, project in namespaces:
@@ -217,6 +220,12 @@ def vcfa_kubeconfig(endpoint, label, namespaces, token, insecure):
             cluster["insecure-skip-tls-verify"] = True
         clusters.append({"name": name, "cluster": cluster})
         contexts.append({"name": name, "context": {"cluster": name, "user": f"{label}-user", "namespace": ns}})
+    if org_server:
+        cluster = {"server": org_server}
+        if insecure:
+            cluster["insecure-skip-tls-verify"] = True
+        clusters.append({"name": label, "cluster": cluster})
+        contexts.append({"name": label, "context": {"cluster": label, "user": f"{label}-user"}})
     return {
         "apiVersion": "v1",
         "kind": "Config",
@@ -277,7 +286,10 @@ def vcfa_main():
         sys.exit("VCFA_ENDPOINT, VCFA_TENANT, VCFA_API_TOKEN and VCFA_NAMESPACES must be set.")
     token = vcfa_access_token(endpoint, tenant, api_token, insecure)
     log(f"VCF Automation: signed in to {tenant}")
-    kubeconfig = json.dumps(vcfa_kubeconfig(endpoint, label, namespaces, token, insecure), indent=2)
+    org_server = os.environ.get("VCFA_ORG_SERVER") or None
+    kubeconfig = json.dumps(vcfa_kubeconfig(endpoint, label, namespaces, token, insecure, org_server), indent=2)
+    if org_server:
+        log(f"  context {label} (org level, for quotas)")
     for ns, _, project in namespaces:
         log(f"  context {label}:{ns}:{project}")
     cfg = settings()

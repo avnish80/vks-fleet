@@ -668,7 +668,7 @@ export function vmSnapshotPlan(vm: ServiceVm, name: string): ActionPlan {
           apiVersion: 'vmoperator.vmware.com/v1alpha5',
           kind: 'VirtualMachineSnapshot',
           metadata: { name, namespace: vm.namespace },
-          spec: { vmRef: { apiVersion: 'vmoperator.vmware.com/v1alpha5', kind: 'VirtualMachine', name: vm.name }, description: reason, memory: false },
+          spec: { vmName: vm.name, description: reason },
         },
       },
     ],
