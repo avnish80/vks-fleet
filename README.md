@@ -212,6 +212,32 @@ New issues, each with a runbook:
 
 VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other networking, the rest still works and the network sections say so. Everything reads through the same routing as the clusters, so VCF Automation tenants see their org's namespaces.
 
+**Applications** (sidebar: Applications), across every signed-in cluster:
+
+- Deployments, StatefulSets and DaemonSets outside platform namespaces, grouped by app name (`app.kubernetes.io/name`, `app`, or the workload's name), showing where each runs, readiness and images.
+- **Image drift:** the same image at different versions in different clusters, for example `web` 1.4 in one and 1.5 in another. It's raised as a low-priority issue, since a staged rollout is often intended.
+- **GitOps:** Argo CD Applications (sync and health) and Flux Kustomizations and HelmReleases (ready, suspended), with their revisions. Degraded or failed ones become issues with a runbook; out-of-sync is noted.
+
+**Security** (sidebar: Security): a quick posture check per signed-in cluster. It's a first look, not a full audit:
+
+- namespaces whose Pod Security level allows privileged pods, and those without a level
+- privileged or host-level pods (host network, PID or IPC, hostPath volumes)
+- cluster-admin granted to people or apps (system accounts are ignored)
+- images from registries outside an **allowed list** (kept with the fleet baseline), and images on `latest`
+- cert-manager certificates expiring within 21 days (critical within 7) or not ready
+
+Each finding is also an issue with a runbook. The runbooks use server-side dry runs, for example trying a Pod Security level before enforcing it.
+
+**Showback** (sidebar: Showback): what each org holds right now, for reporting and chargeback:
+
+- cluster nodes and VM Service VMs sized by VM class (vCPU, memory)
+- storage quota use and volumes
+- load balancers and public addresses
+
+Export as CSV (one row per org, dated) or Markdown. History over time needs the planned companion service.
+
+**Expired sign-ins** are stated plainly, with the exact command: `vcf context refresh <org>` for VCF Automation tenants, `kubectl vsphere login …` for Supervisor sign-ins. A red banner appears in the bar at the top of every page.
+
 **Machines page:** every machine across the fleet with its state, VM, IP, zone and version; machines that need a look come first.
 
 **Export report:** Markdown (summary, issues needing action, clusters, tenants, versions) or CSV (one row per cluster), for the clusters currently shown.
@@ -393,6 +419,9 @@ src/
   inventory.ts          VMs, load balancers, VPC networking, storage, Supervisor nodes
   inventoryIssues.ts    Issues and runbooks for those
   ip.ts                 IPv4 and CIDR helpers
+  clusterScan.ts        Applications, security posture and GitOps from each signed-in cluster
+  scanIssues.ts         Issues and runbooks for those
+  showback.ts           Per-org allocation report
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

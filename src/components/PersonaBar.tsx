@@ -7,7 +7,8 @@ import { useTone } from './charts';
 
 /** Who is signed in, and (for operators and read-only admins) which org they're looking at. */
 export function PersonaBar() {
-  const { persona, orgs, org, setOrg, config, identities, identity, setIdentity, canSwitchIdentity, userNames } = useFleetData();
+  const { persona, orgs, org, setOrg, config, identities, identity, setIdentity, canSwitchIdentity, userNames, all } = useFleetData();
+  const expired = (all ?? []).find(r => r.signInExpired);
   const tone = useTone();
   if (!config.supervisors.length) return null;
   const p = persona?.persona ?? 'unknown';
@@ -75,6 +76,11 @@ export function PersonaBar() {
           </TextField>
         )}
       </Box>
+      {expired && (
+        <Alert severity="error" sx={{ mt: 1 }}>
+          {expired.error}
+        </Alert>
+      )}
       {org !== ALL_ORGS && p === 'operator' && !config.readOnly && (
         <Alert severity="info" sx={{ mt: 1 }}>
           Viewing {orgName ?? 'one org'} only. You're signed in as an operator, so actions still use operator rights.

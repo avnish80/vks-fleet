@@ -72,6 +72,8 @@ export interface Baseline {
   storageClasses: string[];
   /** A successful backup within this many hours (0 = don't check). */
   backupWithinHours: number;
+  /** Registries images may come from inside clusters; empty = not checked. */
+  allowedRegistries: string[];
 }
 
 export type Health = 'healthy' | 'degraded' | 'failed' | 'provisioning' | 'deleting' | 'unknown';
@@ -250,6 +252,8 @@ export interface SupervisorResult {
   scope?: ListScope;
   /** Set when this Supervisor could not be read at all. */
   error?: string;
+  /** The identity's sign-in has expired (401). */
+  signInExpired?: boolean;
   /** Partial problems (a namespace denied, labels unreadable, ...). */
   warnings: string[];
   /** Supervisor services (svc-* namespaces); only readable with Supervisor-wide access. */

@@ -9,6 +9,7 @@ import { MachineDetail } from './components/MachineDetail';
 import { AccessPage } from './components/AccessPanel';
 import { BaselinePage } from './components/BaselinePage';
 import { CapacityPage } from './components/CapacityPage';
+import { AppsPage, SecurityPage, ShowbackPage } from './components/InsightPages';
 import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail, VmsPage } from './components/NamespacePages';
 import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
@@ -18,7 +19,7 @@ import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, VM_BASE, VM_PATH } from './routes';
+import { APPS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
 import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
@@ -46,6 +47,9 @@ for (const child of [
   { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
   { name: 'vks-fleet-vms', label: 'VMs', url: VM_BASE },
   { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH },
+  { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE },
+  { name: 'vks-fleet-security', label: 'Security', url: SECURITY_ROUTE },
+  { name: 'vks-fleet-showback', label: 'Showback', url: SHOWBACK_PATH },
   { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH },
   { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH },
   { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH },
@@ -75,6 +79,9 @@ for (const page of [
   { path: VM_BASE, name: 'vks-fleet-vms', component: () => (<PageFrame><VmsPage /></PageFrame>) },
   { path: VM_PATH, name: 'vks-fleet-vm', item: 'vks-fleet-vms', component: () => (<PageFrame><VmDetail /></PageFrame>) },
   { path: NETWORK_PATH, name: 'vks-fleet-network', component: () => (<PageFrame><NetworkPage /></PageFrame>) },
+  { path: APPS_ROUTE, name: 'vks-fleet-apps', component: () => (<PageFrame><AppsPage /></PageFrame>) },
+  { path: SECURITY_ROUTE, name: 'vks-fleet-security', component: () => (<PageFrame><SecurityPage /></PageFrame>) },
+  { path: SHOWBACK_PATH, name: 'vks-fleet-showback', component: () => (<PageFrame><ShowbackPage /></PageFrame>) },
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
     <PageFrame>
       <UpgradePlannerPage />

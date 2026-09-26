@@ -67,8 +67,10 @@ export async function scopedList<T>(
 
   if (warnings.length === namespaces.length) {
     const reasons = settled.map(r => (r.status === 'rejected' ? r.reason : undefined));
-    // Every namespace says "not found": the resource isn't served here (e.g. that API version).
-    if (reasons.every(r => statusOf(r) === 404)) throw reasons[0];
+    // Every namespace failing the same way (not found, expired sign-in, forbidden)
+    // is one answer, not many: pass it on with its status so callers can say why.
+    const first = statusOf(reasons[0]);
+    if (first !== undefined && reasons.every(r => statusOf(r) === first)) throw reasons[0];
     throw new Error(`Couldn't list ${plural} in any configured namespace. ${warnings[0]}`);
   }
   return { items, scope: 'namespaced', readableNamespaces, warnings };

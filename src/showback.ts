@@ -1,0 +1,117 @@
+/**
+ * Showback: what each org holds, for reporting and chargeback. A point in
+ * time (no history yet): allocated vCPU and memory (cluster nodes plus VM
+ * Service VMs by class), storage quota and volumes, load balancers and
+ * public addresses.
+ */
+import { classSize } from './headroom';
+import { cidrContains } from './ip';
+import { formatBytes } from './quantity';
+import { Inventory, SupervisorResult } from './types';
+
+export interface ShowbackRow {
+  tenantId: string;
+  tenantName: string;
+  namespaces: number;
+  clusters: number;
+  nodes: number;
+  vms: number;
+  vcpu: number;
+  memoryBytes: number;
+  storageUsed: number;
+  storageLimit: number;
+  volumesBytes: number;
+  loadBalancers: number;
+  publicIPs: number;
+}
+
+export function showback(results: SupervisorResult[], inventories: Map<string, Inventory> | null): ShowbackRow[] {
+  const rows = new Map<string, ShowbackRow>();
+  const row = (id: string, name: string) => {
+    let r = rows.get(id);
+    if (!r) {
+      r = { tenantId: id, tenantName: name, namespaces: 0, clusters: 0, nodes: 0, vms: 0, vcpu: 0, memoryBytes: 0, storageUsed: 0, storageLimit: 0, volumesBytes: 0, loadBalancers: 0, publicIPs: 0 };
+      rows.set(id, r);
+    }
+    return r;
+  };
+  for (const res of results) {
+    const tenantOfNs = new Map((res.namespaces ?? []).map(n => [n.name, n]));
+    for (const n of res.namespaces ?? []) row(n.tenantId, n.tenantName).namespaces += 1;
+    for (const c of res.clusters) {
+      const r = row(c.tenantId, c.tenantName);
+      r.clusters += 1;
+      r.nodes += c.machines.filter(m => !m.deletingSince).length;
+      r.vcpu += c.capacity?.cpus ?? 0;
+      r.memoryBytes += c.capacity?.memoryBytes ?? 0;
+    }
+    const inv = inventories?.get(res.supervisor.id);
+    if (!inv) continue;
+    const rowFor = (ns: string) => {
+      const t = tenantOfNs.get(ns);
+      return t ? row(t.tenantId, t.tenantName) : undefined;
+    };
+    for (const v of inv.vms.filter(x => !x.cluster)) {
+      const r = rowFor(v.namespace);
+      if (!r) continue;
+      r.vms += 1;
+      const size = classSize(res.vmClasses ?? [], v.namespace, v.className);
+      r.vcpu += size?.cpus ?? 0;
+      r.memoryBytes += size?.memoryBytes ?? 0;
+      const publicNets = inv.subnets.filter(s => s.namespace === v.namespace && s.accessMode === 'Public');
+      if (v.ip && publicNets.some(s => s.cidrs.some(c => cidrContains(c, v.ip!)))) r.publicIPs += 1;
+    }
+    for (const q of inv.quotas) {
+      const r = rowFor(q.namespace);
+      if (r) {
+        r.storageUsed += q.used;
+        r.storageLimit += q.limit;
+      }
+    }
+    for (const vol of inv.volumes) {
+      const r = rowFor(vol.namespace);
+      if (r) r.volumesBytes += vol.size ?? 0;
+    }
+    for (const lb of inv.lbs) {
+      const r = rowFor(lb.namespace);
+      if (r) {
+        r.loadBalancers += 1;
+        if (lb.vip) r.publicIPs += 1;
+      }
+    }
+  }
+  return Array.from(rows.values()).sort((a, b) => a.tenantName.localeCompare(b.tenantName));
+}
+
+export function showbackTotals(rows: ShowbackRow[]): ShowbackRow {
+  const t: ShowbackRow = { tenantId: '', tenantName: 'Total', namespaces: 0, clusters: 0, nodes: 0, vms: 0, vcpu: 0, memoryBytes: 0, storageUsed: 0, storageLimit: 0, volumesBytes: 0, loadBalancers: 0, publicIPs: 0 };
+  for (const r of rows) for (const k of Object.keys(t) as Array<keyof ShowbackRow>) if (typeof r[k] === 'number') (t[k] as number) += r[k] as number;
+  return t;
+}
+
+const gib = (b: number) => (b / 2 ** 30).toFixed(1);
+
+export function showbackCsv(rows: ShowbackRow[], now: Date): string {
+  const head = 'date,org,org_id,namespaces,clusters,nodes,vms,vcpu,memory_gib,storage_used_gib,storage_quota_gib,volumes_gib,load_balancers,public_ips';
+  const line = (r: ShowbackRow) =>
+    [now.toISOString().slice(0, 10), `"${r.tenantName.replace(/"/g, '""')}"`, r.tenantId, r.namespaces, r.clusters, r.nodes, r.vms, r.vcpu, gib(r.memoryBytes), gib(r.storageUsed), gib(r.storageLimit), gib(r.volumesBytes), r.loadBalancers, r.publicIPs].join(',');
+  return [head, ...rows.map(line)].join('\n');
+}
+
+export function showbackMarkdown(rows: ShowbackRow[], now: Date): string {
+  const t = showbackTotals(rows);
+  const line = (r: ShowbackRow) =>
+    `| ${r.tenantName} | ${r.clusters} | ${r.nodes} | ${r.vms} | ${r.vcpu} | ${formatBytes(r.memoryBytes)} | ${formatBytes(r.storageUsed)} of ${formatBytes(r.storageLimit)} | ${r.loadBalancers} | ${r.publicIPs} |`;
+  return [
+    `# VKS showback, ${now.toISOString().slice(0, 10)}`,
+    '',
+    'Allocation at the time of the report: node and VM sizes by VM class, storage quota use, load balancers and public addresses.',
+    '',
+    '| Org | Clusters | Nodes | VMs | vCPU | Memory | Storage | Load balancers | Public IPs |',
+    '|---|---|---|---|---|---|---|---|---|',
+    ...rows.map(line),
+    line(t).replace(/^\| Total/, '| **Total**'),
+    '',
+    '_Generated by the vks-fleet Headlamp plugin._',
+  ].join('\n');
+}

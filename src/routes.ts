@@ -12,6 +12,9 @@ export const NAMESPACE_PATH = '/vks-fleet/namespaces/:supervisor/:namespace';
 export const VM_BASE = '/vks-fleet/vms';
 export const VM_PATH = '/vks-fleet/vms/:supervisor/:namespace/:name';
 export const NETWORK_PATH = '/vks-fleet/network';
+export const APPS_ROUTE = '/vks-fleet/apps';
+export const SECURITY_ROUTE = '/vks-fleet/security';
+export const SHOWBACK_PATH = '/vks-fleet/showback';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

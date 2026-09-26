@@ -69,12 +69,15 @@ export async function fetchSupervisor(
   try {
     clusters = await list(PATHS.clusters, supervisor.namespaces);
   } catch (err) {
-    const expired = vcfa && statusOf(err) === 401;
+    const expired = statusOf(err) === 401;
     return {
       supervisor,
       clusters: [],
+      signInExpired: expired || undefined,
       error: expired
-        ? `The VCF Automation sign-in for ${supervisor.org} has expired (tokens last about an hour). Run: vcf context refresh ${supervisor.org}`
+        ? vcfa
+          ? `The VCF Automation sign-in for ${supervisor.org} has expired (tokens last about an hour). Run on the Headlamp machine: vcf context refresh ${supervisor.org}`
+          : `The sign-in to ${supervisor.headlampCluster} has expired (about 10 hours). Sign in again: kubectl vsphere login --server=${supervisor.headlampCluster} --vsphere-username <you> --insecure-skip-tls-verify`
         : describeError(err),
       warnings,
       fetchedAt,

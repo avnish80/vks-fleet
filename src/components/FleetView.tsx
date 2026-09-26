@@ -23,6 +23,7 @@ import { formatBytes } from '../quantity';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
+import { useClusterScans } from '../useClusterScans';
 import { compliance, evaluateBaseline } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
@@ -122,6 +123,12 @@ export function FleetView() {
     .filter((t): t is { key: string; contextName: string } => !!t.contextName);
   const packages = usePackages(packageTargets);
   const backups = useBackups(packageTargets);
+  const scans = useClusterScans(
+    allClusters
+      .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
+      .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName),
+    config.baseline?.allowedRegistries ?? []
+  );
   const issues = React.useMemo(
     () =>
       buildIssues(
@@ -131,9 +138,10 @@ export function FleetView() {
         packages ?? undefined,
         backups ?? undefined,
         config.baseline?.backupWithinHours,
-        inventory ?? undefined
+        inventory ?? undefined,
+        scans ?? undefined
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

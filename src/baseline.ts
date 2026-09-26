@@ -17,6 +17,7 @@ export const DEFAULT_BASELINE: Baseline = {
   vmClasses: [],
   storageClasses: [],
   backupWithinHours: 26,
+  allowedRegistries: [],
 };
 
 export function normalizeBaseline(raw: Partial<Baseline> | undefined): Baseline {
@@ -34,6 +35,7 @@ export function normalizeBaseline(raw: Partial<Baseline> | undefined): Baseline 
     vmClasses: list(b.vmClasses),
     storageClasses: list(b.storageClasses),
     backupWithinHours: num(b.backupWithinHours, 26),
+    allowedRegistries: list(b.allowedRegistries),
   };
 }
 
