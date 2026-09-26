@@ -46,6 +46,8 @@ import { ChecksPanel } from './ChecksPanel';
 import { ClusterTimeline } from './Timeline';
 import { PackageStateLabel, pkgiPath } from './PackagesPage';
 import { NamespaceAccess } from './AccessPanel';
+import { activeSilences, inMaintenance } from '../silences';
+import { removeSilence, SilenceDialog } from './SilenceDialog';
 import { IssuesList } from './IssuesList';
 import {
   capacityText,
@@ -265,6 +267,7 @@ export function ClusterDetail() {
     [supervisor?.headlampCluster]
   );
   const [action, setAction] = React.useState<OpenAction | null>(null);
+  const [maintOpen, setMaintOpen] = React.useState(false);
   const writeOk = supervisor ? canWriteFor(supervisor.id) : false;
   const [notice, setNotice] = React.useState<string | null>(null);
 
@@ -387,13 +390,21 @@ export function ClusterDetail() {
     (cluster.upgrading ||
       progress.controlPlane.updated < progress.controlPlane.total ||
       progress.pools.some(p => p.updated < p.total));
+  const maintenance = cluster ? inMaintenance(cluster.key, activeSilences(config.silences)) : undefined;
+  const maintenanceButton = (
+    <Button key="maint" size="small" variant="outlined" onClick={() => (maintenance ? removeSilence(maintenance.id) : setMaintOpen(true))}>
+      {maintenance ? 'End maintenance' : 'Maintenance…'}
+    </Button>
+  );
   const actionButtons = !writeOk
     ? [
+        maintenanceButton,
         <Typography key="ro" variant="body2" color="text.secondary">
           Read-only access
         </Typography>,
       ]
     : [
+    maintenanceButton,
     <Button key="upgrade" size="small" variant="contained" onClick={() => setAction({ kind: 'upgrade' })}>
       Upgrade
     </Button>,
@@ -412,6 +423,12 @@ export function ClusterDetail() {
       <ChartStyles />
       <Box id="summary" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title={cluster.name} headerProps={{ actions: actionButtons }}>
+        {maintenance && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            In maintenance until {new Date(maintenance.until).toLocaleString()}: {maintenance.reason}. Its issues are muted.
+          </Alert>
+        )}
+        {maintOpen && <SilenceDialog match={{ clusterKey: cluster.key }} label={cluster.name} onClose={() => setMaintOpen(false)} />}
         {back}
         {notice && (
           <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2 }}>

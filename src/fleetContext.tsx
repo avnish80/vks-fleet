@@ -81,7 +81,9 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const probeKey = config.supervisors.map(s => `${s.id}:${s.mode}:${s.headlampCluster}`).join('|');
   const firstNs = new Map(
-    (results ?? []).map(r => [r.supervisor.id, r.clusters[0]?.namespace ?? r.supervisor.namespaces[0]] as [string, string | undefined])
+    (results ?? []).map(
+      r => [r.supervisor.id, r.clusters[0]?.namespace ?? r.namespaces?.[0]?.name ?? r.supervisor.namespaces[0]] as [string, string | undefined]
+    )
   );
   const personas =
     usePolling(

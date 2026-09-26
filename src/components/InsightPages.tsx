@@ -1,8 +1,17 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button, FormControlLabel, Switch, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AppGroup, ClusterScan, GitOpsApp, groupApps, SecurityFinding } from '../clusterScan';
+import { AppGroup, ClusterScan, GitOpsApp, groupApps, NamespacePosture, SECURITY_KIND_LABEL, SecurityFinding, SecurityKind } from '../clusterScan';
+import { headlampWriter } from '../api/headlampClient';
+import { defaultDenyPlan, podSecurityPlan } from '../guestActions';
+import { PssLevel } from '../pss';
+import { securityIssueId } from '../scanIssues';
+import { activeSilences } from '../silences';
+import { Silence } from '../types';
+import { ActionDialog } from './ActionDialog';
+import { SignInHelper } from './SignInHelper';
+import { removeSilence, SilenceDialog } from './SilenceDialog';
 import { useFleetData } from '../fleetContext';
 import { formatBytes } from '../quantity';
 import { download } from '../report';
@@ -15,7 +24,13 @@ import { useWorkloadHealth } from '../useWorkload';
 import { ChartStyles, KpiTile } from './charts';
 
 /** Scans of every signed-in cluster in the current (org-scoped) view. */
-function useScans(): { scans: ClusterScan[] | null; clusters: FleetCluster[]; notSignedIn: FleetCluster[]; loading: boolean } {
+function useScans(): {
+  scans: ClusterScan[] | null;
+  clusters: FleetCluster[];
+  notSignedIn: FleetCluster[];
+  loading: boolean;
+  health: Map<string, import('../types').WorkloadHealth>;
+} {
   const { config, results } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
@@ -28,6 +43,7 @@ function useScans(): { scans: ClusterScan[] | null; clusters: FleetCluster[]; no
     clusters,
     notSignedIn: clusters.filter(c => !workload.byKey.get(c.key)?.contextName),
     loading: results === null || (targets.length > 0 && scans === null),
+    health: workload.byKey,
   };
 }
 
@@ -43,7 +59,8 @@ function SignInNote({ notSignedIn }: { notSignedIn: FleetCluster[] }) {
 /* ---------------- Applications ---------------- */
 
 export function AppsPage() {
-  const { scans, clusters, notSignedIn, loading } = useScans();
+  const { scans, clusters, notSignedIn, loading, health } = useScans();
+  const { config: appsConfig } = useFleetData();
   const [open, setOpen] = React.useState<string | null>(null);
   const [onlyShared, setOnlyShared] = React.useState(false);
   if (loading || !scans) return <Loader title="Reading workloads in the clusters" />;
@@ -68,6 +85,7 @@ export function AppsPage() {
           <KpiTile label="Not fully ready" value={unhealthy.length} tone={unhealthy.length ? 'warning' : 'success'} />
           <KpiTile label="GitOps apps" value={gitops.length} sub={gitops.length ? `${gitops.filter(g => g.ready === false || g.health === 'Degraded').length} failing` : 'none found'} tone="info" />
         </Box>
+        <SignInHelper clusters={clusters} health={health} supervisors={appsConfig.supervisors} />
         <FormControlLabel control={<Switch checked={onlyShared} onChange={e => setOnlyShared(e.target.checked)} />} label="Only apps in more than one cluster" />
         <SimpleTable
           columns={[
@@ -156,51 +174,192 @@ export function AppsPage() {
 
 /* ---------------- Security ---------------- */
 
+const KINDS = Object.keys(SECURITY_KIND_LABEL) as SecurityKind[];
+
+function PostureDialog({
+  cluster,
+  ns,
+  contextName,
+  onClose,
+  onDone,
+}: {
+  cluster: string;
+  ns: NamespacePosture;
+  contextName: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [level, setLevel] = React.useState<PssLevel>('baseline');
+  const [mode, setMode] = React.useState<'warn' | 'enforce'>('warn');
+  const [go, setGo] = React.useState(false);
+  const refused = ns.refused[level];
+  if (go) {
+    return <ActionDialog plan={podSecurityPlan(cluster, ns, level, mode)} writer={headlampWriter(contextName)} onClose={onClose} onApplied={onDone} />;
+  }
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Pod Security for {ns.name}</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Typography variant="body2">
+            Now: enforce <b>{ns.enforce ?? 'not set'}</b>, warn <b>{ns.warn ?? 'not set'}</b>. Start with warn to see what would break;
+            enforce refuses new pods that break the level (running pods keep running).
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField select size="small" label="Level" value={level} onChange={e => setLevel(e.target.value as PssLevel)} sx={{ minWidth: 160 }}>
+              <MenuItem value="baseline">baseline</MenuItem>
+              <MenuItem value="restricted">restricted</MenuItem>
+            </TextField>
+            <TextField select size="small" label="Mode" value={mode} onChange={e => setMode(e.target.value as 'warn' | 'enforce')} sx={{ minWidth: 200 }}>
+              <MenuItem value="warn">Warn and audit only</MenuItem>
+              <MenuItem value="enforce">Enforce</MenuItem>
+            </TextField>
+          </Box>
+          <Typography sx={{ fontWeight: 600 }}>
+            Preview: {refused.length ? `${refused.length} of ${ns.pods} running pods break "${level}"` : `all ${ns.pods} running pods meet "${level}"`}
+          </Typography>
+          {refused.length > 0 && (
+            <Box component="ul" sx={{ m: 0, pl: 2, maxHeight: 220, overflowY: 'auto' }}>
+              {refused.map(r => (
+                <li key={r.pod}>
+                  <Typography variant="body2">
+                    <b>{r.pod}</b>: {r.reasons.join(', ')}
+                  </Typography>
+                </li>
+              ))}
+            </Box>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => setGo(true)}>
+          Continue
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function findingsCsv(scans: ClusterScan[], silences: Silence[]): string {
+  const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const lines = ['cluster,severity,check,finding,objects,accepted_until,accepted_reason'];
+  for (const s of scans) {
+    for (const f of s.security) {
+      const sil = silences.find(x => x.match.issueId === securityIssueId(s.clusterKey, f));
+      lines.push([q(s.clusterName), f.severity, q(SECURITY_KIND_LABEL[f.kind]), q(f.title), q(f.objects.join('; ')), sil?.until ?? '', q(sil?.reason ?? '')].join(','));
+    }
+  }
+  return lines.join('\n');
+}
+
 export function SecurityPage() {
-  const { config } = useFleetData();
-  const { scans, clusters, notSignedIn, loading } = useScans();
+  const { config, canWrite, refresh } = useFleetData();
+  const { scans, clusters, loading, health } = useScans();
   const baseline = config.baseline!;
   const [text, setText] = React.useState(baseline.allowedRegistries.join(', '));
+  const [silencing, setSilencing] = React.useState<{ issueId: string; label: string } | null>(null);
+  const [posture, setPosture] = React.useState<{ scan: ClusterScan; ns: NamespacePosture } | null>(null);
+  const [deny, setDeny] = React.useState<{ scan: ClusterScan; ns: NamespacePosture; variant: 'other-namespaces' | 'all' } | null>(null);
   if (loading || !scans) return <Loader title="Checking security posture" />;
-  const findings = scans.flatMap(s => s.security);
+  const silences = activeSilences(config.silences);
+  const accepted = (s: ClusterScan, f: SecurityFinding) => silences.find(x => x.match.issueId === securityIssueId(s.clusterKey, f));
+  const findings = scans.flatMap(s => s.security.filter(f => !accepted(s, f)));
+  const sev = (x: SecurityFinding['severity']) => findings.filter(f => f.severity === x).length;
   const byCluster = new Map(clusters.map(c => [c.key, c]));
-  const sev = (s: SecurityFinding['severity']) => findings.filter(f => f.severity === s).length;
+  const stamp = new Date().toISOString().slice(0, 10);
   return (
     <>
       <ChartStyles />
-      <SectionBox title="Security posture">
+      <SectionBox
+        title="Security posture"
+        headerProps={{
+          actions: [
+            <Button key="csv" size="small" variant="outlined" onClick={() => download(`vks-security-${stamp}.csv`, findingsCsv(scans, silences), 'text/csv')}>
+              Export CSV
+            </Button>,
+          ],
+        }}
+      >
+        <SignInHelper clusters={clusters} health={health} supervisors={config.supervisors} />
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          A quick check of each signed-in cluster: Pod Security levels, privileged or host-level pods, cluster-admin grants to
-          people or apps, images from registries outside your list or on "latest", and cert-manager certificates. It's a
-          first look, not a full audit (CIS benchmarks and image scanning need dedicated tools).
+          Each signed-in cluster, checked for: Pod Security levels, privileged or host-level pods, cluster-admin, wildcard roles and
+          Secret readers granted to people or apps, images outside your registries or on "latest", pods that may run as root,
+          namespaces without network policies, services exposed outside, and certificates. A first look, not a full audit.
+          Accepted findings stay listed but stop raising issues until their acceptance expires.
         </Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 2, mb: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 2, mb: 2 }}>
           <KpiTile label="Critical" value={sev('critical')} tone={sev('critical') ? 'error' : 'success'} />
           <KpiTile label="Warnings" value={sev('warning')} tone={sev('warning') ? 'warning' : 'success'} />
           <KpiTile label="Notes" value={sev('info')} tone="info" />
-          <KpiTile label="Clusters checked" value={scans.length} sub={notSignedIn.length ? `${notSignedIn.length} not signed in` : 'all signed in'} tone="primary" />
+          <KpiTile label="Accepted" value={scans.reduce((n, s) => n + s.security.filter(f => accepted(s, f)).length, 0)} tone="neutral" />
+          <KpiTile label="Clusters checked" value={scans.length} sub={`of ${clusters.length}`} tone="primary" />
         </Box>
-        {(
-          <TextField
-            size="small"
-            fullWidth
-            label="Allowed image registries (comma separated; empty = don't check)"
-            placeholder="projects.registry.vmware.com, harbor.example.com/library"
-            value={text}
-            onChange={e => {
-              setText(e.target.value);
-              settingsStore.update({
-                baseline: { ...baseline, allowedRegistries: e.target.value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean) },
-              });
-            }}
-            helperText="Kept with the fleet baseline. A registry host (harbor.example.com) or a path prefix (harbor.example.com/library)."
-          />
-        )}
-        <SignInNote notSignedIn={notSignedIn} />
+        <TextField
+          size="small"
+          fullWidth
+          label="Allowed image registries (comma separated; empty = don't check)"
+          placeholder="projects.registry.vmware.com, harbor.example.com/library"
+          value={text}
+          onChange={e => {
+            setText(e.target.value);
+            settingsStore.update({ baseline: { ...baseline, allowedRegistries: e.target.value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean) } });
+          }}
+          helperText="Kept with the fleet baseline. A registry host (harbor.example.com) or a path prefix (harbor.example.com/library)."
+        />
       </SectionBox>
+
+      {scans.length > 0 && (
+        <SectionBox title="Across the fleet">
+          <Box sx={{ overflowX: 'auto' }}>
+            <Box component="table" sx={{ borderCollapse: 'separate', borderSpacing: '4px', fontSize: '0.85rem', minWidth: '100%' }}>
+              <thead>
+                <tr>
+                  <Box component="th" sx={{ textAlign: 'left', p: 1 }}>
+                    Cluster
+                  </Box>
+                  {KINDS.map(k => (
+                    <Box component="th" key={k} sx={{ textAlign: 'left', p: 1, whiteSpace: 'nowrap' }}>
+                      {SECURITY_KIND_LABEL[k]}
+                    </Box>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {scans.map(s => (
+                  <tr key={s.clusterKey}>
+                    <Box component="td" sx={{ p: 1, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {s.clusterName}
+                    </Box>
+                    {KINDS.map(k => {
+                      const fs = s.security.filter(f => f.kind === k && !accepted(s, f));
+                      const n = fs.reduce((a, f) => a + f.objects.length, 0);
+                      const worst = fs.some(f => f.severity === 'critical') ? 'error' : fs.some(f => f.severity === 'warning') ? 'warning' : fs.length ? 'info' : 'success';
+                      return (
+                        <Box
+                          component="td"
+                          key={k}
+                          title={fs.map(f => f.title).join('\n') || 'Nothing found'}
+                          sx={{ p: 1, textAlign: 'center', borderRadius: 1, bgcolor: 'action.hover', borderBottom: '3px solid', borderBottomColor: `${worst}.main` }}
+                        >
+                          {n || '✓'}
+                        </Box>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </Box>
+          </Box>
+        </SectionBox>
+      )}
+
       {scans.map(s => {
         const c = byCluster.get(s.clusterKey);
-        const list = s.security.sort((a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity));
+        const writeOk = !!c && canWrite(c.supervisorId);
+        const list = [...s.security].sort(
+          (a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity)
+        );
         return (
           <SectionBox key={s.clusterKey} title={s.clusterName}>
             {s.errors.length > 0 && (
@@ -215,9 +374,14 @@ export function SecurityPage() {
                 columns={[
                   {
                     label: 'Severity',
-                    getter: (f: SecurityFinding) => (
-                      <StatusLabel status={f.severity === 'critical' ? 'error' : f.severity === 'warning' ? 'warning' : ''}>{f.severity}</StatusLabel>
-                    ),
+                    getter: (f: SecurityFinding) => {
+                      const a = accepted(s, f);
+                      return a ? (
+                        <StatusLabel status="">{`Accepted until ${a.until.slice(0, 10)}`}</StatusLabel>
+                      ) : (
+                        <StatusLabel status={f.severity === 'critical' ? 'error' : f.severity === 'warning' ? 'warning' : ''}>{f.severity}</StatusLabel>
+                      );
+                    },
                   },
                   { label: 'Finding', getter: (f: SecurityFinding) => f.title },
                   { label: 'Why it matters', getter: (f: SecurityFinding) => f.detail },
@@ -230,9 +394,76 @@ export function SecurityPage() {
                       </Typography>
                     ),
                   },
+                  {
+                    label: '',
+                    getter: (f: SecurityFinding) => {
+                      const a = accepted(s, f);
+                      return a ? (
+                        <Button size="small" onClick={() => removeSilence(a.id)} title={a.reason}>
+                          Un-accept
+                        </Button>
+                      ) : (
+                        <Button size="small" onClick={() => setSilencing({ issueId: securityIssueId(s.clusterKey, f), label: `${f.title} in ${s.clusterName}` })}>
+                          Accept…
+                        </Button>
+                      );
+                    },
+                  },
                 ]}
                 data={list}
               />
+            )}
+            {s.namespaces.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Typography sx={{ fontWeight: 600, mb: 1 }}>Namespaces</Typography>
+                <SimpleTable
+                  columns={[
+                    { label: 'Namespace', getter: (n: NamespacePosture) => n.name },
+                    {
+                      label: 'Pod Security',
+                      getter: (n: NamespacePosture) =>
+                        n.enforce ? (
+                          <StatusLabel status={n.enforce === 'privileged' ? 'error' : 'success'}>{`enforce ${n.enforce}`}</StatusLabel>
+                        ) : n.warn ? (
+                          <StatusLabel status="warning">{`warn ${n.warn}`}</StatusLabel>
+                        ) : (
+                          <StatusLabel status="warning">not set</StatusLabel>
+                        ),
+                    },
+                    { label: 'Pods', getter: (n: NamespacePosture) => n.pods },
+                    {
+                      label: 'Would break',
+                      getter: (n: NamespacePosture) => `baseline ${n.refused.baseline.length} · restricted ${n.refused.restricted.length}`,
+                    },
+                    { label: 'Network policies', getter: (n: NamespacePosture) => (n.netpols ? n.netpols : <StatusLabel status="warning">none</StatusLabel>) },
+                    { label: 'Exposed', getter: (n: NamespacePosture) => n.exposed.join(', ') || '—' },
+                    {
+                      label: 'Actions',
+                      getter: (n: NamespacePosture) =>
+                        writeOk ? (
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            <Button size="small" onClick={() => setPosture({ scan: s, ns: n })}>
+                              Pod Security…
+                            </Button>
+                            {!n.netpols && (
+                              <>
+                                <Button size="small" onClick={() => setDeny({ scan: s, ns: n, variant: 'other-namespaces' })}>
+                                  Isolate
+                                </Button>
+                                <Button size="small" onClick={() => setDeny({ scan: s, ns: n, variant: 'all' })}>
+                                  Deny all
+                                </Button>
+                              </>
+                            )}
+                          </Box>
+                        ) : (
+                          '—'
+                        ),
+                    },
+                  ]}
+                  data={s.namespaces}
+                />
+              </Box>
             )}
             {c && (
               <Button size="small" sx={{ mt: 1 }} component={Link} to={clusterDeepLink(c, { hash: 'checks' })}>
@@ -242,6 +473,25 @@ export function SecurityPage() {
           </SectionBox>
         );
       })}
+
+      {silencing && <SilenceDialog match={{ issueId: silencing.issueId }} label={silencing.label} onClose={() => setSilencing(null)} />}
+      {posture && (
+        <PostureDialog
+          cluster={posture.scan.clusterName}
+          ns={posture.ns}
+          contextName={posture.scan.contextName}
+          onClose={() => setPosture(null)}
+          onDone={() => refresh()}
+        />
+      )}
+      {deny && (
+        <ActionDialog
+          plan={defaultDenyPlan(deny.scan.clusterName, deny.ns, deny.variant)}
+          writer={headlampWriter(deny.scan.contextName)}
+          onClose={() => setDeny(null)}
+          onApplied={() => refresh()}
+        />
+      )}
     </>
   );
 }

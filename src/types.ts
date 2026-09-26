@@ -57,6 +57,18 @@ export interface PluginConfig {
   identitySwitch?: boolean;
   /** Links to other Headlamp instances (e.g. the read-only or a tenant view). */
   links?: Array<{ label: string; url: string }>;
+  /** Muted issues, maintenance windows and accepted findings. */
+  silences?: Silence[];
+}
+
+export interface Silence {
+  id: string;
+  /** What it mutes: one issue (exact id), or every issue of a cluster (maintenance). */
+  match: { issueId?: string; clusterKey?: string };
+  label: string;
+  reason: string;
+  createdAt: string;
+  until: string;
 }
 
 /** The fleet's standard: what every cluster should look like. */

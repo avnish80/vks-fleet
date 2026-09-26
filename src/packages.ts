@@ -22,6 +22,31 @@ export interface PackageInstallInfo {
   message?: string;
   /** Newest version the cluster's repositories offer, when newer than installed. */
   update?: string;
+  /** Installed and changed by VKS itself (CNI, CSI, sign-in…): don't change it here. */
+  managedByVks?: boolean;
+  paused?: boolean;
+  syncPeriod?: string;
+  /** When the install last changed state. */
+  reconciledAt?: string;
+  /** Every version the repositories offer, newest first. */
+  versions?: string[];
+}
+
+export interface RepositoryInfo {
+  namespace: string;
+  name: string;
+  url?: string;
+  state: PackageState;
+  message?: string;
+  updatedAt?: string;
+}
+
+export interface CatalogItem {
+  refName: string;
+  displayName: string;
+  description?: string;
+  versions: string[];
+  installed: boolean;
 }
 
 export interface ClusterPackages {
@@ -30,6 +55,8 @@ export interface ClusterPackages {
   items: PackageInstallInfo[];
   /** Why packages couldn't be read (e.g. no permission, no kapp-controller). */
   error?: string;
+  repositories?: RepositoryInfo[];
+  catalog?: CatalogItem[];
 }
 
 /** Numeric parts of a version, ignoring words: "3.31.5+vmware.3-fips-tkg.1" → [3,31,5,3,1]. */
@@ -71,7 +98,53 @@ export function newestVersions(packages: any[]): Map<string, string> {
   return newest;
 }
 
-export function packageInstalls(pkgis: any[], available: Map<string, string>): PackageInstallInfo[] {
+/** VKS installs its own packages (from the cluster's ClusterBootstrap) into vmware-system-tkg. */
+export function isVksManaged(pkgi: any): boolean {
+  const ns = pkgi?.metadata?.namespace ?? '';
+  const keys = [...Object.keys(pkgi?.metadata?.annotations ?? {}), ...Object.keys(pkgi?.metadata?.labels ?? {})];
+  return ns === 'vmware-system-tkg' || keys.some(k => /tkg\.tanzu\.vmware\.com|run\.tanzu\.vmware\.com|addons\.cluster\.x-k8s\.io/.test(k));
+}
+
+/** All versions per package name, newest first. */
+export function allVersions(packages: any[]): Map<string, string[]> {
+  const m = new Map<string, Set<string>>();
+  for (const p of packages) {
+    const ref = p?.spec?.refName;
+    const v = p?.spec?.version;
+    if (typeof ref === 'string' && typeof v === 'string') m.set(ref, (m.get(ref) ?? new Set()).add(v));
+  }
+  return new Map(Array.from(m.entries()).map(([k, vs]) => [k, Array.from(vs).sort((a, b) => compareVersions(b, a))]));
+}
+
+export function parseRepositories(repos: any[]): RepositoryInfo[] {
+  return repos.map(r => {
+    const f = r?.spec?.fetch ?? {};
+    const { state, message } = packageState(r);
+    return {
+      namespace: r?.metadata?.namespace ?? '',
+      name: r?.metadata?.name ?? '',
+      url: f.imgpkgBundle?.image ?? f.image?.url ?? f.git?.url ?? f.http?.url ?? (f.inline ? 'inline' : undefined),
+      state,
+      message,
+      updatedAt: parseConditions(r?.status?.conditions)[0]?.lastTransitionTime,
+    };
+  });
+}
+
+export function catalog(metadata: any[], versions: Map<string, string[]>, installed: Set<string>): CatalogItem[] {
+  return metadata
+    .map(m => ({
+      refName: m?.metadata?.name ?? '',
+      displayName: m?.spec?.displayName ?? m?.metadata?.name ?? '',
+      description: m?.spec?.shortDescription ?? m?.spec?.longDescription,
+      versions: versions.get(m?.metadata?.name) ?? [],
+      installed: installed.has(m?.metadata?.name),
+    }))
+    .filter(c => c.refName)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export function packageInstalls(pkgis: any[], available: Map<string, string>, versions?: Map<string, string[]>): PackageInstallInfo[] {
   return pkgis
     .map(p => {
       const refName: string = p?.spec?.packageRef?.refName ?? p?.metadata?.name ?? '';
@@ -87,6 +160,11 @@ export function packageInstalls(pkgis: any[], available: Map<string, string>): P
         state,
         message,
         update: newest && version && compareVersions(newest, version) > 0 ? newest : undefined,
+        managedByVks: isVksManaged(p),
+        paused: p?.spec?.paused === true,
+        syncPeriod: p?.spec?.syncPeriod,
+        reconciledAt: parseConditions(p?.status?.conditions)[0]?.lastTransitionTime,
+        versions: versions?.get(refName),
       };
     })
     .sort((a, b) => a.refName.localeCompare(b.refName));
@@ -97,15 +175,26 @@ export async function fetchClusterPackages(
   clusterKey: string,
   contextName: string
 ): Promise<ClusterPackages> {
-  const [installs, available] = await Promise.allSettled([
+  const [installs, available, repos, meta] = await Promise.allSettled([
     client.get<{ items?: any[] }>('/apis/packaging.carvel.dev/v1alpha1/packageinstalls'),
     client.get<{ items?: any[] }>('/apis/data.packaging.carvel.dev/v1alpha1/packages?limit=3000'),
+    client.get<{ items?: any[] }>('/apis/packaging.carvel.dev/v1alpha1/packagerepositories'),
+    client.get<{ items?: any[] }>('/apis/data.packaging.carvel.dev/v1alpha1/packagemetadatas?limit=1000'),
   ]);
   if (installs.status === 'rejected') {
     return { clusterKey, contextName, items: [], error: describeError(installs.reason) };
   }
-  const newest = available.status === 'fulfilled' ? newestVersions(available.value?.items ?? []) : new Map<string, string>();
-  return { clusterKey, contextName, items: packageInstalls(installs.value?.items ?? [], newest) };
+  const pkgs = available.status === 'fulfilled' ? available.value?.items ?? [] : [];
+  const newest = newestVersions(pkgs);
+  const versions = allVersions(pkgs);
+  const items = packageInstalls(installs.value?.items ?? [], newest, versions);
+  return {
+    clusterKey,
+    contextName,
+    items,
+    repositories: repos.status === 'fulfilled' ? parseRepositories(repos.value?.items ?? []) : undefined,
+    catalog: meta.status === 'fulfilled' ? catalog(meta.value?.items ?? [], versions, new Set(items.map(i => i.refName))) : undefined,
+  };
 }
 
 /** Packages that exist in more than one cluster at different installed versions. */

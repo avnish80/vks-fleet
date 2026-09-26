@@ -103,6 +103,9 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     baseline: normalizeBaseline(raw?.baseline),
     readOnly: raw?.readOnly === true,
     identitySwitch: raw?.identitySwitch !== false,
+    silences: (Array.isArray(raw?.silences) ? raw!.silences : []).filter(
+      x => x && typeof x.id === 'string' && x.match && (x.match.issueId || x.match.clusterKey) && typeof x.until === 'string'
+    ),
     links: (Array.isArray(raw?.links) ? raw!.links : [])
       .filter(l => l && typeof l.label === 'string' && typeof l.url === 'string' && /^https?:\/\//.test(l.url))
       .map(l => ({ label: l.label.trim(), url: l.url.trim() }))

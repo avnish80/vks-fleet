@@ -17,6 +17,10 @@ import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { scorecard } from '../checks';
 import { buildIssues, countIssues } from '../issues';
+import { activeSilences, partitionIssues } from '../silences';
+import { Silence } from '../types';
+import { SinceLastVisit } from './Awareness';
+import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
 import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
 import { formatBytes } from '../quantity';
@@ -149,7 +153,7 @@ export function FleetView() {
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
   const tenantNamespaces = new Set(tenantClusters.map(c => `${c.supervisorId}/${c.namespace}`));
-  const tenantIssues =
+  const tenantIssuesAll =
     tenant === ALL
       ? issues
       : issues.filter(i =>
@@ -159,6 +163,8 @@ export function FleetView() {
             ? tenantNamespaces.has(`${i.supervisorId}/${i.namespace}`)
             : false
         );
+  const silences = activeSilences(config.silences);
+  const { active: tenantIssues, silenced } = partitionIssues(tenantIssuesAll, silences);
   const findingCounts = countIssues(tenantIssues);
   // Collapsed by default; open by default only when something is critical.
   const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
@@ -331,6 +337,14 @@ export function FleetView() {
       </SectionBox>
 
       {allClusters.length > 0 && (
+        <Box sx={{ px: 2 }}>
+          <SinceLastVisit
+          issues={tenantIssues}
+            ready={results !== null && inventory !== null && (packageTargets.length === 0 || (packages !== null && scans !== null))}
+          />
+        </Box>
+      )}
+      {allClusters.length > 0 && (
         <Overview
           clusters={tenantClusters}
           findings={tenantIssues}
@@ -461,6 +475,8 @@ export function FleetView() {
 
       <Box id="issues" sx={{ scrollMarginTop: 72 }} />
       <IssuesSection
+        silenced={silenced}
+        silences={silences}
         issues={tenantIssues}
         clusters={clusterByKey}
         supervisorNames={supervisorNames}
@@ -549,6 +565,8 @@ export function FleetView() {
 }
 
 function IssuesSection({
+  silenced,
+  silences,
   issues,
   clusters,
   supervisorNames,
@@ -557,6 +575,8 @@ function IssuesSection({
   open,
   setOpen,
 }: {
+  silenced: Array<{ issue: ReturnType<typeof buildIssues>[number]; by: Silence }>;
+  silences: Silence[];
   issues: ReturnType<typeof buildIssues>;
   clusters: Map<string, FleetCluster>;
   supervisorNames: Map<string, string>;
@@ -567,6 +587,7 @@ function IssuesSection({
 }) {
   const counts = countIssues(issues);
   const shown = showInfo ? issues : issues.filter(x => x.severity !== 'info');
+  const [showSilenced, setShowSilenced] = React.useState(false);
   const summary =
     counts.critical + counts.warning === 0
       ? 'Nothing needs action.'
@@ -590,6 +611,30 @@ function IssuesSection({
         )}
       </Box>
       {open && shown.length > 0 && <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />}
+      {silences.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <Button size="small" onClick={() => setShowSilenced(!showSilenced)}>
+            {showSilenced ? 'Hide silences' : `Silences: ${silences.length} active, muting ${silenced.length} issue${silenced.length === 1 ? '' : 's'}`}
+          </Button>
+          {showSilenced && (
+            <Box component="ul" sx={{ m: 0, pl: 2 }}>
+              {silences.map(sl => (
+                <li key={sl.id}>
+                  <Typography variant="body2" component="span">
+                    <b>{sl.match.clusterKey ? `Maintenance: ${sl.label}` : sl.label}</b> until {new Date(sl.until).toLocaleString()} — {sl.reason} (
+                    {silenced.filter(x => x.by.id === sl.id).length} muted)
+                  </Typography>{' '}
+                  {isOwnSilence(sl.id) && (
+                    <Button size="small" onClick={() => removeSilence(sl.id)}>
+                      End now
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
     </SectionBox>
   );
 }

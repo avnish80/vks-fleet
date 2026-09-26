@@ -92,7 +92,11 @@ export async function detectPersona(
   try {
     const listAll = s.mode === 'vcfa' ? false : await can(writer, 'list', 'clusters', 'cluster.x-k8s.io');
     const ns = probeNamespace ?? s.namespaces[0];
-    const patch = ns ? await can(writer, 'patch', 'clusters', 'cluster.x-k8s.io', ns) : false;
+    // With a namespace, ask about it; without one (fleet data not loaded yet),
+    // ask Supervisor-wide: never conclude "read-only" from a question not asked.
+    const patch = ns
+      ? await can(writer, 'patch', 'clusters', 'cluster.x-k8s.io', ns)
+      : await can(writer, 'patch', 'clusters', 'cluster.x-k8s.io');
     const persona = classify(listAll, patch);
     const user = await whoAmI(writer);
     return { persona, user, canWrite: patch && !forcedReadOnly, canListAll: listAll, ...describePersona(persona, s.org, forcedReadOnly) };

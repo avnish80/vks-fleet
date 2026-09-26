@@ -238,6 +238,14 @@ VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other 
 - **Image drift:** the same image at different versions in different clusters, for example `web` 1.4 in one and 1.5 in another. It's raised as a low-priority issue, since a staged rollout is often intended.
 - **GitOps:** Argo CD Applications (sync and health) and Flux Kustomizations and HelmReleases (ready, suspended), with their revisions. Degraded or failed ones become issues with a runbook; out-of-sync is noted.
 
+**Working with the fleet day to day:**
+
+- **Ctrl+K (⌘K)** on any VKS fleet page opens a command palette: jump to any page, cluster, VM (by name or IP) or namespace, or search the fleet.
+- **Since your last visit:** a banner on the fleet page lists issues that are new and ones that were resolved since you last marked them as seen.
+- **Desktop notifications:** an opt-in browser notification for each new critical issue while the fleet page is open.
+- **Silences:** mute one issue ("Silence…" on any issue card) or a whole cluster ("Maintenance…" on its page), for anything from an hour to 90 days, with a reason. Silenced issues move out of the counts but stay listed under "Silences", where they can be ended early. Silences live with the plugin settings, so an administrator can preset them.
+- **A sign-in helper** on every page that reads inside clusters: which clusters can't be read (never signed in, or expired) and the exact login commands, with a single copy.
+
 **Security** (sidebar: Security): a quick posture check per signed-in cluster. It's a first look, not a full audit:
 
 - namespaces whose Pod Security level allows privileged pods, and those without a level
@@ -246,7 +254,31 @@ VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other 
 - images from registries outside an **allowed list** (kept with the fleet baseline), and images on `latest`
 - cert-manager certificates expiring within 21 days (critical within 7) or not ready
 
+Also checked:
+
+- cluster roles that allow everything, or read every Secret, bound to people or apps
+- pods that may run as root
+- namespaces without a NetworkPolicy
+- services exposed outside the cluster (LoadBalancer and NodePort)
+
+A **fleet matrix** shows every cluster against every check.
+
+**Namespace actions** (each with a dry run):
+
+- **Pod Security…** picks a level (baseline or restricted) and a mode (warn and audit only, or enforce), with a **preview** of exactly which running pods break it and why. The preview comes from the plugin's own evaluation of the Pod Security Standards.
+- **Isolate** adds a NetworkPolicy that denies traffic from other namespaces.
+- **Deny all** denies all incoming traffic.
+
+**Accept…** silences a finding with a reason and an expiry (an accepted exception). **Export CSV** lists all findings, including accepted ones with their reasons, for audits.
+
 Each finding is also an issue with a runbook. The runbooks use server-side dry runs, for example trying a Pod Security level before enforcing it.
+
+**Packages** (sidebar: Packages), per signed-in cluster:
+
+- **Installed packages,** marked **managed by VKS** (installed and upgraded with the cluster, so not changed here) or managed by you.
+- **Actions** for yours, each with a dry run: **update** to any version the repositories offer, **pause or resume** reconciliation, and **reconcile now** (the same as `kctrl package installed kick`).
+- **Across the fleet:** the drift matrix has **Update all**, which updates a package to one version in every cluster, one at a time, after a dry run of each.
+- **Package repositories** with their source and sync state, and a **catalog** of what the repositories offer and where it's installed.
 
 **Showback** (sidebar: Showback): what each org holds right now, for reporting and chargeback:
 
@@ -442,6 +474,10 @@ src/
   clusterScan.ts        Applications, security posture and GitOps from each signed-in cluster
   scanIssues.ts         Issues and runbooks for those
   showback.ts           Per-org allocation report
+  pss.ts                Pod Security Standards evaluator (baseline, restricted)
+  guestActions.ts       In-cluster actions: Pod Security, network policies, package update/pause/reconcile
+  silences.ts           Silences and maintenance mode
+  awareness.ts          Since-last-visit and command palette helpers
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

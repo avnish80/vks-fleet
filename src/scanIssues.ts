@@ -1,10 +1,13 @@
 /** Issues from the in-cluster scan: security posture, GitOps, and image drift across clusters. */
-import { ClusterScan, groupApps } from './clusterScan';
+import { ClusterScan, groupApps, SecurityFinding } from './clusterScan';
 import { clusterDeepLink } from './routes';
 import { FleetCluster, Issue } from './types';
 
 export const APPS_PATH = '/vks-fleet/apps';
 export const SECURITY_PATH = '/vks-fleet/security';
+
+/** The issue id a security finding becomes (silences match on it). */
+export const securityIssueId = (clusterKey: string, f: Pick<SecurityFinding, 'kind' | 'title'>) => `${clusterKey}#scan#sec-${f.kind}-${f.title}`;
 
 function base(c: FleetCluster | undefined, supervisorId: string, id: string, severity: Issue['severity'], now: Date): Issue {
   return {
@@ -38,6 +41,13 @@ const RUNBOOK: Record<string, (ctx: string, objects: string[]) => Issue['runbook
     { title: 'Replace with a namespaced role (example)', commands: [`kubectl --context ${ctx} create rolebinding <name> -n <namespace> --clusterrole=admin --user=<user>`] },
   ],
   registry: ctx => [{ title: 'Images in use, by registry', commands: [`kubectl --context ${ctx} get pods -A -o jsonpath='{range .items[*]}{.spec.containers[*].image}{"\\n"}{end}' | tr ' ' '\\n' | sort | uniq -c | sort -rn | head -30`] }],
+  wildcard: ctx => [{ title: 'Cluster roles with verbs * on resources *', commands: [`kubectl --context ${ctx} get clusterroles -o json | jq -r '.items[] | select(any(.rules[]?; (.verbs|index("*")) and (.resources|index("*")))) | .metadata.name'`] }],
+  secrets: ctx => [{ title: 'Who can list Secrets in all namespaces', commands: [`kubectl --context ${ctx} get clusterrolebindings -o wide | grep -v system:`, `kubectl --context ${ctx} auth can-i list secrets -A --as=<user>`] }],
+  netpol: (ctx, objs) => [
+    { title: 'Try a default-deny first (server dry run)', commands: [`kubectl --context ${ctx} -n ${objs[0]} create -f - --dry-run=server <<'EOF'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: deny-from-other-namespaces}\nspec: {podSelector: {}, policyTypes: [Ingress], ingress: [{from: [{podSelector: {}}]}]}\nEOF`] },
+  ],
+  exposed: ctx => [{ title: 'Services reachable from outside', commands: [`kubectl --context ${ctx} get svc -A --field-selector spec.type=LoadBalancer`, `kubectl --context ${ctx} get svc -A --field-selector spec.type=NodePort`] }],
+  root: (ctx, objs) => [{ title: 'Which user the pod runs as', commands: [`kubectl --context ${ctx} exec -n ${objs[0]?.split('/')[0]} ${objs[0]?.split('/')[1]} -- id`] }],
   cert: (ctx, objs) => [
     { title: 'Certificate status', commands: [`kubectl --context ${ctx} describe certificate -n ${objs[0]?.split('/')[0]} ${objs[0]?.split('/')[1]} | tail -25`] },
     { title: 'Its issuer and recent requests', commands: [`kubectl --context ${ctx} get certificaterequests,orders,challenges -n ${objs[0]?.split('/')[0]} 2>/dev/null | tail -10`] },
@@ -53,6 +63,7 @@ export function scanIssues(scans: ClusterScan[], clusters: FleetCluster[], now: 
     for (const f of s.security) {
       out.push({
         ...base(c, c.supervisorId, `sec-${f.kind}-${f.title}`, f.severity, now),
+        id: securityIssueId(c.key, f),
         title: `${f.title} in ${c.name}`,
         cause: f.detail,
         evidence: f.objects.slice(0, 6).concat(f.objects.length > 6 ? [`…and ${f.objects.length - 6} more`] : []),

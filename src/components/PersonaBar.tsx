@@ -4,6 +4,7 @@ import { FleetProvider, useFleetData } from '../fleetContext';
 import { identityLabel } from '../identity';
 import { ALL_ORGS } from '../scope';
 import { useTone } from './charts';
+import { CommandPalette } from './CommandPalette';
 
 /** Who is signed in, and (for operators and read-only admins) which org they're looking at. */
 export function PersonaBar() {
@@ -42,6 +43,9 @@ export function PersonaBar() {
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 200 }}>
           {persona?.detail}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" title="Jump to any page, cluster, VM or namespace">
+          Ctrl+K to jump
         </Typography>
         {canSwitchIdentity && (
           <TextField
@@ -95,6 +99,7 @@ export function PageFrame({ children }: { children: ReactNode }) {
   return (
     <FleetProvider>
       <PersonaBar />
+      <CommandPalette />
       {children}
     </FleetProvider>
   );

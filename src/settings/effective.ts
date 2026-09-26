@@ -13,5 +13,7 @@ export function effectiveSettings(
   // Guardrails an administrator sets can't be undone from a browser.
   if (managed.readOnly === true) merged.readOnly = true;
   if (managed.identitySwitch === false) merged.identitySwitch = false;
+  // Silences an administrator ships apply alongside the browser's own.
+  if (managed.silences?.length) merged.silences = [...(managed.silences ?? []), ...((merged.silences ?? []).filter(s => !managed.silences!.some(m => m.id === s.id)))];
   return merged;
 }

@@ -14,6 +14,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { diagnosisMarkdown } from '../issues';
 import { FleetCluster, Issue, RunbookStep } from '../types';
+import { SilenceDialog } from './SilenceDialog';
 import { useTone } from './charts';
 import { SeverityLabel } from './common';
 
@@ -104,6 +105,7 @@ function IssueCard({
   const tone = useTone();
   const [copied, setCopied] = React.useState<'idle' | 'done' | 'manual'>('idle');
   const [showRunbook, setShowRunbook] = React.useState(false);
+  const [silencing, setSilencing] = React.useState(false);
   const text = React.useMemo(() => diagnosisMarkdown(issue, cluster, supervisorName), [issue, cluster, supervisorName]);
   const primary = issue.primary ?? issue.links[0];
   const edge = issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
@@ -151,6 +153,9 @@ function IssueCard({
             Go to {primary.label.length > 24 ? 'it' : primary.label}
           </Button>
         )}
+        <Button size="small" onClick={() => setSilencing(true)}>
+          Silence…
+        </Button>
         <Button size="small" variant="outlined" onClick={copy}>
           {copied === 'done' ? 'Copied' : 'Copy diagnosis'}
         </Button>
@@ -215,6 +220,7 @@ function IssueCard({
           </DialogActions>
         </Dialog>
       )}
+      {silencing && <SilenceDialog match={{ issueId: issue.id }} label={issue.title} onClose={() => setSilencing(false)} />}
     </Paper>
   );
 }
