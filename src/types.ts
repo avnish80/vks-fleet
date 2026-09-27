@@ -65,6 +65,8 @@ export interface PluginConfig {
   nodeScanImage?: string;
   /** CIS benchmark kube-bench uses (e.g. cis-1.10). */
   nodeScanBenchmark?: string;
+  /** Demo mode: a fictional fleet instead of the configured Supervisors (nothing is ever changed). */
+  demo?: boolean;
 }
 
 export interface Silence {

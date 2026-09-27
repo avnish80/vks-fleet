@@ -1,6 +1,7 @@
 import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 import { normalizeConfig, PLUGIN_NAME } from '../config';
 import { PluginConfig } from '../types';
+import { setDemoMode } from '../demo';
 import { effectiveSettings } from './effective';
 import { useManagedConfig } from './managed';
 
@@ -19,5 +20,7 @@ export function useRawSettings(): Partial<PluginConfig> {
 export function usePluginConfig(): PluginConfig {
   const raw = useRawConfig();
   const managed = useManagedConfig();
-  return normalizeConfig(effectiveSettings(raw, managed));
+  const config = normalizeConfig(effectiveSettings(raw, managed));
+  setDemoMode(config.demo === true);
+  return config;
 }

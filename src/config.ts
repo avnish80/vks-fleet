@@ -106,6 +106,7 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
       Number.isFinite(refresh) && refresh >= MIN_REFRESH_SECONDS ? refresh : DEFAULT_REFRESH_SECONDS,
     baseline: normalizeBaseline(raw?.baseline),
     readOnly: raw?.readOnly === true,
+    demo: raw?.demo === true,
     nodeScanImage: typeof raw?.nodeScanImage === 'string' && raw.nodeScanImage.trim() ? raw.nodeScanImage.trim() : undefined,
     nodeScanBenchmark: typeof raw?.nodeScanBenchmark === 'string' && raw.nodeScanBenchmark.trim() ? raw.nodeScanBenchmark.trim() : undefined,
     identitySwitch: raw?.identitySwitch !== false,

@@ -1,4 +1,5 @@
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Guard } from './Guard';
 import React, { ReactNode } from 'react';
 import { FleetProvider, useFleetData } from '../fleetContext';
 import { identityLabel } from '../identity';
@@ -34,6 +35,14 @@ export function PersonaBar() {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: colour }} />
+          {config.demo && (
+            <Box
+              title="Demo mode (Settings): a fictional fleet; nothing is ever changed"
+              sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: 'warning.main', color: 'warning.contrastText', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 0.5 }}
+            >
+              DEMO
+            </Box>
+          )}
           <Typography sx={{ fontWeight: 600 }}>{persona?.label ?? 'Checking access…'}</Typography>
           {persona?.user && (
             <Typography variant="body2" color="text.secondary">
@@ -116,7 +125,7 @@ export function PageFrame({ children }: { children: ReactNode }) {
       <Box className="vks-fleet-page">
         <PersonaBar />
         <CommandPalette />
-        {children}
+        <Guard name="This page">{children}</Guard>
       </Box>
     </FleetProvider>
   );

@@ -6,6 +6,7 @@
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { ListResult, scopedList } from './api/scopedList';
+import { rememberVersion, servedVersion } from './api/served';
 import { KubeObject } from './capi/v1beta1';
 import { parseQuantity } from './quantity';
 import { Capacity, FleetCluster, PodIssue, QuotaItem, ServiceHealth, VmInfo } from './types';
@@ -25,9 +26,14 @@ export async function listFirstServed(
   namespacedOnly = false
 ): Promise<ListResult<KubeObject>> {
   let last: unknown;
-  for (const v of versions) {
+  // Try the version that answered last time first.
+  const key = client.name ? `${client.name}|${group}|${plural}` : undefined;
+  const known = servedVersion(key);
+  for (const v of known ? [known, ...versions.filter(x => x !== known)] : versions) {
     try {
-      return await scopedList<KubeObject>(client, `/apis/${group}/${v}`, plural, namespaces, namespacedOnly);
+      const r = await scopedList<KubeObject>(client, `/apis/${group}/${v}`, plural, namespaces, namespacedOnly);
+      rememberVersion(key, v);
+      return r;
     } catch (err) {
       if (statusOf(err) !== 404) throw err;
       last = err;

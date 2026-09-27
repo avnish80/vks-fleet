@@ -453,6 +453,62 @@ The admin kubeconfig secrets on the Supervisor are deliberately not used. They w
 
 **Tenant names:** VCFA labels namespaces with organization IDs only, so the fleet shows a shortened ID until you name it. Add names under Settings → Plugins → vks-fleet → Tenant names, one per line as `<ID> = <name>`. Grouping always uses the ID, so adding or changing a name never regroups clusters.
 
+## Demo mode
+
+**Settings → Demo mode** replaces your Supervisors with a fictional fleet: one Supervisor, two orgs (acme and globex) and four clusters. It's for screenshots, talks, and trying the plugin without a lab. A **DEMO** marker shows in the top bar while it's on, and your Supervisor settings come back when it's switched off.
+
+Each cluster has deliberate problems, so every page has something to show:
+
+| Cluster | What it demonstrates |
+|---|---|
+| payments | The healthy one: hardened workloads, network policies, daily backups, Trivy reports, a saved kube-bench run |
+| checkout | A node stuck draining behind a PodDisruptionBudget, a crash-looping pod, a privileged pod, a cluster-admin grant, a partly failed backup, a failing package, images with critical CVEs |
+| sandbox | A Kubernetes version behind (upgrade available), no default StorageClass |
+| analytics | Control-plane certificates expiring in 18 days, two node pools, Kyverno policy failures |
+
+Every request goes to in-memory data through the same code paths as real clusters, including the Pod Security probe (VKS's restricted default). **Dry runs work**, so action dialogs can be tried end to end. **Real changes are always refused.**
+
+## At scale
+
+What one open browser tab costs:
+
+- **Requests per refresh.** Steady state, with the default intervals:
+
+  | | Requests | Every |
+  |---|---|---|
+  | Supervisor: fleet | about 13 | 30 s |
+  | Supervisor: inventory | about 8 | each refresh |
+  | Per cluster: workload health | about 10 | 30 s |
+  | Per cluster: security and compliance scan | about 18 | 5 min |
+  | Per cluster: packages | 4 | 3 min |
+  | Per cluster: scanner reports | about 4 | 10 min |
+  | Per cluster: backups | 2 | 5 min |
+
+  That's about 25 requests per minute per cluster, roughly 0.4 per second on each cluster's API server. For 50 clusters, about 20 per second from one tab.
+- **Capped concurrency:** at most 6 requests at once per cluster and 24 overall; the rest queue.
+- **Remembered lookups:** a resource type that isn't installed (answering "not found") isn't asked for again for 10 minutes, and the API version that answered is tried first. Named objects are always fetched, and newly installed tools show up within 10 minutes. On repeat refreshes this cut the Supervisor inventory from about 61 requests to 8.
+- **Hidden tabs don't poll.** Refreshes pause and catch up when the tab is shown again. A failed refresh keeps the last good data.
+- **Diagnostics** (bottom of Settings) shows requests, errors, average and slowest times and the last error, per cluster, since the tab was opened. Use it to judge load, or to spot a slow or failing cluster.
+- **A failing section doesn't blank the page.** Each page, and the fleet page's org cards, overview and issues, show what failed with **Try again** and **Copy details** (for a bug report); the rest keeps working.
+
+## Tests
+
+```bash
+npx tsx --test tests/*.test.ts
+```
+
+`tests/` uses Node's built-in test runner; `tsx` is the only tool needed. It covers:
+
+- **An end-to-end run** of the plugin's real fetchers and rules on the demo fleet: fleet, orgs, persona, inventory, context matching, Pod Security default, compliance, kube-bench, issues, demo writes.
+- **Focused rule tests,** including regressions found in real use:
+  - unreadable data scored as passing
+  - false Pod Security findings on VKS
+  - kube-bench misdetecting VKS as TKGI
+  - a stuck node scan crashing
+- **The request limiter** and the "not installed" memory.
+
+The GitHub build runs them before building. **A failing test stops the release.**
+
 ## Build with GitHub Actions (no local npm needed)
 
 `.github/workflows/build.yml` scaffolds, type-checks and builds the plugin on GitHub's runners:
@@ -567,6 +623,11 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  demo/                 Demo mode: a small Kubernetes API over in-memory objects (router.ts) and the fictional fleet (supervisor.ts, guest.ts)
+  api/limiter.ts        Concurrency caps and per-cluster request statistics
+  api/served.ts         Remembers resources that aren't installed and which API versions answer
+  components/Guard.tsx  Error boundary: a failing section shows what failed, the page keeps working
+tests/                  Node test runner suites (demo pipeline, rules, limiter)
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

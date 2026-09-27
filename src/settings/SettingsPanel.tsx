@@ -1,4 +1,5 @@
 import { Alert, Box, Button, Checkbox, FormControlLabel, Paper, TextField, Typography } from '@mui/material';
+import { MAX_PER_CLUSTER, MAX_TOTAL, requestStats } from '../api/limiter';
 import React from 'react';
 import {
   DEFAULT_REFRESH_SECONDS,
@@ -226,6 +227,15 @@ export function SettingsPanel() {
         </Alert>
       )}
       <FormControlLabel
+        control={<Checkbox checked={raw.demo === true} onChange={e => settingsStore.update({ demo: e.target.checked })} />}
+        label="Demo mode: show a fictional fleet (two orgs, four clusters with realistic problems) instead of your Supervisors. Nothing is ever changed; dry runs work. For screenshots, talks and trying the plugin out."
+      />
+      {raw.demo === true && (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          Demo mode is on: every page shows the fictional fleet. Your Supervisor settings are kept and come back when you turn it off.
+        </Alert>
+      )}
+      <FormControlLabel
         control={
           <Checkbox
             checked={raw.readOnly === true || managed?.readOnly === true}
@@ -260,6 +270,7 @@ export function SettingsPanel() {
         size="small"
         sx={{ maxWidth: 260 }}
       />
+      <Diagnostics />
     </Box>
   );
 }
@@ -290,3 +301,52 @@ function LinksEditor({ value }: { value: Array<{ label: string; url: string }> }
     />
   );
 }
+
+/** Requests per cluster since the page was opened: for judging load and spotting a slow or failing cluster. */
+function Diagnostics() {
+  const [, setTick] = React.useState(0);
+  const st = requestStats();
+  const minutes = Math.max(1, Math.round((Date.now() - st.since) / 60000));
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
+        Diagnostics
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        Requests the plugin made per cluster in the last {minutes} minute{minutes === 1 ? '' : 's'} (since this browser tab loaded
+        Headlamp). At most {MAX_PER_CLUSTER} run at once per cluster and {MAX_TOTAL} overall; now {st.inFlight} running, {st.waiting} waiting.
+        Refreshes pause while the tab is hidden.
+      </Typography>
+      <Button size="small" onClick={() => setTick(t => t + 1)}>
+        Refresh
+      </Button>
+      {st.clusters.length > 0 && (
+        <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem', mt: 1 }}>
+          <thead>
+            <tr>
+              {['Cluster (context)', 'Requests', 'Per minute', 'Errors', 'Average', 'Slowest', 'Last error'].map(h => (
+                <Box component="th" key={h} sx={{ textAlign: 'left', p: 0.75, borderBottom: 1, borderColor: 'divider' }}>
+                  {h}
+                </Box>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {st.clusters.map(c => (
+              <tr key={c.cluster}>
+                <Box component="td" sx={{ p: 0.75 }}>{c.cluster}</Box>
+                <Box component="td" sx={{ p: 0.75 }}>{c.requests}</Box>
+                <Box component="td" sx={{ p: 0.75 }}>{(c.requests / minutes).toFixed(1)}</Box>
+                <Box component="td" sx={{ p: 0.75, color: c.errors ? 'error.main' : undefined }}>{c.errors}</Box>
+                <Box component="td" sx={{ p: 0.75 }}>{c.requests ? `${Math.round(c.totalMs / c.requests)} ms` : '—'}</Box>
+                <Box component="td" sx={{ p: 0.75 }}>{c.slowestMs} ms</Box>
+                <Box component="td" sx={{ p: 0.75, color: 'text.secondary', maxWidth: 360, overflowWrap: 'anywhere' }}>{c.lastError ?? ''}</Box>
+              </tr>
+            ))}
+          </tbody>
+        </Box>
+      )}
+    </Box>
+  );
+}
+

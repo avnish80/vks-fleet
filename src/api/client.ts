@@ -5,6 +5,8 @@
  */
 export interface SupervisorClient {
   get<T = unknown>(path: string): Promise<T>;
+  /** The Headlamp cluster (context) it talks to; lets lookups remember what that cluster serves. */
+  name?: string;
 }
 
 /** One write to the Supervisor. Actions are short lists of these, applied in order. */

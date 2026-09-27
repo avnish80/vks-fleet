@@ -43,6 +43,14 @@ jobs:
           fi
           npm install
 
+      # Unit and end-to-end tests (Node's test runner via tsx). Blocking: a
+      # failing test stops the release. Locally: npx tsx --test tests/*.test.ts
+      - name: Test
+        working-directory: build/vks-fleet
+        run: |
+          cp -r "$GITHUB_WORKSPACE/tests" ./tests
+          npx --yes tsx@4 --test tests/*.test.ts
+
       # Type-check against the real Headlamp types. Non-blocking so you still
       # get a build to try; if this step shows red, send the log output.
       - name: Type-check

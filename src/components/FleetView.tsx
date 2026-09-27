@@ -26,6 +26,7 @@ import { scannerIssues } from '../scannerIssues';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
+import { Guard } from './Guard';
 import { ALL_ORGS } from '../scope';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
@@ -337,8 +338,10 @@ export function FleetView() {
         </Box>
       </SectionBox>
 
-      <OrgCards />
-      <OrgSummary />
+      <Guard name="Org cards">
+        <OrgCards />
+        <OrgSummary />
+      </Guard>
       {allClusters.length > 0 && (
         <Box sx={{ px: 2 }}>
           <SinceLastVisit
@@ -348,6 +351,7 @@ export function FleetView() {
         </Box>
       )}
       {allClusters.length > 0 && (
+        <Guard name="Overview">
         <Overview
           clusters={tenantClusters}
           findings={tenantIssues}
@@ -379,6 +383,7 @@ export function FleetView() {
             .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, cpuPct: n.cpuPct, memPct: n.memPct })))
             .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct))}
         />
+        </Guard>
       )}
 
       <Box id="tenants" sx={{ scrollMarginTop: 72 }} />
@@ -613,7 +618,11 @@ function IssuesSection({
           />
         )}
       </Box>
-      {open && shown.length > 0 && <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />}
+      {open && shown.length > 0 && (
+        <Guard name="Issues">
+          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />
+        </Guard>
+      )}
       {silences.length > 0 && (
         <Box sx={{ mt: 1.5 }}>
           <Button size="small" onClick={() => setShowSilenced(!showSilenced)}>

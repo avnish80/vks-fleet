@@ -1,3 +1,4 @@
+import { DEMO_SUPERVISOR_RAW } from '../demo';
 import { PluginConfig } from '../types';
 
 /** The browser's own settings win; with none, the administrator's preset (config.json) is used. */
@@ -5,6 +6,8 @@ export function effectiveSettings(
   raw: Partial<PluginConfig> | undefined,
   managed: Partial<PluginConfig> | null
 ): Partial<PluginConfig> | undefined {
+  // Demo mode: the fictional fleet replaces the configured Supervisors (the rest of the settings still apply).
+  if (raw?.demo === true) return { ...raw, demo: true, supervisors: [DEMO_SUPERVISOR_RAW as any], identitySwitch: false };
   const own = (raw?.supervisors ?? []).some(s => s?.headlampCluster);
   if (!managed) return raw;
   const merged = own

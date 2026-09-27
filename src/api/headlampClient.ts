@@ -2,7 +2,10 @@ import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 import { HeadlampClusterInfo, parseHeadlampConfig } from '../contexts';
 import { SupervisorConfig } from '../types';
 import { contextFor } from '../vcfa';
+import { demoClient, demoClusterList, demoModeOn, demoWriter, isDemoContext } from '../demo';
 import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
+import { limited } from './limiter';
+import { rememberingGet } from './served';
 
 /**
  * SupervisorClient backed by Headlamp's API proxy, targeting one Headlamp
@@ -13,12 +16,14 @@ import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
  * between Headlamp releases, fix it here.
  */
 export function headlampClient(headlampCluster: string): SupervisorClient {
+  if (isDemoContext(headlampCluster)) return demoClient(headlampCluster);
   return {
+    name: headlampCluster,
     get<T>(path: string): Promise<T> {
       // Third argument: autoLogoutOnAuthError. Keep it false so an expired
       // token shows as an error in this view instead of logging the user out
       // of whatever cluster they are looking at.
-      return ApiProxy.request(path, { cluster: headlampCluster }, false) as Promise<T>;
+      return rememberingGet(headlampCluster, path, () => limited(headlampCluster, () => ApiProxy.request(path, { cluster: headlampCluster }, false) as Promise<T>));
     },
   };
 }
@@ -28,6 +33,7 @@ export function headlampClient(headlampCluster: string): SupervisorClient {
  * servers, from Headlamp's own /config endpoint. Returns [] if unavailable.
  */
 export async function listHeadlampClusters(): Promise<HeadlampClusterInfo[]> {
+  if (demoModeOn()) return demoClusterList();
   try {
     // Fourth argument: useCluster = false, i.e. a Headlamp backend path, not a cluster API path.
     const config = await ApiProxy.request('/config', {}, false, false);
@@ -50,6 +56,7 @@ function withDryRun(path: string, dryRun: boolean): string {
  * so the Supervisor's RBAC decides what's allowed.
  */
 export function headlampWriter(headlampCluster: string): SupervisorWriter {
+  if (isDemoContext(headlampCluster)) return demoWriter(headlampCluster);
   return {
     send(req: WriteRequest, dryRun: boolean): Promise<unknown> {
       const params: Record<string, unknown> = {
@@ -73,6 +80,7 @@ export function headlampWriter(headlampCluster: string): SupervisorWriter {
  */
 export function supervisorClient(s: SupervisorConfig): SupervisorClient {
   return {
+    name: s.headlampCluster,
     get<T>(path: string): Promise<T> {
       return headlampClient(contextFor(s, path)).get<T>(path);
     },

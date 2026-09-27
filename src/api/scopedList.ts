@@ -1,5 +1,6 @@
 import { ListScope } from '../types';
 import { describeError, statusOf, SupervisorClient } from './client';
+import { isMissing, markMissing } from './served';
 
 export interface ListResult<T> {
   items: T[];
@@ -25,6 +26,9 @@ export async function scopedList<T>(
   namespaces: string[],
   namespacedOnly = false
 ): Promise<ListResult<T>> {
+  // Not installed on this cluster, as found earlier: don't ask again for a while.
+  const key = client.name ? `${client.name}|${apiPrefix}|${plural}` : undefined;
+  if (isMissing(key)) throw Object.assign(new Error(`${plural} not served (remembered)`), { status: 404 });
   if (!namespacedOnly) {
     try {
       const list = await client.get<{ items?: T[] }>(`${apiPrefix}/${plural}`);
@@ -35,6 +39,7 @@ export async function scopedList<T>(
       // cluster-wide path at all.
       const status = statusOf(err);
       if (status !== 403 && !(status === 404 && namespaces.length)) {
+        if (status === 404) markMissing(key);
         throw err;
       }
     }
@@ -70,6 +75,7 @@ export async function scopedList<T>(
     // Every namespace failing the same way (not found, expired sign-in, forbidden)
     // is one answer, not many: pass it on with its status so callers can say why.
     const first = statusOf(reasons[0]);
+    if (first === 404 && reasons.every(r => statusOf(r) === 404)) markMissing(key);
     if (first !== undefined && reasons.every(r => statusOf(r) === first)) throw reasons[0];
     throw new Error(`Couldn't list ${plural} in any configured namespace. ${warnings[0]}`);
   }
