@@ -317,6 +317,7 @@ Besides Markdown and CSV, **OSCAL** exports the results as OSCAL 1.1 Assessment 
   - a CSV export
 
   Clusters without Trivy Operator are listed with the Helm command to install it.
+- **Owner tagging.** Images from VKS releases and standard packages (`vsphere/supervisor/…`, `vsphere/vksm/…`, `localhost:5000/tkg/…`), and images in platform namespaces, are **VKS-managed**: they're fixed by a newer package version or VKS release, not by rebuilding. The page shows **your images** by default, and a **VKS-managed images** summary grouped by source (for example "vks-standard-packages 3.7.0-20260618: 4 images, 70 critical, fixes published upstream"), with links to Packages and Upgrades. Configuration audits are split the same way. Only your images raise the critical-CVE warning; VKS-managed ones raise a single informational issue.
 - **On the Compliance page:** Trivy's own compliance reports (its CIS and NSA runs), and **policy results** from Kyverno or any engine writing PolicyReports (`wgpolicyk8s.io`) or OpenReports (`openreports.io`), with the failing and warning results.
 - **Issues:** images with critical CVEs (a warning when fixes exist), secrets found in images (critical), and failing policy results.
 
@@ -332,6 +333,25 @@ Besides Markdown and CSV, **OSCAL** exports the results as OSCAL 1.1 Assessment 
 Failures become fleet issues, and a Markdown report can be downloaded.
 
 **Pod Security cluster default.** VKS enforces the **restricted** level on namespaces without a Pod Security label, a cluster-wide default that isn't visible through the API. The plugin finds it with two server-side dry-run pod creations in an unlabelled namespace; they create nothing. Namespaces then show their effective level ("restricted (cluster default)"), and the compliance control counts namespaces by label and by default. The "no Pod Security label" finding only appears when the default couldn't be checked, for example for users who can't create pods. Enforcing a level the default already applies is still allowed: the label pins it, so a later change of default won't weaken the namespace.
+
+**Two operational checks inside clusters:**
+
+- **Default StorageClass:** none marked default means volume claims without a class stay Pending forever (many Helm charts rely on one); several defaults make it unpredictable. The issue comes with the command to set one.
+- **Pods stuck on one node:** two or more pods stuck creating or terminating for over three minutes on the same node usually means that node's pod networking (Multus, then Calico or Antrea) has stalled. The runbook finds the node's CNI pods, restarts Multus there, and clears pods stuck terminating.
+
+**Sign-in commands** use the signed-in user's name, so they run without editing.
+
+**Keeping sign-ins fresh on a jump server.** Supervisor and cluster sign-ins last about 10 hours. A small script refreshes them (and the VCF Automation context) and restarts Headlamp; a systemd timer runs it every 45 minutes:
+
+```bash
+# /root/vks-refresh.sh (chmod 700): KUBECTL_VSPHERE_PASSWORD from /root/.vsphere-pass (chmod 600),
+# then kubectl vsphere login for the Supervisor and each cluster, then: docker restart headlamp
+# /etc/systemd/system/vks-refresh.service: Type=oneshot, Environment=HOME=/root, ExecStart=/root/vks-refresh.sh
+# /etc/systemd/system/vks-refresh.timer:   OnBootSec=2min, OnUnitActiveSec=45min
+systemctl enable --now vks-refresh.timer
+```
+
+Use a dedicated account with only the rights the plugin needs, not Administrator.
 
 **Pages that read inside clusters** (Security, Applications, Packages, Compliance) say so plainly when the selected org has no VKS clusters, instead of waiting. **Orgs shown only by their ID** get a "Name this org" button on their card; names are kept with the plugin settings and apply everywhere.
 

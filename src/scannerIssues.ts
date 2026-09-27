@@ -23,7 +23,8 @@ export function scannerIssues(
       findingIds: [],
       detectedAt: now.toISOString(),
     };
-    const critical = r.images.filter(i => i.counts.CRITICAL > 0);
+    // Your images: yours to rebuild. VKS images: fixed by VKS packages and releases (one summary).
+    const critical = r.images.filter(i => i.owner === 'you' && i.counts.CRITICAL > 0);
     const fixable = critical.filter(i => i.top.some(v => v.severity === 'CRITICAL' && v.fixed));
     if (critical.length) {
       out.push({
@@ -38,6 +39,21 @@ export function scannerIssues(
         runbook: [
           { title: 'Worst images in the cluster', commands: [`kubectl --context ${r.contextName} get vulnerabilityreports -A -o custom-columns=NS:.metadata.namespace,IMAGE:.report.artifact.repository,TAG:.report.artifact.tag,CRIT:.report.summary.criticalCount,HIGH:.report.summary.highCount --sort-by=.report.summary.criticalCount | tail -10`] },
         ],
+      });
+    }
+    const vksCritical = r.images.filter(i => i.owner === 'vks' && i.counts.CRITICAL > 0);
+    if (vksCritical.length) {
+      const sources = Array.from(new Set(vksCritical.map(i => i.source ?? 'VKS platform')));
+      const fixable = vksCritical.filter(i => i.top.some(v => v.severity === 'CRITICAL' && v.fixed)).length;
+      out.push({
+        ...base,
+        id: `${c.key}#vulns#vks`,
+        severity: 'info',
+        title: `${vksCritical.length} VKS-managed image${vksCritical.length === 1 ? '' : 's'} with critical vulnerabilities in ${c.name} (${fixable} with fixes upstream)`,
+        cause: `From ${sources.join(', ')}. These images are rebuilt by VKS, not by the cluster owner.`,
+        evidence: vksCritical.slice(0, 6).map(i => `${i.namespace}/${i.workload}: ${i.counts.CRITICAL} critical`),
+        fix: 'Check whether a newer VKS standard-packages version or VKS release is available (Packages and Upgrades pages), and whether the affected code paths are used.',
+        primary: { label: 'Packages', path: '/vks-fleet/packages' },
       });
     }
     if (r.exposedSecrets.length) {

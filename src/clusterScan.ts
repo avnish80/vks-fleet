@@ -96,6 +96,10 @@ export interface ClusterScan {
   psaDefault?: PsaLevel;
   /** CIS-aligned benchmark results. */
   compliance: ControlResult[];
+  /** Storage classes, and which are marked default (none or several both cause trouble). */
+  storageClasses?: { names: string[]; defaults: string[] };
+  /** Nodes where pods are stuck being created or deleted: usually that node's CNI (Multus, Calico). */
+  stuckNodes: StuckNode[];
   /** When this scan ran. */
   at: string;
   errors: string[];
@@ -317,6 +321,45 @@ export function namespacePosture(namespaces: any[], pods: any[], networkPolicies
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/* ---------------- Nodes where pods get stuck ---------------- */
+
+export interface StuckNode {
+  node: string;
+  terminating: string[];
+  creating: string[];
+}
+
+export const STUCK_AFTER_MS = 3 * 60 * 1000;
+
+/**
+ * Pods stuck in ContainerCreating or Terminating for minutes, per node. Two
+ * or more on one node usually means that node's pod networking (the CNI chain)
+ * has stalled: creating needs a sandbox set up, deleting needs it torn down.
+ */
+export function stuckNodes(pods: any[], now: Date): StuckNode[] {
+  const by = new Map<string, StuckNode>();
+  const old = (t?: string) => !!t && now.getTime() - new Date(t).getTime() > STUCK_AFTER_MS;
+  for (const p of pods) {
+    const node = p?.spec?.nodeName;
+    if (!node) continue;
+    const name = `${p?.metadata?.namespace}/${p?.metadata?.name}`;
+    const entry: StuckNode = by.get(node) ?? { node, terminating: [], creating: [] };
+    if (p?.metadata?.deletionTimestamp && old(p.metadata.deletionTimestamp)) entry.terminating.push(name);
+    else if (
+      !p?.metadata?.deletionTimestamp &&
+      p?.status?.phase === 'Pending' &&
+      old(p?.metadata?.creationTimestamp) &&
+      (p?.status?.containerStatuses ?? p?.status?.initContainerStatuses ?? [{}]).some(
+        (c: any) => !c?.state || c?.state?.waiting?.reason === 'ContainerCreating' || c?.state?.waiting?.reason === 'PodInitializing'
+      ) &&
+      (p?.status?.conditions ?? []).some((c: any) => c.type === 'PodScheduled' && c.status === 'True')
+    )
+      entry.creating.push(name);
+    by.set(node, entry);
+  }
+  return Array.from(by.values()).filter(n => n.terminating.length + n.creating.length >= 2);
+}
+
 /* ---------------- GitOps ---------------- */
 
 export function parseArgo(clusterKey: string, clusterName: string, apps: any[]): GitOpsApp[] {
@@ -384,7 +427,7 @@ export async function fetchClusterScan(
       return undefined;
     }
   };
-  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles, nodes, sas, rqs, lrs] = await Promise.all([
+  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles, nodes, sas, rqs, lrs, scs] = await Promise.all([
     read('Deployments', ['/apis/apps/v1/deployments']),
     read('StatefulSets', ['/apis/apps/v1/statefulsets']),
     read('DaemonSets', ['/apis/apps/v1/daemonsets']),
@@ -402,6 +445,7 @@ export async function fetchClusterScan(
     read('Service accounts', ['/api/v1/serviceaccounts']),
     read('Resource quotas', ['/api/v1/resourcequotas']),
     read('Limit ranges', ['/api/v1/limitranges']),
+    read('Storage classes', ['/apis/storage.k8s.io/v1/storageclasses']),
   ]);
   // The cluster's default Pod Security level (VKS enforces "restricted" on unlabelled namespaces).
   const probeNs = nss ? probeNamespace(nss) : undefined;
@@ -468,6 +512,15 @@ export async function fetchClusterScan(
         .filter(([, v]) => v === undefined)
         .map(([k]) => k),
     }),
+    storageClasses: scs
+      ? {
+          names: scs.map((c: any) => c?.metadata?.name),
+          defaults: scs
+            .filter((c: any) => ['storageclass.kubernetes.io/is-default-class', 'storageclass.beta.kubernetes.io/is-default-class'].some(k => c?.metadata?.annotations?.[k] === 'true'))
+            .map((c: any) => c.metadata.name),
+        }
+      : undefined,
+    stuckNodes: stuckNodes(pods ?? [], now),
     at: now.toISOString(),
     errors,
   };

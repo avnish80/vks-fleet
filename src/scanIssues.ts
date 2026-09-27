@@ -90,6 +90,54 @@ export function scanIssues(scans: ClusterScan[], clusters: FleetCluster[], now: 
       });
     }
   }
+  // Storage classes: none marked default (claims without a class wait forever), or several.
+  for (const s of scans) {
+    const c = byKey.get(s.clusterKey);
+    const sc = s.storageClasses;
+    if (!c || !sc || !sc.names.length) continue;
+    if (sc.defaults.length !== 1) {
+      const none = sc.defaults.length === 0;
+      out.push({
+        ...base(c, c.supervisorId, 'storage-default', 'warning', now),
+        title: none ? `No default StorageClass in ${c.name}` : `${sc.defaults.length} default StorageClasses in ${c.name}`,
+        cause: none
+          ? 'Volume claims that name no storage class stay Pending forever. Many Helm charts rely on a default (for example Trivy Operator\u2019s server).'
+          : `Several classes are marked default (${sc.defaults.join(', ')}); which one a claim gets is unpredictable.`,
+        evidence: [`Storage classes: ${sc.names.join(', ')}`],
+        fix: none ? 'Mark one class as the default (usually the vSAN default policy).' : 'Keep one default and remove the annotation from the others.',
+        primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+        runbook: [
+          {
+            title: none ? 'Mark a default' : 'Remove the extra default marks',
+            commands: [
+              none
+                ? `kubectl --context ${s.contextName} patch storageclass ${sc.names.find(n => /vsan-default-storage-policy$/.test(n)) ?? sc.names[0]} -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`
+                : `kubectl --context ${s.contextName} patch storageclass <class> -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'`,
+            ],
+          },
+        ],
+      });
+    }
+    // Pods stuck being created or deleted on one node: its CNI has stalled.
+    for (const n of s.stuckNodes) {
+      const k = `kubectl --context ${s.contextName}`;
+      out.push({
+        ...base(c, c.supervisorId, `stuck-node-${n.node}`, 'warning', now),
+        title: `Pods stuck on node ${n.node} in ${c.name}`,
+        cause: `${n.terminating.length} pod${n.terminating.length === 1 ? '' : 's'} stuck terminating and ${n.creating.length} stuck creating for over 3 minutes on this node. That usually means its pod networking (the CNI chain: Multus, then Calico or Antrea) has stalled.`,
+        evidence: [...n.terminating.map(p => `terminating: ${p}`), ...n.creating.map(p => `creating: ${p}`)].slice(0, 8),
+        fix: "Restart the node's Multus pod (its DaemonSet recreates it). If pods still hang, replace the node.",
+        primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+        runbook: [
+          { title: 'CNI pods on the node', commands: [`${k} get pods -A -o wide --field-selector spec.nodeName=${n.node} | grep -i -E 'multus|calico|antrea'`] },
+          { title: 'What the stuck pods report', commands: [`${k} describe pod -n ${(n.terminating[0] ?? n.creating[0]).split('/')[0]} ${(n.terminating[0] ?? n.creating[0]).split('/')[1]} | sed -n '/Events:/,$p' | tail -6`] },
+          { title: "Restart Multus on that node", commands: [`${k} -n <multus namespace> delete pod <multus pod on ${n.node}>`], note: 'Multus is usually in the multus-cni or kube-system namespace; the first command shows which.' },
+          { title: 'Clear pods stuck terminating (their containers are gone)', commands: [`${k} delete pod -n <namespace> <pod> --grace-period=0 --force`] },
+        ],
+      });
+    }
+  }
+
   // Image drift: the same app on different image versions in different clusters.
   for (const app of groupApps(scans.flatMap(s => s.workloads))) {
     if (app.clusters.length < 2 || !app.drift.length) continue;

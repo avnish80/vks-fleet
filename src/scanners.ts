@@ -8,6 +8,24 @@
  *    ClusterPolicyReports (wgpolicyk8s.io/v1alpha2, or openreports.io/v1alpha1).
  */
 import { describeError, statusOf, SupervisorClient } from './api/client';
+import { isPlatformNamespace } from './workload';
+
+/** Who fixes an image: VKS (its releases and standard packages) or the cluster owner. */
+export type ImageOwner = 'vks' | 'you';
+
+const VKS_IMAGE = /(^|\/)vsphere\/(supervisor|vksm)\/|(^|\/)tkg\/|packages\.broadcom\.com|projects\.registry\.vmware\.com/i;
+
+export function imageOwner(image: string, namespace: string): ImageOwner {
+  return VKS_IMAGE.test(image) || isPlatformNamespace(namespace) ? 'vks' : 'you';
+}
+
+/** Where a VKS image comes from, e.g. "vks-standard-packages 3.7.0-20260618". */
+export function vksSource(image: string): string {
+  const m = /(vks-standard-packages|vksm-extensions|tkg-standard-packages|vks-addons)\/(?:ga\/)?([^/@:]+)/.exec(image);
+  if (m) return `${m[1]} ${m[2]}`;
+  if (/localhost:5000\/tkg|(^|\/)tkg\//.test(image)) return 'VKS release images';
+  return 'VKS platform';
+}
 
 export type Sev = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 const SEVS: Sev[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
@@ -25,6 +43,9 @@ export interface Vuln {
 
 export interface ImageReport {
   image: string;
+  owner: ImageOwner;
+  /** For VKS images: the release or package set they come from. */
+  source?: string;
   namespace: string;
   workload: string;
   container?: string;
@@ -35,6 +56,7 @@ export interface ImageReport {
 }
 
 export interface ConfigAudit {
+  owner: ImageOwner;
   namespace: string;
   workload: string;
   failed: Array<{ id: string; title: string; severity: Sev }>;
@@ -95,8 +117,11 @@ export function parseVulnerabilityReports(items: any[]): ImageReport[] {
       UNKNOWN: Number(s.unknownCount ?? 0),
     };
     const vulns: any[] = rep.vulnerabilities ?? [];
+    const owner = imageOwner(image, r?.metadata?.namespace ?? '');
     return {
       image,
+      owner,
+      source: owner === 'vks' ? vksSource(image) : undefined,
       namespace: r?.metadata?.namespace ?? '',
       workload: workloadOf(r),
       container: r?.metadata?.labels?.['trivy-operator.container.name'],
@@ -121,6 +146,7 @@ export function parseVulnerabilityReports(items: any[]): ImageReport[] {
 export function parseConfigAudits(items: any[]): ConfigAudit[] {
   return items
     .map(r => ({
+      owner: (isPlatformNamespace(r?.metadata?.namespace ?? '') ? 'vks' : 'you') as ImageOwner,
       namespace: r?.metadata?.namespace ?? '',
       workload: workloadOf(r),
       failed: (r?.report?.checks ?? [])
@@ -239,10 +265,10 @@ export interface FleetCve {
 }
 
 /** The fleet's CVEs (critical and high), most widespread first. */
-export function topCves(reports: ScannerReports[]): FleetCve[] {
+export function topCves(reports: ScannerReports[], owner?: ImageOwner): FleetCve[] {
   const m = new Map<string, FleetCve>();
   for (const r of reports) {
-    for (const img of r.images) {
+    for (const img of r.images.filter(i => !owner || i.owner === owner)) {
       for (const v of img.top) {
         const cur = m.get(v.id) ?? { id: v.id, severity: v.severity, fixed: v.fixed, title: v.title, link: v.link, images: new Set(), clusters: new Set(), workloads: new Set() };
         cur.images.add(img.image);
@@ -259,6 +285,8 @@ export function topCves(reports: ScannerReports[]): FleetCve[] {
 
 export interface FleetImage {
   image: string;
+  owner: ImageOwner;
+  source?: string;
   counts: Record<Sev, number>;
   fixable: number;
   clusters: Set<string>;
@@ -266,11 +294,11 @@ export interface FleetImage {
 }
 
 /** Unique images across the fleet with their vulnerability counts. */
-export function fleetImages(reports: ScannerReports[]): FleetImage[] {
+export function fleetImages(reports: ScannerReports[], owner?: ImageOwner): FleetImage[] {
   const m = new Map<string, FleetImage>();
   for (const r of reports) {
-    for (const img of r.images) {
-      const cur = m.get(img.image) ?? { image: img.image, counts: img.counts, fixable: img.fixable, clusters: new Set(), workloads: new Set() };
+    for (const img of r.images.filter(i => !owner || i.owner === owner)) {
+      const cur = m.get(img.image) ?? { image: img.image, owner: img.owner, source: img.source, counts: img.counts, fixable: img.fixable, clusters: new Set(), workloads: new Set() };
       cur.clusters.add(r.clusterName);
       cur.workloads.add(`${r.clusterName}: ${img.namespace}/${img.workload}`);
       m.set(img.image, cur);
@@ -278,3 +306,39 @@ export function fleetImages(reports: ScannerReports[]): FleetImage[] {
   }
   return Array.from(m.values()).sort((a, b) => b.counts.CRITICAL - a.counts.CRITICAL || b.counts.HIGH - a.counts.HIGH);
 }
+
+export interface VksSourceSummary {
+  source: string;
+  images: number;
+  critical: number;
+  high: number;
+  /** Critical and high findings with a fixed version available. */
+  fixable: number;
+  clusters: Set<string>;
+  namespaces: Set<string>;
+}
+
+/** VKS-managed images grouped by where they come from (a standard-packages version, a release). */
+export function vksSummary(reports: ScannerReports[]): VksSourceSummary[] {
+  const m = new Map<string, VksSourceSummary & { seen: Set<string> }>();
+  for (const r of reports) {
+    for (const img of r.images.filter(i => i.owner === 'vks')) {
+      const key = img.source ?? 'VKS platform';
+      const cur = m.get(key) ?? { source: key, images: 0, critical: 0, high: 0, fixable: 0, clusters: new Set(), namespaces: new Set(), seen: new Set() };
+      if (!cur.seen.has(img.image)) {
+        cur.seen.add(img.image);
+        cur.images += 1;
+        cur.critical += img.counts.CRITICAL;
+        cur.high += img.counts.HIGH;
+        cur.fixable += img.top.filter(v => v.fixed).length;
+      }
+      cur.clusters.add(r.clusterName);
+      cur.namespaces.add(img.namespace);
+      m.set(key, cur);
+    }
+  }
+  return Array.from(m.values())
+    .map(({ seen, ...rest }) => rest)
+    .sort((a, b) => b.critical - a.critical);
+}
+

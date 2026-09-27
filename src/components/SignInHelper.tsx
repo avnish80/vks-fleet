@@ -1,13 +1,14 @@
 import { Alert, Box, Button, Typography } from '@mui/material';
 import React from 'react';
+import { useFleetData } from '../fleetContext';
 import { FleetCluster, SupervisorConfig, WorkloadHealth } from '../types';
 
 /** The command that signs in to one VKS cluster, for the identity in use. */
-export function clusterLoginCommand(c: FleetCluster, s: SupervisorConfig | undefined): string {
+export function clusterLoginCommand(c: FleetCluster, s: SupervisorConfig | undefined, user?: string): string {
   if (s?.mode === 'vcfa') {
     return `# ${c.name}: download its kubeconfig from VCF Automation (the cluster's page), or with the VCF CLI:\nvcf cluster kubeconfig get ${c.name} --export-file ~/.kube/${c.name}.kubeconfig   # then merge it into ~/.kube/config`;
   }
-  return `kubectl vsphere login --server=${s?.headlampCluster ?? '<supervisor>'} --vsphere-username <you@domain> --insecure-skip-tls-verify \\\n  --tanzu-kubernetes-cluster-namespace ${c.namespace} --tanzu-kubernetes-cluster-name ${c.name}`;
+  return `kubectl vsphere login --server=${s?.headlampCluster ?? '<supervisor>'} --vsphere-username ${user ?? '<you@domain>'} --insecure-skip-tls-verify \\\n  --tanzu-kubernetes-cluster-namespace ${c.namespace} --tanzu-kubernetes-cluster-name ${c.name}`;
 }
 
 /**
@@ -24,12 +25,15 @@ export function SignInHelper({
   supervisors: SupervisorConfig[];
 }) {
   const [copied, setCopied] = React.useState(false);
+  const { persona } = useFleetData();
+  // The signed-in user (from the Supervisor's own answer), so the commands run without editing.
+  const user = persona?.user && !persona.user.includes(':') ? persona.user : undefined;
   const missing = clusters
     .map(c => ({ c, h: health.get(c.key) }))
     .filter(x => !x.h || x.h.status === 'no-context' || x.h.status === 'expired');
   if (!missing.length) return null;
   const sup = (c: FleetCluster) => supervisors.find(s => s.id === c.supervisorId);
-  const commands = missing.map(({ c }) => clusterLoginCommand(c, sup(c))).join('\n\n') + '\n\ndocker restart headlamp   # or restart Headlamp however it runs, so it reloads the kubeconfig';
+  const commands = missing.map(({ c }) => clusterLoginCommand(c, sup(c), user)).join('\n\n') + '\n\ndocker restart headlamp   # or restart Headlamp however it runs, so it reloads the kubeconfig';
   return (
     <Alert severity="warning" sx={{ mb: 2 }}>
       <Typography variant="body2" sx={{ mb: 1 }}>
@@ -56,7 +60,8 @@ export function SignInHelper({
         {copied ? 'Copied' : 'Copy all commands'}
       </Button>
       <Typography variant="caption" display="block" color="text.secondary">
-        Cluster sign-ins last about 10 hours; the deployment's refresher (or a cron entry) keeps them fresh.
+        Cluster sign-ins last about 10 hours. To stop this recurring, refresh them on a timer: the deployment's refresher does it for
+        shared instances; on a jump server, a small script run by a systemd timer (see the README).
       </Typography>
     </Alert>
   );

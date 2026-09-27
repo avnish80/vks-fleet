@@ -1,9 +1,11 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button, Typography } from '@mui/material';
+import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Link } from 'react-router-dom';
+import { PACKAGES_PATH, UPGRADES_PATH } from '../routes';
 import React from 'react';
 import { useFleetData } from '../fleetContext';
 import { download } from '../report';
-import { FleetCve, FleetImage, fleetImages, Sev, topCves } from '../scanners';
+import { FleetCve, FleetImage, fleetImages, ImageOwner, Sev, topCves, VksSourceSummary, vksSummary } from '../scanners';
 import { useScannerReports } from '../useScannerReports';
 import { useWorkloadHealth } from '../useWorkload';
 import { ChartStyles, KpiTile } from './charts';
@@ -26,18 +28,25 @@ export function VulnerabilitiesPage() {
     .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName);
   const reports = useScannerReports(targets);
   const [showAll, setShowAll] = React.useState(false);
+  const [view, setView] = React.useState<'you' | 'vks' | 'all' | null>(null);
   if (results === null) return <Loader title="Loading clusters" />;
   if (clusters.length === 0) return <NoClusters title="Vulnerabilities" what="vulnerability information" />;
   if (targets.length > 0 && reports === null) return <Loader title="Reading scanner reports" />;
   const list = reports ?? [];
   const withTrivy = list.filter(r => r.trivy);
   const without = list.filter(r => !r.trivy);
-  const cves = topCves(withTrivy);
-  const images = fleetImages(withTrivy);
+  // Default to the cluster owners' own images when there are any: those are the ones they can fix.
+  const hasOwn = withTrivy.some(r => r.images.some(i => i.owner === 'you'));
+  const shown: 'you' | 'vks' | 'all' = view ?? (hasOwn ? 'you' : 'all');
+  const ownerFilter: ImageOwner | undefined = shown === 'all' ? undefined : shown;
+  const cves = topCves(withTrivy, ownerFilter);
+  const images = fleetImages(withTrivy, ownerFilter);
+  const vks = vksSummary(withTrivy);
   const sum = (k: Sev) => images.reduce((n, i) => n + i.counts[k], 0);
   const fixableCritical = cves.filter(c => c.severity === 'CRITICAL' && c.fixed).length;
   const secrets = withTrivy.flatMap(r => r.exposedSecrets.map(x => ({ ...x, cluster: r.clusterName })));
-  const audits = withTrivy.flatMap(r => r.audits.map(a => ({ ...a, cluster: r.clusterName })));
+  const audits = withTrivy.flatMap(r => r.audits.filter(a => !ownerFilter || a.owner === ownerFilter).map(a => ({ ...a, cluster: r.clusterName })));
+  const viewLabel = shown === 'you' ? 'your images' : shown === 'vks' ? 'VKS-managed images' : 'all images';
   const stamp = new Date().toISOString().slice(0, 10);
   const csv = () =>
     ['cve,severity,fixed_version,clusters,images,workloads,title']
@@ -63,10 +72,23 @@ export function VulnerabilitiesPage() {
           each cluster. The plugin only reads them; install Trivy Operator in the clusters you want covered.
         </Typography>
         {withTrivy.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+            <TextField select size="small" label="Show" value={shown} onChange={e => setView(e.target.value as 'you' | 'vks' | 'all')} sx={{ minWidth: 260 }}>
+              <MenuItem value="you">Your images (you fix these)</MenuItem>
+              <MenuItem value="vks">VKS-managed images</MenuItem>
+              <MenuItem value="all">Everything</MenuItem>
+            </TextField>
+            <Typography variant="body2" color="text.secondary">
+              VKS-managed images (from VKS releases and standard packages, or in platform namespaces) are rebuilt by VKS; yours are
+              rebuilt by your teams.
+            </Typography>
+          </Box>
+        )}
+        {withTrivy.length > 0 && (
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 2 }}>
-            <KpiTile label="Critical" value={sum('CRITICAL')} sub={`${fixableCritical} distinct CVEs fixable`} tone={sum('CRITICAL') ? 'error' : 'success'} />
-            <KpiTile label="High" value={sum('HIGH')} tone={sum('HIGH') ? 'warning' : 'success'} />
-            <KpiTile label="Images scanned" value={images.length} sub={`in ${withTrivy.length} cluster${withTrivy.length === 1 ? '' : 's'}`} tone="primary" />
+            <KpiTile label="Critical" value={sum('CRITICAL')} sub={`${viewLabel}; ${fixableCritical} distinct CVEs fixable`} tone={sum('CRITICAL') ? 'error' : 'success'} />
+            <KpiTile label="High" value={sum('HIGH')} sub={viewLabel} tone={sum('HIGH') ? 'warning' : 'success'} />
+            <KpiTile label="Images" value={images.length} sub={`${viewLabel}, in ${withTrivy.length} cluster${withTrivy.length === 1 ? '' : 's'}`} tone="primary" />
             <KpiTile label="Secrets in images" value={secrets.length} tone={secrets.length ? 'error' : 'success'} />
             <KpiTile label="Misconfigured workloads" value={audits.length} tone={audits.length ? 'warning' : 'success'} />
           </Box>
@@ -83,8 +105,16 @@ export function VulnerabilitiesPage() {
         )}
       </SectionBox>
 
+      {vks.length > 0 && <VksSummarySection vks={vks} />}
+
+      {shown === 'you' && hasOwn === false && withTrivy.length > 0 && (
+        <SectionBox title="Your images">
+          <Typography color="text.secondary">No images of yours have been scanned yet: everything scanned so far is VKS-managed.</Typography>
+        </SectionBox>
+      )}
+
       {cves.length > 0 && (
-        <SectionBox title="Top vulnerabilities across the fleet">
+        <SectionBox title={`Top vulnerabilities (${viewLabel})`}>
           <SimpleTable
             columns={[
               {
@@ -120,6 +150,7 @@ export function VulnerabilitiesPage() {
           <SimpleTable
             columns={[
               { label: 'Image', getter: (i: FleetImage) => <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{i.image}</Typography> },
+              { label: 'Owner', getter: (i: FleetImage) => (i.owner === 'vks' ? `VKS (${i.source ?? 'platform'})` : 'Yours') },
               {
                 label: 'Critical / high / medium',
                 getter: (i: FleetImage) => (
@@ -185,3 +216,40 @@ export function VulnerabilitiesPage() {
     </>
   );
 }
+
+/** VKS-managed images, grouped by where they come from, with what to do about them. */
+function VksSummarySection({ vks }: { vks: VksSourceSummary[] }) {
+  return (
+    <SectionBox
+      title="VKS-managed images"
+      headerProps={{
+        actions: [
+          <Button key="pk" size="small" variant="outlined" component={Link} to={PACKAGES_PATH}>
+            Packages
+          </Button>,
+          <Button key="up" size="small" variant="outlined" component={Link} to={UPGRADES_PATH}>
+            Upgrades
+          </Button>,
+        ],
+      }}
+    >
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        These come from VKS releases and standard packages; they're fixed by a newer package version or VKS release, not by
+        rebuilding. Check the Packages page for a newer version in your repositories. A CVE in a library an image contains
+        (curl, for example) matters only if the component uses the affected feature.
+      </Typography>
+      <SimpleTable
+        columns={[
+          { label: 'Source', getter: (v: VksSourceSummary) => <b>{v.source}</b> },
+          { label: 'Images', getter: (v: VksSourceSummary) => v.images },
+          { label: 'Critical', getter: (v: VksSourceSummary) => <StatusLabel status={v.critical ? 'error' : 'success'}>{String(v.critical)}</StatusLabel> },
+          { label: 'High', getter: (v: VksSourceSummary) => <StatusLabel status={v.high ? 'warning' : 'success'}>{String(v.high)}</StatusLabel> },
+          { label: 'Fix published upstream', getter: (v: VksSourceSummary) => (v.fixable ? `${v.fixable} findings` : 'none yet') },
+          { label: 'Where', getter: (v: VksSourceSummary) => `${Array.from(v.clusters).join(', ')}: ${Array.from(v.namespaces).join(', ')}` },
+        ]}
+        data={vks}
+      />
+    </SectionBox>
+  );
+}
+
