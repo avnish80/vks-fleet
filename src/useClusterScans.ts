@@ -1,4 +1,4 @@
-import { headlampClient } from './api/headlampClient';
+import { headlampClient, headlampWriter } from './api/headlampClient';
 import { ClusterScan, fetchClusterScan } from './clusterScan';
 import { usePolling } from './usePolling';
 
@@ -13,7 +13,10 @@ export function useClusterScans(targets: ScanTarget[], allowedRegistries: string
   const id = targets.length ? JSON.stringify([targets.map(t => [t.key, t.contextName]), allowedRegistries]) : null;
   const polled = usePolling(
     id,
-    () => Promise.all(targets.map(t => fetchClusterScan(headlampClient(t.contextName), t.key, t.name, t.contextName, allowedRegistries))),
+    () =>
+      Promise.all(
+        targets.map(t => fetchClusterScan(headlampClient(t.contextName), t.key, t.name, t.contextName, allowedRegistries, new Date(), headlampWriter(t.contextName)))
+      ),
     seconds
   );
   return targets.length ? polled : [];

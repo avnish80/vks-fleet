@@ -22,12 +22,14 @@ import { Silence } from '../types';
 import { SinceLastVisit } from './Awareness';
 import { complianceIssues } from '../complianceReport';
 import { isolationIssues, isolationReport } from '../isolation';
+import { scannerIssues } from '../scannerIssues';
+import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
 import { ALL_ORGS } from '../scope';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
-import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE } from '../routes';
+import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, SEARCH_ROUTE } from '../routes';
 import { formatBytes } from '../quantity';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
@@ -136,6 +138,11 @@ export function FleetView() {
   const packages = usePackages(packageTargets);
   const backups = useBackups(packageTargets);
   const complianceBaselines = useComplianceStore()?.baselines ?? {};
+  const scannerReports = useScannerReports(
+    allClusters
+      .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
+      .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName)
+  );
   const scans = useClusterScans(
     allClusters
       .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
@@ -156,6 +163,7 @@ export function FleetView() {
         [
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
+          ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
           ...(all && inventoryAll
             ? isolationIssues(
                 isolationReport(all, inventoryAll, null).filter(r => org === '__all__' || r.orgId === org),
@@ -164,7 +172,7 @@ export function FleetView() {
             : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));
@@ -228,12 +236,6 @@ export function FleetView() {
   const actions = [
     <Button key="search" size="small" variant="outlined" component={Link} to={SEARCH_ROUTE}>
       Search the fleet
-    </Button>,
-    <Button key="packages" size="small" variant="outlined" component={Link} to={PACKAGES_PATH}>
-      Packages
-    </Button>,
-    <Button key="machines" size="small" variant="outlined" component={Link} to={MACHINES_PATH}>
-      Machines
     </Button>,
     <Button key="export" size="small" variant="outlined" onClick={() => setExportOpen(true)}>
       Export report

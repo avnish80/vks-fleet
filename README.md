@@ -296,6 +296,29 @@ Titles are the plugin's own, and each control references the CIS section it alig
 - **Results** are summarised into the `vks-fleet-scan/kube-bench-results` ConfigMap, which keeps the last 5 runs per target **in the cluster itself**. The Jobs are deleted afterwards (and expire within the hour regardless).
 - **In the benchmark:** the file-permission controls take their result from the latest scan, and the cluster section lists every kube-bench check (failures and warnings first) with what was found and the remediation.
 - **The image** defaults to `docker.io/aquasec/kube-bench:latest`; set your own mirrored and pinned image in the dialog, and it's remembered.
+- **The benchmark** defaults to `cis-1.10` and can be changed in the dialog. kube-bench guesses the benchmark from the Kubernetes version and mistakes VKS (`+vmware`) for TKGI, whose checks look for paths VKS nodes don't have. Results from such foreign benchmarks are flagged and not counted.
+- **A slow or stuck scan** shows the pod's latest event as it waits (a large image pulling, or `FailedCreatePodSandBox` when pod networking is broken on the node) and reports it if the scan times out.
+
+**Frameworks and OSCAL.** The Compliance page switches between **CIS-aligned** and **NSA/CISA hardening**, the NSA/CISA Kubernetes Hardening Guidance with its sections: pod security; network separation and hardening; authentication and authorization; audit logging; application practices. Two further controls:
+
+- **Read-only root filesystems.**
+- **A resource quota or limit range per namespace with workloads,** which is NSA/CISA only.
+
+Besides Markdown and CSV, **OSCAL** exports the results as OSCAL 1.1 Assessment Results (JSON): an observation per control with its evidence, findings for passes and failures, and waivers as risks with an approved deviation and its deadline. Compliance and GRC tools can take it in directly.
+
+**Scanner reports (read-only).** The plugin gathers what security tools already write into the clusters:
+
+- **Vulnerabilities** (sidebar), from **Trivy Operator**:
+  - totals of critical and high CVEs
+  - **the top CVEs across the fleet**: which clusters, images and workloads, and the fixed version when there is one
+  - every scanned image with its counts
+  - **secrets baked into images** (counts only; the matched text is never read into the plugin)
+  - Trivy's workload configuration audits
+  - a CSV export
+
+  Clusters without Trivy Operator are listed with the Helm command to install it.
+- **On the Compliance page:** Trivy's own compliance reports (its CIS and NSA runs), and **policy results** from Kyverno or any engine writing PolicyReports (`wgpolicyk8s.io`) or OpenReports (`openreports.io`), with the failing and warning results.
+- **Issues:** images with critical CVEs (a warning when fixes exist), secrets found in images (critical), and failing policy results.
 
 **Tenant isolation** (on the Compliance page, for operators and read-only admins): a per-org check, from the Supervisor's view, that orgs are separated:
 
@@ -307,6 +330,8 @@ Titles are the plugin's own, and each control references the CIS section it alig
 - **Firewall policies present and applied.**
 
 Failures become fleet issues, and a Markdown report can be downloaded.
+
+**Pod Security cluster default.** VKS enforces the **restricted** level on namespaces without a Pod Security label, a cluster-wide default that isn't visible through the API. The plugin finds it with two server-side dry-run pod creations in an unlabelled namespace; they create nothing. Namespaces then show their effective level ("restricted (cluster default)"), and the compliance control counts namespaces by label and by default. The "no Pod Security label" finding only appears when the default couldn't be checked, for example for users who can't create pods. Enforcing a level the default already applies is still allowed: the label pins it, so a later change of default won't weaken the namespace.
 
 **Pages that read inside clusters** (Security, Applications, Packages, Compliance) say so plainly when the selected org has no VKS clusters, instead of waiting. **Orgs shown only by their ID** get a "Name this org" button on their card; names are kept with the plugin settings and apply everywhere.
 
@@ -520,6 +545,8 @@ src/
   nodeScan.ts           kube-bench Jobs, result parsing and history
   nodeScanRunner.ts     Node scan orchestration (namespace, Jobs, results, clean-up)
   isolation.ts          Tenant isolation report
+  scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
+  scannerIssues.ts      Issues from scanner reports
   fleetContext.tsx      Shared page data: settings, fleet, personas, selected org
   packages.ts           Package inventory, updates and fleet drift
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching

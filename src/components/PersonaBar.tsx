@@ -55,7 +55,7 @@ export function PersonaBar() {
             value={identity ?? ''}
             onChange={e => setIdentity(e.target.value)}
             sx={{ minWidth: 260 }}
-            helperText="Switches the account the plugin reads and acts with"
+            title="Switches the account the plugin reads and acts with"
           >
             {identities.map(i => (
               <MenuItem key={i.id} value={i.id}>
@@ -94,13 +94,30 @@ export function PersonaBar() {
   );
 }
 
+/** Consistent, calmer tables and spacing on every plugin page (scoped to the plugin). */
+function PageStyles() {
+  return (
+    <style>{`
+      .vks-fleet-page .MuiTableCell-head { font-weight: 600; white-space: nowrap; }
+      .vks-fleet-page .MuiTableCell-root { vertical-align: top; }
+      .vks-fleet-page .MuiTableBody-root .MuiTableRow-root:hover > td { background-color: rgba(127, 127, 127, 0.06); }
+      .vks-fleet-page table { font-variant-numeric: tabular-nums; }
+      .vks-fleet-page .MuiAlert-root { border-radius: 8px; }
+      .vks-fleet-page pre, .vks-fleet-page code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    `}</style>
+  );
+}
+
 /** Every plugin page: shared data, the persona bar, then the page. */
 export function PageFrame({ children }: { children: ReactNode }) {
   return (
     <FleetProvider>
-      <PersonaBar />
-      <CommandPalette />
-      {children}
+      <PageStyles />
+      <Box className="vks-fleet-page">
+        <PersonaBar />
+        <CommandPalette />
+        {children}
+      </Box>
     </FleetProvider>
   );
 }

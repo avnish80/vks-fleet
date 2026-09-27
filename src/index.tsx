@@ -11,6 +11,7 @@ import { BaselinePage } from './components/BaselinePage';
 import { CapacityPage } from './components/CapacityPage';
 import { AppsPage, SecurityPage, ShowbackPage } from './components/InsightPages';
 import { CompliancePage } from './components/CompliancePage';
+import { VulnerabilitiesPage } from './components/VulnerabilitiesPage';
 import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail, VmsPage } from './components/NamespacePages';
 import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
@@ -20,7 +21,7 @@ import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { APPS_ROUTE, COMPLIANCE_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
+import { APPS_ROUTE, COMPLIANCE_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
 import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
@@ -42,21 +43,22 @@ registerSidebarEntry({
 });
 
 for (const child of [
-  { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE },
-  { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH },
-  { name: 'vks-fleet-namespaces', label: 'Namespaces', url: NAMESPACE_BASE },
-  { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH },
-  { name: 'vks-fleet-vms', label: 'VMs', url: VM_BASE },
-  { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH },
-  { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE },
-  { name: 'vks-fleet-security', label: 'Security', url: SECURITY_ROUTE },
-  { name: 'vks-fleet-compliance', label: 'Compliance', url: COMPLIANCE_ROUTE },
-  { name: 'vks-fleet-showback', label: 'Showback', url: SHOWBACK_PATH },
-  { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH },
-  { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH },
-  { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH },
-  { name: 'vks-fleet-cleanup', label: 'Cleanup', url: CLEANUP_PATH },
-  { name: 'vks-fleet-access', label: 'Access', url: ACCESS_PATH },
+  { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE, icon: 'mdi:magnify' },
+  { name: 'vks-fleet-namespaces', label: 'Namespaces', url: NAMESPACE_BASE, icon: 'mdi:folder-network-outline' },
+  { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH, icon: 'mdi:server' },
+  { name: 'vks-fleet-vms', label: 'VMs', url: VM_BASE, icon: 'mdi:monitor' },
+  { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH, icon: 'mdi:lan' },
+  { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE, icon: 'mdi:apps' },
+  { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH, icon: 'mdi:package-variant-closed' },
+  { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH, icon: 'mdi:arrow-up-bold-circle-outline' },
+  { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH, icon: 'mdi:gauge' },
+  { name: 'vks-fleet-security', label: 'Security', url: SECURITY_ROUTE, icon: 'mdi:shield-lock-outline' },
+  { name: 'vks-fleet-compliance', label: 'Compliance', url: COMPLIANCE_ROUTE, icon: 'mdi:clipboard-check-outline' },
+  { name: 'vks-fleet-vulns', label: 'Vulnerabilities', url: VULNS_ROUTE, icon: 'mdi:bug-outline' },
+  { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH, icon: 'mdi:ruler-square' },
+  { name: 'vks-fleet-cleanup', label: 'Cleanup', url: CLEANUP_PATH, icon: 'mdi:broom' },
+  { name: 'vks-fleet-access', label: 'Access', url: ACCESS_PATH, icon: 'mdi:account-key-outline' },
+  { name: 'vks-fleet-showback', label: 'Showback', url: SHOWBACK_PATH, icon: 'mdi:cash-multiple' },
 ]) {
   registerSidebarEntry({ parent: 'vks-fleet', ...child, useClusterURL: false, sidebar: 'HOME' });
 }
@@ -84,6 +86,7 @@ for (const page of [
   { path: APPS_ROUTE, name: 'vks-fleet-apps', component: () => (<PageFrame><AppsPage /></PageFrame>) },
   { path: SECURITY_ROUTE, name: 'vks-fleet-security', component: () => (<PageFrame><SecurityPage /></PageFrame>) },
   { path: COMPLIANCE_ROUTE, name: 'vks-fleet-compliance', component: () => (<PageFrame><CompliancePage /></PageFrame>) },
+  { path: VULNS_ROUTE, name: 'vks-fleet-vulns', component: () => (<PageFrame><VulnerabilitiesPage /></PageFrame>) },
   { path: SHOWBACK_PATH, name: 'vks-fleet-showback', component: () => (<PageFrame><ShowbackPage /></PageFrame>) },
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
     <PageFrame>

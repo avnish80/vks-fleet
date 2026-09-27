@@ -1,7 +1,7 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { headlampClient, headlampWriter } from '../api/headlampClient';
-import { DEFAULT_KUBE_BENCH_IMAGE, SCAN_NS } from '../nodeScan';
+import { DEFAULT_BENCHMARK, DEFAULT_KUBE_BENCH_IMAGE, SCAN_NS } from '../nodeScan';
 import { runNodeScan, ScanStep } from '../nodeScanRunner';
 import { settingsStore } from '../settings/store';
 
@@ -10,25 +10,29 @@ export function NodeScanDialog({
   cluster,
   contextName,
   image: configured,
+  benchmark: configuredBenchmark,
   onClose,
   onDone,
 }: {
   cluster: string;
   contextName: string;
   image?: string;
+  benchmark?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [image, setImage] = React.useState(configured ?? DEFAULT_KUBE_BENCH_IMAGE);
+  const [benchmark, setBenchmark] = React.useState(configuredBenchmark ?? DEFAULT_BENCHMARK);
   const [steps, setSteps] = React.useState<ScanStep[]>([]);
   const [phase, setPhase] = React.useState<'idle' | 'checking' | 'checked' | 'running' | 'done'>('idle');
   const [result, setResult] = React.useState<{ ok: boolean; message: string } | null>(null);
 
   const go = async (dryRun: boolean) => {
     if (image !== (configured ?? DEFAULT_KUBE_BENCH_IMAGE)) settingsStore.update({ nodeScanImage: image });
+    if (benchmark !== (configuredBenchmark ?? DEFAULT_BENCHMARK)) settingsStore.update({ nodeScanBenchmark: benchmark });
     setPhase(dryRun ? 'checking' : 'running');
     setSteps([]);
-    const r = await runNodeScan(headlampClient(contextName), headlampWriter(contextName), { image, dryRun }, setSteps);
+    const r = await runNodeScan(headlampClient(contextName), headlampWriter(contextName), { image, benchmark, dryRun }, setSteps);
     setResult(r);
     setPhase(dryRun ? (r.ok ? 'checked' : 'idle') : 'done');
     if (!dryRun) onDone();
@@ -52,6 +56,14 @@ export function NodeScanDialog({
             onChange={e => setImage(e.target.value)}
             disabled={phase === 'running'}
             helperText="Pull it from your own registry on air-gapped sites (and pin a version)."
+          />
+          <TextField
+            size="small"
+            label="CIS benchmark"
+            value={benchmark}
+            onChange={e => setBenchmark(e.target.value)}
+            disabled={phase === 'running'}
+            helperText={'For example cis-1.10 or cis-1.11 (those the image ships). "auto" lets kube-bench guess, but it mistakes VKS for TKGI.'}
           />
           {steps.length > 0 && (
             <Box component="ul" sx={{ m: 0, pl: 2 }}>

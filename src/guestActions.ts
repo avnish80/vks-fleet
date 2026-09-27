@@ -26,7 +26,9 @@ export function podSecurityPlan(cluster: string, ns: NamespacePosture, level: Ps
     checks.push({ level: 'ok', text: `Every running pod in ${ns.name} already meets "${level}".` });
   }
   if (mode === 'warn') checks.push({ level: 'ok', text: 'Warn and audit only: nothing is refused; users see warnings when they create pods that break the level.' });
-  if (ns.enforce === level && mode === 'enforce') checks.push({ level: 'block', text: `${ns.name} already enforces "${level}".` });
+  if (ns.enforce === level && mode === 'enforce' && ns.enforceSource !== 'cluster default') checks.push({ level: 'block', text: `${ns.name} already enforces "${level}".` });
+  if (ns.enforce === level && mode === 'enforce' && ns.enforceSource === 'cluster default')
+    checks.push({ level: 'ok', text: `The cluster default already enforces "${level}" here; the label pins it, so a later change of default won't weaken this namespace.` });
   const labels =
     mode === 'enforce'
       ? { 'pod-security.kubernetes.io/enforce': level, 'pod-security.kubernetes.io/enforce-version': 'latest' }

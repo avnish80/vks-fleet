@@ -14,6 +14,15 @@ export const SCAN_NS = 'vks-fleet-scan';
 export const RESULTS_CM = 'kube-bench-results';
 export const DEFAULT_KUBE_BENCH_IMAGE = 'docker.io/aquasec/kube-bench:latest';
 export const HISTORY = 5;
+/**
+ * kube-bench guesses the benchmark from the Kubernetes version string; VKS's
+ * "+vmware" suffix makes it pick TKGI's (BOSH paths that don't exist on VKS
+ * nodes). So the scan names the CIS benchmark explicitly.
+ */
+export const DEFAULT_BENCHMARK = 'cis-1.10';
+
+/** Benchmarks written for other platforms: results from them don't apply to VKS nodes. */
+export const isForeignBenchmark = (b?: string) => !!b && /^(tkgi|gke|eks|aks|ack|rh-|ocp|k3s|rke)/i.test(b);
 
 export type ScanTarget = 'control-plane' | 'worker';
 
@@ -64,7 +73,7 @@ export function scanNamespaceManifest(): any {
 }
 
 /** The kube-bench Job for one target (control-plane checks or node checks). */
-export function jobManifest(target: ScanTarget, image: string): any {
+export function jobManifest(target: ScanTarget, image: string, benchmark: string = DEFAULT_BENCHMARK): any {
   const cp = target === 'control-plane';
   return {
     apiVersion: 'batch/v1',
@@ -97,7 +106,14 @@ export function jobManifest(target: ScanTarget, image: string): any {
             {
               name: 'kube-bench',
               image,
-              command: ['kube-bench', 'run', '--targets', cp ? 'master,etcd,controlplane' : 'node', '--json'],
+              command: [
+                'kube-bench',
+                'run',
+                '--targets',
+                cp ? 'master,etcd,controlplane' : 'node',
+                ...(benchmark && benchmark !== 'auto' ? ['--benchmark', benchmark] : []),
+                '--json',
+              ],
               resources: { requests: { cpu: '50m', memory: '64Mi' }, limits: { memory: '256Mi' } },
               volumeMounts: [
                 ...HOST_PATHS.map(([name, path]) => ({ name, mountPath: path, readOnly: true })),
@@ -172,7 +188,7 @@ export const latest = (runs: NodeScanRun[], target: ScanTarget) => runs.find(r =
  */
 export function mergeNodeScan(results: ControlResult[], runs: NodeScanRun[]): ControlResult[] {
   const pick = (target: ScanTarget, prefix: string) => {
-    const run = latest(runs, target);
+    const run = latest(runs.filter(r => !isForeignBenchmark(r.benchmark)), target);
     if (!run) return undefined;
     const tests = run.tests.filter(t => t.id.startsWith(prefix));
     if (!tests.length) return undefined;

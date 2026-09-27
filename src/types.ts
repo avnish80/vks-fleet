@@ -63,6 +63,8 @@ export interface PluginConfig {
   orgNames?: Record<string, string>;
   /** kube-bench image for node scans (mirror it for air-gapped sites). */
   nodeScanImage?: string;
+  /** CIS benchmark kube-bench uses (e.g. cis-1.10). */
+  nodeScanBenchmark?: string;
 }
 
 export interface Silence {

@@ -426,7 +426,9 @@ export function SecurityPage() {
                       label: 'Pod Security',
                       getter: (n: NamespacePosture) =>
                         n.enforce ? (
-                          <StatusLabel status={n.enforce === 'privileged' ? 'error' : 'success'}>{`enforce ${n.enforce}`}</StatusLabel>
+                          <StatusLabel status={n.enforce === 'privileged' ? 'error' : 'success'}>
+                            {`${n.enforce}${n.enforceSource === 'cluster default' ? ' (cluster default)' : ''}`}
+                          </StatusLabel>
                         ) : n.warn ? (
                           <StatusLabel status="warning">{`warn ${n.warn}`}</StatusLabel>
                         ) : (

@@ -16,6 +16,7 @@ export const APPS_ROUTE = '/vks-fleet/apps';
 export const SECURITY_ROUTE = '/vks-fleet/security';
 export const SHOWBACK_PATH = '/vks-fleet/showback';
 export const COMPLIANCE_ROUTE = '/vks-fleet/compliance';
+export const VULNS_ROUTE = '/vks-fleet/vulnerabilities';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

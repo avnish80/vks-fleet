@@ -17,6 +17,7 @@ import {
   SCAN_NS,
   scanNamespaceManifest,
   ScanTarget,
+  isForeignBenchmark,
 } from './nodeScan';
 
 export interface ScanStep {
@@ -26,6 +27,8 @@ export interface ScanStep {
 
 export interface ScanOptions {
   image: string;
+  /** CIS benchmark to use (e.g. cis-1.10), or "auto" to let kube-bench guess. */
+  benchmark?: string;
   targets?: ScanTarget[];
   dryRun?: boolean;
   timeoutMs?: number;
@@ -43,14 +46,15 @@ export async function runNodeScan(
   progress: (steps: ScanStep[]) => void
 ): Promise<{ ok: boolean; runs: NodeScanRun[]; message: string }> {
   const steps: ScanStep[] = [];
+  // Each step keeps a reference to its own entry, so its text can change while it runs.
   const step = (text: string) => {
-    steps.push({ text, state: 'running' });
-    progress([...steps]);
+    const entry: ScanStep = { text, state: 'running' };
+    steps.push(entry);
+    progress(steps.map(x => ({ ...x })));
     return (state: ScanStep['state'], note?: string) => {
-      const s = steps[steps.indexOf(steps.find(x => x.text === text)!)];
-      s.state = state;
-      if (note) s.text = `${text}: ${note}`;
-      progress([...steps]);
+      entry.state = state;
+      entry.text = note ? `${text}: ${note}` : text;
+      progress(steps.map(x => ({ ...x })));
     };
   };
   const sleep = opts.sleep ?? ((ms: number) => new Promise(r => setTimeout(r, ms)));
@@ -83,7 +87,7 @@ export async function runNodeScan(
   const stamp = now().getTime().toString(36);
   const names: Record<string, string> = {};
   for (const t of targets) {
-    const manifest = jobManifest(t, opts.image);
+    const manifest = jobManifest(t, opts.image, opts.benchmark);
     manifest.metadata.name = `${manifest.metadata.name}-${stamp}`;
     names[t] = manifest.metadata.name;
     done = step(`Job for ${t === 'control-plane' ? 'the control plane' : 'a worker node'}`);
@@ -107,10 +111,11 @@ export async function runNodeScan(
   for (const t of targets) {
     done = step(`Scanning ${t === 'control-plane' ? 'the control plane' : 'a worker node'}`);
     let finished = false;
-    let startedAt = now().getTime();
+    const startedAt = now().getTime();
+    let lastEvent = '';
     while (!finished) {
       if (now().getTime() > deadline) {
-        done('failed', 'timed out');
+        done('failed', `timed out${lastEvent ? ` (last event: ${lastEvent})` : ''}`);
         break;
       }
       try {
@@ -122,6 +127,21 @@ export async function runNodeScan(
         if (waiting && BAD_WAIT.test(waiting)) {
           done('failed', `${waiting}: can the cluster pull ${opts.image}? (set a mirrored image for air-gapped sites)`);
           break;
+        }
+        // Slow or stuck: say why (pulling a large image, or pod networking failing on the node).
+        if (pod && !(job?.status?.succeeded > 0) && now().getTime() - startedAt > 45000) {
+          try {
+            const evs: any = await client.get(`/api/v1/namespaces/${SCAN_NS}/events?fieldSelector=${encodeURIComponent(`involvedObject.name=${pod.metadata.name}`)}`);
+            const last = (evs?.items ?? []).sort((a: any, b: any) => String(a.lastTimestamp ?? a.eventTime ?? '').localeCompare(String(b.lastTimestamp ?? b.eventTime ?? ''))).pop();
+            if (last) {
+              lastEvent = `${last.reason}: ${String(last.message ?? '').slice(0, 160)}`;
+              const s = steps[steps.length - 1];
+              s.text = `${s.text.split(' (still')[0]} (still ${waiting ?? 'waiting'}: ${lastEvent})`;
+              progress(steps.map(x => ({ ...x })));
+            }
+          } catch {
+            // Events are a courtesy; carry on.
+          }
         }
         if (unschedulable && now().getTime() - startedAt > 60000) {
           done('failed', `can't be scheduled: ${unschedulable.message ?? unschedulable.reason}`);
@@ -136,7 +156,12 @@ export async function runNodeScan(
           const parsed = parseKubeBench(log);
           collected.push({ at: now().toISOString(), target: t, node: pod.spec?.nodeName, benchmark: parsed.benchmark, tests: parsed.tests });
           const fails = parsed.tests.filter(x => x.status === 'FAIL').length;
-          done('done', `${parsed.tests.length} checks, ${fails} failing${parsed.benchmark ? ` (${parsed.benchmark})` : ''}`);
+          done(
+            'done',
+            `${parsed.tests.length} checks, ${fails} failing${parsed.benchmark ? ` (${parsed.benchmark})` : ''}${
+              isForeignBenchmark(parsed.benchmark) ? ' — wrong benchmark for VKS, results not counted' : ''
+            }`
+          );
           finished = true;
           break;
         }

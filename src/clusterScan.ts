@@ -12,6 +12,8 @@ import { describeError, statusOf, SupervisorClient } from './api/client';
 import { parseConditions } from './capi/v1beta1';
 import { componentFlags, ControlResult, evaluateCompliance } from './compliance';
 import { refusedPods } from './pss';
+import { PsaLevel, probeNamespace, probePsaDefault } from './psaProbe';
+import { SupervisorWriter } from './api/client';
 import { isPlatformNamespace } from './workload';
 
 export interface AppWorkload {
@@ -45,7 +47,10 @@ export const SECURITY_KIND_LABEL: Record<SecurityKind, string> = {
 /** One user namespace's security posture, for the Pod Security and network actions. */
 export interface NamespacePosture {
   name: string;
+  /** Effective enforce level: the namespace's label, else the cluster default. */
   enforce?: string;
+  /** Where the enforce level comes from. */
+  enforceSource?: 'label' | 'cluster default';
   warn?: string;
   pods: number;
   netpols: number;
@@ -87,6 +92,8 @@ export interface ClusterScan {
   security: SecurityFinding[];
   gitops: GitOpsApp[];
   namespaces: NamespacePosture[];
+  /** The cluster-wide default Pod Security level (probed with dry runs), when known. */
+  psaDefault?: PsaLevel;
   /** CIS-aligned benchmark results. */
   compliance: ControlResult[];
   /** When this scan ran. */
@@ -183,7 +190,8 @@ export function securityFindings(
   clusterName: string,
   input: { namespaces: any[]; pods: any[]; bindings: any[]; certificates: any[]; networkPolicies?: any[]; services?: any[]; clusterRoles?: any[] },
   allowedRegistries: string[],
-  now: Date
+  now: Date,
+  psaDefault?: PsaLevel
 ): SecurityFinding[] {
   const out: SecurityFinding[] = [];
   const f = (kind: SecurityKind, severity: SecurityFinding['severity'], title: string, detail: string, objects: string[]) =>
@@ -191,10 +199,13 @@ export function securityFindings(
 
   const userNs = input.namespaces.filter(n => !isPlatformNamespace(n?.metadata?.name ?? '') && n?.metadata?.name !== 'default');
   const level = (n: any) => n?.metadata?.labels?.['pod-security.kubernetes.io/enforce'];
-  f('psa', 'warning', 'Namespaces that allow privileged pods', 'Pod Security is set to "privileged", so nothing stops a pod from taking over its node.',
-    userNs.filter(n => level(n) === 'privileged').map(n => n.metadata.name));
-  f('psa', 'info', 'Namespaces without a Pod Security level', 'No "pod-security.kubernetes.io/enforce" label, so the cluster default applies.',
-    userNs.filter(n => !level(n)).map(n => n.metadata.name));
+  const effective = (n: any) => level(n) ?? psaDefault;
+  f('psa', 'warning', 'Namespaces that allow privileged pods', 'Pod Security is "privileged" (by label or the cluster default), so nothing stops a pod from taking over its node.',
+    userNs.filter(n => effective(n) === 'privileged').map(n => n.metadata.name));
+  if (!psaDefault) {
+    f('psa', 'info', 'Namespaces without a Pod Security label', "No enforce label, and the cluster's default level couldn't be checked (it needs permission to dry-run a pod).",
+      userNs.filter(n => !level(n)).map(n => n.metadata.name));
+  }
 
   const userPods = input.pods.filter(p => !isPlatformNamespace(p?.metadata?.namespace ?? '') && p?.status?.phase !== 'Succeeded');
   const risky = userPods.filter(p => {
@@ -280,7 +291,7 @@ export function securityFindings(
   return out;
 }
 
-export function namespacePosture(namespaces: any[], pods: any[], networkPolicies: any[], services: any[]): NamespacePosture[] {
+export function namespacePosture(namespaces: any[], pods: any[], networkPolicies: any[], services: any[], psaDefault?: PsaLevel): NamespacePosture[] {
   return namespaces
     .filter(n => !isPlatformNamespace(n?.metadata?.name ?? '') && !['default', 'kube-public', 'kube-node-lease'].includes(n?.metadata?.name))
     .map(n => {
@@ -289,9 +300,11 @@ export function namespacePosture(namespaces: any[], pods: any[], networkPolicies
         .filter(p => p?.metadata?.namespace === name && p?.status?.phase !== 'Succeeded' && p?.status?.phase !== 'Failed')
         .map(p => ({ name: p.metadata.name, spec: p.spec }));
       const labels = n?.metadata?.labels ?? {};
+      const labelled = labels['pod-security.kubernetes.io/enforce'];
       return {
         name,
-        enforce: labels['pod-security.kubernetes.io/enforce'],
+        enforce: labelled ?? psaDefault,
+        enforceSource: labelled ? ('label' as const) : psaDefault ? ('cluster default' as const) : undefined,
         warn: labels['pod-security.kubernetes.io/warn'],
         pods: running.length,
         netpols: networkPolicies.filter(x => x?.metadata?.namespace === name).length,
@@ -359,7 +372,8 @@ export async function fetchClusterScan(
   clusterName: string,
   contextName: string,
   allowedRegistries: string[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  writer?: SupervisorWriter
 ): Promise<ClusterScan> {
   const errors: string[] = [];
   const read = async (label: string, paths: string[]) => {
@@ -370,7 +384,7 @@ export async function fetchClusterScan(
       return undefined;
     }
   };
-  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles, nodes, sas] = await Promise.all([
+  const [deps, sts, dss, pods, nss, crbs, certs, argo, ks, hrs, netpols, svcs, croles, nodes, sas, rqs, lrs] = await Promise.all([
     read('Deployments', ['/apis/apps/v1/deployments']),
     read('StatefulSets', ['/apis/apps/v1/statefulsets']),
     read('DaemonSets', ['/apis/apps/v1/daemonsets']),
@@ -386,7 +400,12 @@ export async function fetchClusterScan(
     read('Cluster roles', ['/apis/rbac.authorization.k8s.io/v1/clusterroles']),
     read('Nodes', ['/api/v1/nodes']),
     read('Service accounts', ['/api/v1/serviceaccounts']),
+    read('Resource quotas', ['/api/v1/resourcequotas']),
+    read('Limit ranges', ['/api/v1/limitranges']),
   ]);
+  // The cluster's default Pod Security level (VKS enforces "restricted" on unlabelled namespaces).
+  const probeNs = nss ? probeNamespace(nss) : undefined;
+  const psaDefault = writer && probeNs ? await probePsaDefault(writer, probeNs) : undefined;
   // Kubelet live configuration, from up to six nodes (control plane first).
   const nodeNames = (nodes ?? [])
     .sort((a: any, b: any) => Number(!!b?.metadata?.labels?.['node-role.kubernetes.io/control-plane']) - Number(!!a?.metadata?.labels?.['node-role.kubernetes.io/control-plane']))
@@ -411,14 +430,16 @@ export async function fetchClusterScan(
       clusterName,
       { namespaces: nss ?? [], pods: pods ?? [], bindings: crbs ?? [], certificates: certs ?? [], networkPolicies: netpols ?? [], services: svcs ?? [], clusterRoles: croles ?? [] },
       allowedRegistries,
-      now
+      now,
+      psaDefault
     ),
     gitops: [
       ...parseArgo(clusterKey, clusterName, argo ?? []),
       ...parseFlux(clusterKey, clusterName, 'Kustomization', ks ?? []),
       ...parseFlux(clusterKey, clusterName, 'HelmRelease', hrs ?? []),
     ],
-    namespaces: namespacePosture(nss ?? [], pods ?? [], netpols ?? [], svcs ?? []),
+    namespaces: namespacePosture(nss ?? [], pods ?? [], netpols ?? [], svcs ?? [], psaDefault),
+    psaDefault,
     compliance: evaluateCompliance({
       apiserver: componentFlags(pods ?? [], 'kube-apiserver'),
       controllerManager: componentFlags(pods ?? [], 'kube-controller-manager'),
@@ -431,6 +452,9 @@ export async function fetchClusterScan(
       clusterRoles: croles ?? [],
       clusterRoleBindings: crbs ?? [],
       serviceAccounts: sas ?? [],
+      resourceQuotas: rqs,
+      limitRanges: lrs,
+      psaDefault,
       unreadable: (
         [
           ['pods', pods],

@@ -13,8 +13,32 @@ export type Owner = 'vks' | 'you' | 'shared';
 export type CheckMethod = 'api' | 'node-scan' | 'manual';
 export type ControlStatus = 'pass' | 'fail' | 'review' | 'unknown' | 'node-scan';
 
+export type Framework = 'cis' | 'nsa';
+
+/** NSA/CISA Kubernetes Hardening Guidance sections, per control. */
+export const NSA_SECTION: Record<string, string> = {
+  'PSS-ADMISSION': 'Pod security', 'PSS-PRIV': 'Pod security', 'PSS-HOSTNS': 'Pod security', 'PSS-ESCALATION': 'Pod security',
+  'PSS-ROOT': 'Pod security', 'PSS-NETRAW': 'Pod security', 'PSS-HOSTPATH': 'Pod security', 'PSS-HOSTPORT': 'Pod security',
+  'GEN-SECCOMP': 'Pod security', 'GEN-RO-ROOTFS': 'Pod security', 'SA-DEFAULT': 'Pod security',
+  'NET-POLICIES': 'Network separation and hardening', 'NET-CNI': 'Network separation and hardening', 'GEN-QUOTAS': 'Network separation and hardening',
+  'API-TLS': 'Network separation and hardening', 'ETCD-TLS': 'Network separation and hardening', 'ETCD-PEER': 'Network separation and hardening',
+  'API-ENCRYPTION': 'Network separation and hardening', 'API-ETCD-TLS': 'Network separation and hardening', 'API-KUBELET-TLS': 'Network separation and hardening',
+  'CM-BIND': 'Network separation and hardening', 'SCH-BIND': 'Network separation and hardening', 'KUBELET-RO': 'Network separation and hardening',
+  'API-ANON': 'Authentication and authorization', 'API-AUTHZ': 'Authentication and authorization', 'API-TOKENFILE': 'Authentication and authorization',
+  'KUBELET-ANON': 'Authentication and authorization', 'KUBELET-AUTHZ': 'Authentication and authorization', 'KUBELET-CA': 'Authentication and authorization',
+  'RBAC-ADMIN': 'Authentication and authorization', 'RBAC-SECRETS': 'Authentication and authorization', 'RBAC-WILDCARD': 'Authentication and authorization',
+  'RBAC-PODCREATE': 'Authentication and authorization', 'RBAC-ESCALATE': 'Authentication and authorization', 'RBAC-MASTERS': 'Authentication and authorization',
+  'API-AUDIT': 'Audit logging and threat detection', 'API-AUDIT-RETAIN': 'Audit logging and threat detection',
+  'SEC-ENV': 'Application security practices', 'SEC-EXTERNAL': 'Application security practices', 'GEN-DEFAULT-NS': 'Application security practices',
+};
+export const NSA_ORDER = ['Pod security', 'Network separation and hardening', 'Authentication and authorization', 'Audit logging and threat detection', 'Application security practices'];
+
 export interface ControlResult {
   id: string;
+  /** Frameworks this control belongs to (all are CIS-aligned unless marked NSA/CISA-only). */
+  frameworks: Framework[];
+  /** NSA/CISA hardening section, when mapped. */
+  nsa?: string;
   ref: string;
   section: string;
   title: string;
@@ -41,6 +65,11 @@ export interface ComplianceEvidence {
   clusterRoles: any[];
   clusterRoleBindings: any[];
   serviceAccounts: any[];
+  /** ResourceQuotas and LimitRanges (for the NSA/CISA resource-limits control). */
+  resourceQuotas?: any[];
+  limitRanges?: any[];
+  /** The cluster-wide default Pod Security level, when probed. */
+  psaDefault?: 'restricted' | 'baseline' | 'privileged';
   /** Lists that couldn't be read (so checks relying on them are "not readable", never passed). */
   unreadable?: Array<'pods' | 'namespaces' | 'networkPolicies' | 'clusterRoles' | 'clusterRoleBindings' | 'serviceAccounts'>;
 }
@@ -71,6 +100,8 @@ type Eval = (e: ComplianceEvidence) => { status: ControlStatus; evidence: string
 
 interface ControlDef {
   id: string;
+  /** Only in the NSA/CISA view (not a CIS control). */
+  nsaOnly?: boolean;
   ref: string;
   section: string;
   title: string;
@@ -199,7 +230,7 @@ const CONTROLS: ControlDef[] = [
   { id: 'RBAC-MASTERS', ref: 'CIS 5.1', section: 'RBAC', title: 'The system:masters group is not used', level: 1, owner: 'you', method: 'api', remediation: 'Remove bindings to system:masters; use RBAC roles.', evaluate: e => { if (!e.clusterRoleBindings.length) return unknown('Cluster role bindings not readable.'); const hits = e.clusterRoleBindings.filter(b => (b?.subjects ?? []).some((s: any) => s?.name === 'system:masters') && b?.metadata?.name !== 'cluster-admin'); return hits.length ? fail(`Bound in: ${hits.map(b => b.metadata.name).join(', ')}`) : pass('Only the built-in cluster-admin binding references system:masters.'); } },
   { id: 'SA-DEFAULT', ref: 'CIS 5.1', section: 'RBAC', title: "Default service accounts don't mount tokens automatically", level: 1, owner: 'you', method: 'api', remediation: 'Set automountServiceAccountToken: false on each namespace\'s default service account.', evaluate: e => { if (cannot(e, 'serviceAccounts') || !e.serviceAccounts.length) return unknown('Service accounts not readable.'); const bad = e.serviceAccounts.filter(s => s?.metadata?.name === 'default' && !isPlatformNamespace(s?.metadata?.namespace ?? '') && s?.automountServiceAccountToken !== false); return bad.length ? fail(`Namespaces whose default account mounts its token (${bad.length}): ${bad.slice(0, 5).map(s => s.metadata.namespace).join(', ')}`) : pass('Every user namespace\'s default service account opts out.'); } },
   // ---- Pod Security (CIS 5.2)
-  { id: 'PSS-ADMISSION', ref: 'CIS 5.2', section: 'Pod Security', title: 'Every user namespace has a Pod Security level enforced', level: 1, owner: 'you', method: 'api', remediation: 'Use Pod Security… on the Security page (preview first, then enforce).', evaluate: e => { if (cannot(e, 'namespaces')) return unknown('Namespaces not readable.'); const ns = e.namespaces.filter(n => !isPlatformNamespace(n?.metadata?.name ?? '') && !['default', 'kube-public', 'kube-node-lease'].includes(n?.metadata?.name)); if (!ns.length) return pass('No user namespaces.'); const bad = ns.filter(n => { const l = n?.metadata?.labels?.['pod-security.kubernetes.io/enforce']; return !l || l === 'privileged'; }); return bad.length ? fail(`Namespaces without baseline or restricted (${bad.length}): ${bad.slice(0, 5).map(n => n.metadata.name).join(', ')}`) : pass(`All ${ns.length} user namespaces enforce baseline or restricted.`); } },
+  { id: 'PSS-ADMISSION', ref: 'CIS 5.2', section: 'Pod Security', title: 'Every user namespace has a Pod Security level enforced', level: 1, owner: 'you', method: 'api', remediation: 'Use Pod Security… on the Security page (preview first, then enforce).', evaluate: e => { if (cannot(e, 'namespaces')) return unknown('Namespaces not readable.'); const ns = e.namespaces.filter(n => !isPlatformNamespace(n?.metadata?.name ?? '') && !['default', 'kube-public', 'kube-node-lease'].includes(n?.metadata?.name)); if (!ns.length) return pass('No user namespaces.'); const lbl = (n: any) => n?.metadata?.labels?.['pod-security.kubernetes.io/enforce']; const eff = (n: any) => lbl(n) ?? e.psaDefault; const byLabel = ns.filter(n => lbl(n)).length; const byDefault = ns.length - byLabel; const bad = ns.filter(n => !eff(n) || eff(n) === 'privileged'); if (bad.some(n => !eff(n))) return review(`${bad.length} namespace${bad.length === 1 ? '' : 's'} without a label, and the cluster default couldn't be checked: ${bad.slice(0, 5).map(n => n.metadata.name).join(', ')}`); const how = `${byLabel} by label${e.psaDefault ? `, ${byDefault} by the cluster default (${e.psaDefault})` : ''}`; return bad.length ? fail(`Namespaces effectively privileged (${bad.length}): ${bad.slice(0, 5).map(n => n.metadata.name).join(', ')} (${how})`) : pass(`All ${ns.length} user namespaces enforce baseline or restricted (${how}).`); } },
   { id: 'PSS-PRIV', ref: 'CIS 5.2', section: 'Pod Security', title: 'Privileged containers are not admitted', level: 1, owner: 'you', method: 'api', remediation: 'Enforce baseline in the namespace; rework the workload not to need privileged mode.', evaluate: pods(p => containers(p).some((c: any) => c?.securityContext?.privileged), 'run privileged') },
   { id: 'PSS-HOSTNS', ref: 'CIS 5.2', section: 'Pod Security', title: 'Host PID, IPC and network namespaces are not shared', level: 1, owner: 'you', method: 'api', remediation: 'Enforce baseline in the namespace.', evaluate: pods(p => !!(p?.spec?.hostPID || p?.spec?.hostIPC || p?.spec?.hostNetwork), 'share host namespaces') },
   { id: 'PSS-ESCALATION', ref: 'CIS 5.2', section: 'Pod Security', title: 'Privilege escalation is disallowed', level: 1, owner: 'you', method: 'api', remediation: 'Set allowPrivilegeEscalation: false (restricted enforces it).', evaluate: pods(p => containers(p).some((c: any) => c?.securityContext?.allowPrivilegeEscalation !== false), 'allow privilege escalation') },
@@ -216,6 +247,8 @@ const CONTROLS: ControlDef[] = [
   // ---- General (CIS 5.7)
   { id: 'GEN-SECCOMP', ref: 'CIS 5.7', section: 'General', title: 'Pods use the RuntimeDefault seccomp profile', level: 2, owner: 'you', method: 'api', remediation: 'Set seccompProfile: RuntimeDefault (restricted enforces it).', evaluate: pods(p => !(['RuntimeDefault', 'Localhost'].includes(p?.spec?.securityContext?.seccompProfile?.type) || containers(p).every((c: any) => ['RuntimeDefault', 'Localhost'].includes(c?.securityContext?.seccompProfile?.type))), 'run without a seccomp profile') },
   { id: 'GEN-DEFAULT-NS', ref: 'CIS 5.7', section: 'General', title: 'The default namespace is not used for workloads', level: 2, owner: 'you', method: 'api', remediation: 'Move workloads into their own namespaces.', evaluate: e => { if (cannot(e, 'pods')) return unknown('Pods not readable.'); const inDefault = e.pods.filter(p => p?.metadata?.namespace === 'default' && p?.status?.phase === 'Running'); return inDefault.length ? fail(`Pods running in default (${inDefault.length}): ${inDefault.slice(0, 4).map(p => p.metadata.name).join(', ')}`) : pass('Nothing runs in default.'); } },
+  { id: 'GEN-RO-ROOTFS', ref: 'CIS 5.7', section: 'General', title: 'Containers use a read-only root filesystem', level: 2, owner: 'you', method: 'api', remediation: 'Set readOnlyRootFilesystem: true and mount writable paths as emptyDir volumes.', evaluate: pods(p => containers(p).some((c: any) => c?.securityContext?.readOnlyRootFilesystem !== true), 'write to their root filesystem') },
+  { id: 'GEN-QUOTAS', ref: 'NSA/CISA', section: 'General', title: 'Namespaces with workloads have resource quotas or limit ranges', level: 2, owner: 'you', method: 'api', nsaOnly: true, remediation: 'Add a ResourceQuota or LimitRange per namespace, so one workload cannot starve the others.', evaluate: e => { if (cannot(e, 'pods') || !e.resourceQuotas || !e.limitRanges) return unknown('Pods, quotas or limit ranges not readable.'); const withPods = new Set(userPods(e).map(p => p.metadata.namespace)); const covered = new Set([...e.resourceQuotas, ...e.limitRanges].map(x => x?.metadata?.namespace)); const bad = Array.from(withPods).filter(n => !covered.has(n)); return bad.length ? fail(`Namespaces with workloads but no quota or limit range (${bad.length}): ${bad.slice(0, 5).join(', ')}`) : pass(`All ${withPods.size} namespaces with workloads have one.`); } },
   { id: 'GEN-BOUNDARIES', ref: 'CIS 5.7', section: 'General', title: 'Namespaces separate teams and applications', level: 1, owner: 'you', method: 'manual', remediation: 'Review with the application owners.' },
 ];
 
@@ -228,7 +261,19 @@ export function evaluateCompliance(e: ComplianceEvidence): ControlResult[] {
       : c.method === 'manual' || !c.evaluate
       ? { status: 'review' as const, evidence: 'Needs a person to review.' }
       : c.evaluate(e);
-    return { id: c.id, ref: c.ref, section: c.section, title: c.title, level: c.level, owner: c.owner, method: c.method, remediation: c.remediation, ...r };
+    return {
+      id: c.id,
+      frameworks: c.nsaOnly ? (['nsa'] as Framework[]) : NSA_SECTION[c.id] ? (['cis', 'nsa'] as Framework[]) : (['cis'] as Framework[]),
+      nsa: NSA_SECTION[c.id] ?? (c.nsaOnly ? 'Network separation and hardening' : undefined),
+      ref: c.ref,
+      section: c.section,
+      title: c.title,
+      level: c.level,
+      owner: c.owner,
+      method: c.method,
+      remediation: c.remediation,
+      ...r,
+    };
   });
 }
 

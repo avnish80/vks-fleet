@@ -43,7 +43,17 @@ function useOrgStats(): (o: OrgInfo) => OrgStats {
   };
 }
 
-function Card({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: ReactNode }) {
+function Card({
+  selected,
+  onClick,
+  accent = 'primary.main',
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  accent?: string;
+  children: ReactNode;
+}) {
   return (
     <Paper
       variant="outlined"
@@ -52,17 +62,45 @@ function Card({ selected, onClick, children }: { selected: boolean; onClick: () 
       onClick={onClick}
       onKeyDown={(e: any) => (e.key === 'Enter' || e.key === ' ') && onClick()}
       sx={{
-        p: 1.75,
+        p: 2,
+        pl: 2.5,
         borderRadius: 2,
         cursor: 'pointer',
-        borderWidth: selected ? 2 : 1,
+        position: 'relative',
+        overflow: 'hidden',
         borderColor: selected ? 'primary.main' : 'divider',
-        transition: 'box-shadow 150ms',
-        '&:hover': { boxShadow: 3 },
+        boxShadow: selected ? 4 : 0,
+        bgcolor: selected ? 'action.selected' : 'background.paper',
+        transition: 'box-shadow 150ms, transform 150ms, background-color 150ms',
+        '&:hover': { boxShadow: 4, transform: 'translateY(-1px)' },
+        '&::before': { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, bgcolor: accent },
       }}
     >
       {children}
     </Paper>
+  );
+}
+
+function Initials({ name, colour }: { name: string; colour: string }) {
+  const text = name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase() || '?';
+  return (
+    <Box
+      sx={{
+        width: 36,
+        height: 36,
+        borderRadius: '50%',
+        bgcolor: colour,
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 700,
+        fontSize: '0.85rem',
+        flexShrink: 0,
+      }}
+    >
+      {text}
+    </Box>
   );
 }
 
@@ -105,7 +143,11 @@ function NameOrg({ id }: { id: string }) {
   );
 }
 
-const looksLikeId = (o: OrgInfo) => o.name === o.id && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(o.id);
+const looksLikeId = (o: OrgInfo) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(o.id)) return false;
+  const short = o.name.replace(/(\u2026|\.\.\.)$/, '');
+  return o.name === o.id || (short.length >= 6 && o.id.startsWith(short));
+};
 
 export function OrgCards() {
   const { orgs, org, setOrg, persona } = useFleetData();
@@ -115,8 +157,8 @@ export function OrgCards() {
   return (
     <SectionBox title="Orgs">
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5 }}>
-        <Card selected={org === ALL_ORGS} onClick={() => setOrg(ALL_ORGS)}>
-          <Typography sx={{ fontWeight: 700 }}>All orgs</Typography>
+        <Card selected={org === ALL_ORGS} onClick={() => setOrg(ALL_ORGS)} accent="text.secondary">
+          <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>All orgs</Typography>
           <Typography variant="body2" color="text.secondary">
             {orgs.length} org{orgs.length === 1 ? '' : 's'} · {totals.ns} namespaces
           </Typography>
@@ -129,9 +171,15 @@ export function OrgCards() {
           const s = stats(o);
           const mem = overcommit(s.memConfigured, s.memLimit || undefined);
           return (
-            <Card key={o.id} selected={org === o.id} onClick={() => setOrg(org === o.id ? ALL_ORGS : o.id)}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                <Typography sx={{ fontWeight: 700 }} noWrap title={o.id}>
+            <Card
+              key={o.id}
+              selected={org === o.id}
+              onClick={() => setOrg(org === o.id ? ALL_ORGS : o.id)}
+              accent={o.attention ? 'warning.main' : mem !== undefined && mem > 4 ? 'error.main' : 'success.main'}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 0.75 }}>
+                <Initials name={o.name} colour={o.attention ? '#ed6c02' : '#1976d2'} />
+                <Typography sx={{ fontWeight: 700, fontSize: '1.05rem', flex: 1, minWidth: 0 }} noWrap title={o.id}>
                   {o.name}
                 </Typography>
                 {o.attention > 0 ? (

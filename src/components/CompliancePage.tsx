@@ -2,8 +2,10 @@ import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { ClusterScan } from '../clusterScan';
-import { ControlResult, ControlStatus, CONTROL_COUNT, complianceIssueId, scoreResults } from '../compliance';
-import { complianceCsv, complianceDrift, complianceMarkdown, isWaived, snapshot } from '../complianceReport';
+import { ControlResult, ControlStatus, complianceIssueId, Framework, NSA_ORDER, scoreResults } from '../compliance';
+import { useScannerReports } from '../useScannerReports';
+import { PolicyResult, TrivyCompliance } from '../scanners';
+import { complianceCsv, complianceDrift, complianceMarkdown, complianceOscal, isWaived, snapshot } from '../complianceReport';
 import { useFleetData } from '../fleetContext';
 import { download } from '../report';
 import { activeSilences } from '../silences';
@@ -15,7 +17,7 @@ import { NoClusters } from './EmptyState';
 import { SignInHelper } from './SignInHelper';
 import { IsolationSection } from './IsolationSection';
 import { NodeScanDialog } from './NodeScanDialog';
-import { BenchTest, latest, mergeNodeScan, NodeScanRun } from '../nodeScan';
+import { BenchTest, isForeignBenchmark, latest, mergeNodeScan, NodeScanRun } from '../nodeScan';
 import { useNodeScans } from '../useNodeScans';
 import { removeSilence, SilenceDialog } from './SilenceDialog';
 
@@ -40,6 +42,8 @@ export function CompliancePage() {
   const nodeScans = useNodeScans(targets, scanVersion);
   const [scanning, setScanning] = React.useState<{ cluster: string; contextName: string } | null>(null);
   const [showAllTests, setShowAllTests] = React.useState<Record<string, boolean>>({});
+  const [framework, setFramework] = React.useState<Framework>('cis');
+  const scanner = useScannerReports(targets);
   const store = useComplianceStore() ?? {};
   const [owner, setOwner] = React.useState<'all' | 'you' | 'vks'>('all');
   const [level, setLevel] = React.useState<1 | 2>(2);
@@ -50,7 +54,11 @@ export function CompliancePage() {
   if (clusters.length === 0) return <NoClusters title="Compliance" what="compliance information" />;
   if (targets.length > 0 && scans === null) return <Loader title="Running the checks" />;
   // Node scans (kube-bench) fill in the file-permission controls the API can't see.
-  const list: ClusterScan[] = (scans ?? []).map(s => ({ ...s, compliance: mergeNodeScan(s.compliance, nodeScans.get(s.clusterKey) ?? []) }));
+  const list: ClusterScan[] = (scans ?? []).map(s => ({
+    ...s,
+    compliance: mergeNodeScan(s.compliance, nodeScans.get(s.clusterKey) ?? []).filter(r => (r.frameworks ?? ['cis']).includes(framework)),
+  }));
+  const sectionOf = (r: ControlResult) => (framework === 'nsa' ? r.nsa ?? 'Other' : r.section);
   const clusterOf = new Map(clusters.map(c => [c.key, c]));
   const silences = activeSilences(config.silences);
   const baselines = store.baselines ?? {};
@@ -61,7 +69,9 @@ export function CompliancePage() {
   const failing = list.reduce((n, s) => n + s.compliance.filter(r => r.status === 'fail' && !isWaived(silences, s.clusterKey, r.id)).length, 0);
   const waived = list.reduce((n, s) => n + s.compliance.filter(r => r.status === 'fail' && isWaived(silences, s.clusterKey, r.id)).length, 0);
   const regressions = list.reduce((n, s) => n + complianceDrift(baselines[s.clusterKey], s.compliance).filter(d => d.worse).length, 0);
-  const sections = Array.from(new Set(list.flatMap(s => s.compliance.map(r => r.section))));
+  const present = new Set(list.flatMap(s => s.compliance.map(sectionOf)));
+  const sections = framework === 'nsa' ? NSA_ORDER.filter(x => present.has(x)) : Array.from(present);
+  const totalControls = list[0]?.compliance.length ?? 0;
   const stamp = new Date().toISOString().slice(0, 10);
 
   return (
@@ -77,12 +87,21 @@ export function CompliancePage() {
             <Button key="csv" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-compliance-${stamp}.csv`, complianceCsv(list, silences), 'text/csv')}>
               CSV
             </Button>,
+            <Button
+              key="oscal"
+              size="small"
+              variant="outlined"
+              disabled={!list.length}
+              onClick={() => download(`vks-compliance-${framework}-${stamp}.oscal.json`, complianceOscal(list, silences, framework), 'application/json')}
+            >
+              OSCAL
+            </Button>,
           ],
         }}
       >
         <SignInHelper clusters={clusters} health={workload.byKey} supervisors={config.supervisors} />
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {CONTROL_COUNT} checks aligned with the CIS Kubernetes Benchmark, evaluated through the Kubernetes API: control-plane flags
+          {totalControls} checks {framework === 'nsa' ? 'mapped to the NSA/CISA Kubernetes Hardening Guidance' : 'aligned with the CIS Kubernetes Benchmark'}, evaluated through the Kubernetes API: control-plane flags
           (from the static pods), each kubelet's live configuration, RBAC, Pod Security, network policies, service accounts and
           workloads. Each control says who owns it: <b>VKS</b> (platform configuration) or <b>you</b> (how the cluster is used).
           File-permission controls need a node-level scan and are never counted as passed. Not a certified CIS assessment.
@@ -95,6 +114,10 @@ export function CompliancePage() {
           <KpiTile label="To review" value={fleet.review} sub="need a person" tone="info" />
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <TextField select size="small" label="Framework" value={framework} onChange={e => setFramework(e.target.value as Framework)} sx={{ minWidth: 220 }}>
+            <MenuItem value="cis">CIS-aligned</MenuItem>
+            <MenuItem value="nsa">NSA/CISA hardening</MenuItem>
+          </TextField>
           <TextField select size="small" label="Owner" value={owner} onChange={e => setOwner(e.target.value as 'all' | 'you' | 'vks')} sx={{ minWidth: 200 }}>
             <MenuItem value="all">Everything</MenuItem>
             <MenuItem value="you">Yours (cluster owner, shared)</MenuItem>
@@ -136,7 +159,7 @@ export function CompliancePage() {
                       <a href={`#${encodeURIComponent(s.clusterKey)}`}>{s.clusterName}</a>
                     </Box>
                     {sections.map(sec => {
-                      const sc = scoreResults(effective(s).filter(r => r.section === sec && keep(r)));
+                      const sc = scoreResults(effective(s).filter(r => sectionOf(r) === sec && keep(r)));
                       const scored = sc.pass + sc.fail;
                       return (
                         <Box
@@ -211,7 +234,7 @@ export function CompliancePage() {
                     },
                   },
                   { label: 'Control', getter: (r: ControlResult) => <><b>{r.id}</b> {r.title}</> },
-                  { label: 'Ref', getter: (r: ControlResult) => `${r.ref} · L${r.level}` },
+                  { label: 'Ref', getter: (r: ControlResult) => (framework === 'nsa' ? r.nsa ?? '—' : `${r.ref} · L${r.level}`) },
                   { label: 'Owner', getter: (r: ControlResult) => OWNER[r.owner] },
                   { label: 'Evidence', getter: (r: ControlResult) => <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{r.evidence}</Typography> },
                   { label: 'Remediation', getter: (r: ControlResult) => (r.status === 'pass' ? '—' : r.remediation) },
@@ -244,11 +267,70 @@ export function CompliancePage() {
         );
       })}
 
+      {(scanner ?? []).some(r => r.compliance.length) && (
+        <SectionBox title="Trivy Operator compliance reports">
+          <SimpleTable
+            columns={[
+              { label: 'Cluster', getter: (x: TrivyCompliance & { cluster: string }) => x.cluster },
+              { label: 'Report', getter: (x: TrivyCompliance & { cluster: string }) => x.title || x.id },
+              {
+                label: 'Result',
+                getter: (x: TrivyCompliance & { cluster: string }) => (
+                  <StatusLabel status={x.fail ? 'error' : 'success'}>{`${x.pass} pass, ${x.fail} fail`}</StatusLabel>
+                ),
+              },
+              {
+                label: 'Failing controls',
+                getter: (x: TrivyCompliance & { cluster: string }) =>
+                  x.failing
+                    .slice(0, 5)
+                    .map(f => `${f.id} ${f.name} (${f.totalFail})`)
+                    .join('; ') || '—',
+              },
+            ]}
+            data={(scanner ?? []).flatMap(r => r.compliance.map(c => ({ ...c, cluster: r.clusterName })))}
+          />
+        </SectionBox>
+      )}
+
+      <Box id="policy" sx={{ scrollMarginTop: 72 }} />
+      {(scanner ?? []).some(r => r.policyEngine) && (
+        <SectionBox title="Policy results (Kyverno and other policy engines)">
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+            {(scanner ?? [])
+              .filter(r => r.policyEngine)
+              .map(r => (
+                <StatusLabel key={r.clusterKey} status={r.policySummary.fail + r.policySummary.error ? 'error' : 'success'}>
+                  {`${r.clusterName}: ${r.policySummary.pass} pass, ${r.policySummary.fail} fail, ${r.policySummary.warn} warn`}
+                </StatusLabel>
+              ))}
+          </Box>
+          {(scanner ?? []).flatMap(r => r.policy).length === 0 ? (
+            <Typography color="text.secondary">No failing or warning policy results.</Typography>
+          ) : (
+            <SimpleTable
+              columns={[
+                { label: 'Cluster', getter: (x: PolicyResult & { cluster: string }) => x.cluster },
+                {
+                  label: 'Result',
+                  getter: (x: PolicyResult & { cluster: string }) => <StatusLabel status={x.result === 'warn' ? 'warning' : 'error'}>{x.result}</StatusLabel>,
+                },
+                { label: 'Policy', getter: (x: PolicyResult & { cluster: string }) => `${x.policy}${x.rule ? ` / ${x.rule}` : ''}` },
+                { label: 'Resource', getter: (x: PolicyResult & { cluster: string }) => x.resource ?? '—' },
+                { label: 'Message', getter: (x: PolicyResult & { cluster: string }) => x.message ?? '—' },
+              ]}
+              data={(scanner ?? []).flatMap(r => r.policy.map(p => ({ ...p, cluster: r.clusterName }))).slice(0, 200)}
+            />
+          )}
+        </SectionBox>
+      )}
+
       {scanning && (
         <NodeScanDialog
           cluster={scanning.cluster}
           contextName={scanning.contextName}
           image={config.nodeScanImage}
+          benchmark={config.nodeScanBenchmark}
           onClose={() => setScanning(null)}
           onDone={() => setScanVersion(v => v + 1)}
         />
@@ -273,6 +355,7 @@ function NodeScanResults({ runs, showAll, toggle }: { runs: NodeScanRun[]; showA
     );
   }
   const tests = [...(cp?.tests ?? []), ...(worker?.tests ?? [])];
+  const foreign = [cp, worker].find(r => r && isForeignBenchmark(r.benchmark));
   const shown = showAll ? tests : tests.filter(t => t.status === 'FAIL' || t.status === 'WARN');
   const count = (st: BenchTest['status']) => tests.filter(t => t.status === st).length;
   return (
@@ -289,6 +372,13 @@ function NodeScanResults({ runs, showAll, toggle }: { runs: NodeScanRun[]; showA
           {showAll ? 'Only failures and warnings' : `Show all ${tests.length}`}
         </Button>
       </Box>
+      {foreign && (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          This scan used the <b>{foreign.benchmark}</b> benchmark: kube-bench mistook VKS for another platform (it reads the
+          "+vmware" in the version). Its checks look for paths VKS nodes don't have, so the results aren't counted. Run the scan
+          again with a CIS benchmark (for example cis-1.10).
+        </Alert>
+      )}
       <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem' }}>
         <tbody>
           {shown.map(t => (
