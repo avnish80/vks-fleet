@@ -424,6 +424,34 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Creating VMs and clusters
+
+A namespace's page has **New VM…** and **New cluster…**.
+
+**A VM:**
+- **VM class:** those assigned to the namespace, with their sizes.
+- **Image:** namespaced or Supervisor-wide, ready ones only.
+- **Storage class** and **network:** the namespace default, or one of its subnets or subnet sets.
+- **Power state**, and optionally **an SSH public key** for a default user (set up with cloud-init; no password login).
+
+**A cluster:**
+- **Start from a copy of a working cluster** (recommended): its cluster class, variables and networking are known to be right. Or start from scratch.
+- **Then choose** the Kubernetes release, one or three control-plane nodes and their VM class, and **node pools** (name, size, VM class).
+
+**The preview updates as you type.** It shows the effect on the namespace:
+- configured vCPU and memory, now and after, against the namespace's limits
+- **memory overcommit before and after** (for example 2.0× → 2.6×)
+- whether it fits the Supervisor's ResourceQuota
+- guaranteed classes whose reservation would exceed the limit
+
+The checks catch taken or invalid names, VM classes not assigned to the namespace, and a template from another namespace.
+
+**Three ways out:**
+- **Create…**, with a server-side dry run first, through the Supervisor (or VCF Automation's namespace proxy for tenants), so the platform's own quotas, class assignments and policies still decide.
+- **Copy YAML** and **Download YAML**, for GitOps: commit it, and Argo CD or Flux applies it. These work for read-only users too.
+
+VM and cluster requests that need approvals, leases or cost controls belong in VCF Automation's catalog; this is for the quick, well-understood cases, and for producing clean manifests.
+
 ## Actions
 
 The cluster page can make changes on the Supervisor:
@@ -638,6 +666,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  provision.ts          VM and cluster manifests, capacity preview, create plans, YAML output
   packageInstall.ts     Package install and removal plans (VCF CLI style)
   valuesSchema.ts       Values form from a package's OpenAPI schema
   demo/                 Demo mode: a small Kubernetes API over in-memory objects (router.ts) and the fictional fleet (supervisor.ts, guest.ts)

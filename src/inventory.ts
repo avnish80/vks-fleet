@@ -6,6 +6,7 @@
  * Each part is read on its own; what isn't served or allowed is skipped with
  * a note, so any Supervisor shape works.
  */
+import { VmImageInfo } from './types';
 import { describeError, statusOf, SupervisorClient } from './api/client';
 import { scopedList } from './api/scopedList';
 import { KubeObject, parseConditions } from './capi/v1beta1';
@@ -72,6 +73,25 @@ export function parseVms(supervisorId: string, vms: KubeObject[], images: Map<st
 }
 
 /** Image name → friendly name (VirtualMachineImage status.name, e.g. "ubuntu-22.04…"). */
+export function parseImages(namespaced: KubeObject[], clusterWide: KubeObject[]): VmImageInfo[] {
+  const one = (i: KubeObject, kind: VmImageInfo['kind']): VmImageInfo => {
+    const st: any = i.status ?? {};
+    const conds: any[] = st.conditions ?? [];
+    return {
+      name: i.metadata.name,
+      kind,
+      namespace: kind === 'VirtualMachineImage' ? i.metadata.namespace : undefined,
+      displayName: String(st.name ?? (i.spec as any)?.imageID ?? i.metadata.name),
+      os: st.osInfo?.type ?? st.osInfo?.id,
+      version: st.productInfo?.fullVersion ?? st.productInfo?.version,
+      ready: conds.length ? conds.some(c => c?.type === 'Ready' && c?.status === 'True') : true,
+    };
+  };
+  return [...namespaced.map(i => one(i, 'VirtualMachineImage')), ...clusterWide.map(i => one(i, 'ClusterVirtualMachineImage'))].sort((a, b) =>
+    a.displayName.localeCompare(b.displayName)
+  );
+}
+
 export function imageNames(images: KubeObject[]): Map<string, string> {
   return new Map(
     images.map(i => [i.metadata.name, String((i.status as any)?.name ?? (i.spec as any)?.imageID ?? i.metadata.name)])
@@ -344,6 +364,7 @@ export async function fetchInventory(
   const networking: Inventory['networking'] = subnets || sets ? 'vpc' : 'none';
   return {
     supervisorId: s.id,
+    images: parseImages(images ?? [], cvmi ?? []),
     vms: vmList,
     lbs,
     subnets: parseSubnets(s.id, subnets ?? [], sets ?? [], ips, vmList, clusterNames),

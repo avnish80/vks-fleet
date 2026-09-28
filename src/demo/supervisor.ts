@@ -89,7 +89,15 @@ export function buildSupervisor(now: Date): Store {
   const orgOf = (ns: string) => (ns.startsWith('acme') ? ORG_ACME : ORG_GLOBEX);
   const spaces = ['acme-prod-7kq2p', 'acme-dev-3xm9d', 'globex-ml-9w4tz'];
   add(s, '', 'namespaces', [
-    ...spaces.map(n => ({ metadata: { name: n, labels: { [ORG_LABEL]: orgOf(n) }, creationTimestamp: iso(24 * 60) } })),
+    ...spaces.map(n => ({
+      metadata: {
+        name: n,
+        labels: { [ORG_LABEL]: orgOf(n) },
+        creationTimestamp: iso(24 * 60),
+        // acme's production namespace has resource-pool limits, so previews show overcommit.
+        annotations: n === 'acme-prod-7kq2p' ? { 'vmware-system-resource-pool-cpu-limit': '60000', 'vmware-system-resource-pool-memory-limit': '96Gi' } : {},
+      },
+    })),
     ...['kube-system', 'default', 'svc-tkg-d7x2k', 'vmware-system-vks-public'].map(n => ({ metadata: { name: n, labels: {} } })),
   ]);
   for (const c of DEMO_CLUSTERS) {
@@ -215,7 +223,18 @@ export function buildSupervisor(now: Date): Store {
     { metadata: { namespace: 'acme-prod-7kq2p', name: 'public' }, spec: { accessMode: 'Public', ipv4SubnetSize: 64 }, status: { networkAddresses: ['198.51.100.64/26'], conditions: [{ type: 'Ready', status: 'True' }] } },
   ]);
   add(s, 'crd.nsx.vmware.com', 'securitypolicies', [{ metadata: { namespace: 'acme-prod-7kq2p', name: 'allow-web' }, spec: {}, status: { conditions: [{ type: 'Ready', status: 'True' }] } }]);
-  add(s, 'crd.nsx.vmware.com', 'subnetsets', []);
+  add(s, 'crd.nsx.vmware.com', 'subnetsets', spaces.map(ns => ({ metadata: { namespace: ns, name: 'vm-default' }, spec: { accessMode: 'Private' }, status: { subnets: [{ networkAddresses: ['172.16.8.0/24'] }], conditions: [{ type: 'Ready', status: 'True' }] } })));
+  // VM images: two shared across the Supervisor, one only in acme's production namespace.
+  const image = (name: string, displayName: string, os: string, version: string, ns?: string) => ({
+    metadata: { name, ...(ns ? { namespace: ns } : {}) },
+    spec: {},
+    status: { name: displayName, osInfo: { type: os }, productInfo: { fullVersion: version }, conditions: [{ type: 'Ready', status: 'True' }] },
+  });
+  add(s, 'vmoperator.vmware.com', 'clustervirtualmachineimages', [
+    image('vmi-0a1b2c3d4e5f', 'ubuntu-24.04-server-cloudimg-amd64', 'ubuntu64Guest', '24.04'),
+    image('vmi-1f2e3d4c5b6a', 'photon-5.0-cloud', 'vmwarePhoton64Guest', '5.0'),
+  ]);
+  add(s, 'vmoperator.vmware.com', 'virtualmachineimages', [image('vmi-9a8b7c6d5e4f', 'acme-hardened-rhel-9.4', 'rhel9_64Guest', '9.4', 'acme-prod-7kq2p')]);
   add(
     s,
     'cluster.x-k8s.io',

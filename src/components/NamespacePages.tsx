@@ -12,6 +12,7 @@ import { clusterPath } from '../routes';
 import { FleetCluster, Inventory, ServiceVm, SupervisorResult } from '../types';
 import { NamespaceAccess } from './AccessPanel';
 import { ActionDialog } from './ActionDialog';
+import { NewClusterDialog, NewVmDialog } from './ProvisionDialogs';
 import { ChartStyles, KpiTile } from './charts';
 import {
   LbTable,
@@ -95,6 +96,7 @@ export function NamespacesPage() {
 export function NamespaceDetail() {
   const params = useParams<{ supervisor: string; namespace: string }>();
   const { rows, loading } = useNamespaces();
+  const [creating, setCreating] = React.useState<'vm' | 'cluster' | null>(null);
   if (!rows) return <Loader title="Loading namespace" />;
   const row = rows.find(r => r.r.supervisor.id === params.supervisor && r.name === params.namespace);
   if (!row) {
@@ -116,7 +118,21 @@ export function NamespaceDetail() {
   return (
     <>
       <ChartStyles />
-      <SectionBox title={`${row.tenantName}: ${ns}`}>
+      <SectionBox
+        title={`${row.tenantName}: ${ns}`}
+        headerProps={{
+          actions: [
+            <Button key="vm" size="small" variant="outlined" onClick={() => setCreating('vm')}>
+              New VM…
+            </Button>,
+            <Button key="cl" size="small" variant="outlined" onClick={() => setCreating('cluster')}>
+              New cluster…
+            </Button>,
+          ],
+        }}
+      >
+        {creating === 'vm' && <NewVmDialog r={row.r} namespace={ns} onClose={() => setCreating(null)} />}
+        {creating === 'cluster' && <NewClusterDialog r={row.r} namespace={ns} onClose={() => setCreating(null)} />}
         {loading && <Loader title="Reading VMs, networks and storage" />}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 2 }}>
           <KpiTile label="Clusters" value={row.clusters.length} tone="primary" />

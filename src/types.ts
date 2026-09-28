@@ -686,9 +686,26 @@ export interface SupervisorNodes {
   hostVersion?: string;
 }
 
+/** A VM image VMs can be created from. */
+export interface VmImageInfo {
+  /** The image resource name (vmi-…), as a VirtualMachine refers to it. */
+  name: string;
+  /** Namespaced image, or one shared across the Supervisor. */
+  kind: 'VirtualMachineImage' | 'ClusterVirtualMachineImage';
+  /** Only for namespaced images. */
+  namespace?: string;
+  /** The image's own name (e.g. ubuntu-24.04-server-cloudimg-amd64). */
+  displayName: string;
+  os?: string;
+  version?: string;
+  ready: boolean;
+}
+
 export interface Inventory {
   supervisorId: string;
   vms: ServiceVm[];
+  /** Images VMs can be created from (namespaced and Supervisor-wide). */
+  images?: VmImageInfo[];
   lbs: LbInfo[];
   subnets: SubnetInfo[];
   vpcs: VpcInfo[];
