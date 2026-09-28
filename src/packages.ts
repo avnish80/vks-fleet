@@ -49,8 +49,33 @@ export interface CatalogItem {
   installed: boolean;
 }
 
+/** One installable package version, with where it lives and its values schema. */
+export interface PackageDefinition {
+  refName: string;
+  version: string;
+  /** The namespace of the Package object (its repository's namespace). */
+  namespace: string;
+  /** OpenAPI v3 schema of the package's values, when the package ships one. */
+  schema?: any;
+  releaseNotes?: string;
+}
+
+export function packageDefinitions(pkgs: any[]): PackageDefinition[] {
+  return pkgs
+    .filter(p => p?.spec?.refName && p?.spec?.version)
+    .map(p => ({
+      refName: p.spec.refName,
+      version: p.spec.version,
+      namespace: p?.metadata?.namespace ?? '',
+      schema: p?.spec?.valuesSchema?.openAPIv3,
+      releaseNotes: p?.spec?.releaseNotes ? String(p.spec.releaseNotes).slice(0, 400) : undefined,
+    }));
+}
+
 export interface ClusterPackages {
   clusterKey: string;
+  /** Installable versions (from the repositories this cluster has). */
+  definitions?: PackageDefinition[];
   contextName: string;
   items: PackageInstallInfo[];
   /** Why packages couldn't be read (e.g. no permission, no kapp-controller). */
@@ -193,6 +218,7 @@ export async function fetchClusterPackages(
     contextName,
     items,
     repositories: repos.status === 'fulfilled' ? parseRepositories(repos.value?.items ?? []) : undefined,
+    definitions: packageDefinitions(pkgs),
     catalog: meta.status === 'fulfilled' ? catalog(meta.value?.items ?? [], versions, new Set(items.map(i => i.refName))) : undefined,
   };
 }

@@ -1,13 +1,16 @@
 # vks-fleet — Headlamp plugin
 
-A tenant-aware fleet view of VKS clusters, read from the Cluster API objects on a vSphere Supervisor. No fork of Headlamp, and nothing is installed on the workload clusters.
+A tenant-aware fleet view for VKS: clusters, VMs, networks, capacity, packages, security, compliance and vulnerabilities across one or more vSphere Supervisors, read through public Kubernetes APIs (Cluster API, VM Operator, NSX VPC, Carvel, VCF Automation's Kubernetes API). No fork of Headlamp. Nothing is installed in the clusters unless you ask for it: the optional kube-bench node scan, or a package install.
 
-The same plugin serves both audiences. What each person sees is decided by their Supervisor RBAC, not by a mode in the UI:
+The same plugin serves every audience. What each person sees and can do is decided by their own RBAC, not by a mode in the UI:
 
-- An **operator** with cluster-wide read on the Supervisor gets every namespace, grouped by tenant, plus tenant and Kubernetes-version rollups.
-- A **tenant user** gets a 403 on the cluster-wide list, so the plugin reads only the namespaces configured in settings and shows just their clusters.
+- **Operators** with cluster-wide read on the Supervisor get every org, with rollups, a switcher and fleet-wide actions.
+- **Read-only admins** see everything and change nothing.
+- **Tenant users** (directly or through VCF Automation) see only their own org's namespaces and clusters.
 
-Phase 1 reads one Supervisor. The code is built for several (see "Extending to multiple Supervisors").
+**Try it without a lab:** Settings → Demo mode shows a fictional fleet (see [Demo mode](#demo-mode)).
+
+> **Independent project.** vks-fleet is a personal open-source project. It is not a VMware or Broadcom product, and it is not affiliated with, endorsed by or supported by Broadcom. VMware, vSphere, VCF, VKS and related names are trademarks of Broadcom and are used here only to describe what the plugin works with. The plugin uses only publicly documented APIs.
 
 ## Ways to run it
 
@@ -355,6 +358,18 @@ Use a dedicated account with only the rights the plugin needs, not Administrator
 
 **Pages that read inside clusters** (Security, Applications, Packages, Compliance) say so plainly when the selected org has no VKS clusters, instead of waiting. **Orgs shown only by their ID** get a "Name this org" button on their card; names are kept with the plugin settings and apply everywhere.
 
+**Installing packages.** On the Packages page, each **Catalog** entry has **Install…** for the clusters that offer it and don't have it yet:
+
+- **Choose** the clusters, the version (from those every chosen cluster offers), the namespace (normally the repository's own) and the install name.
+- **Values** come from a **form generated from the package's own values schema**: typed fields, allowed values as choices, defaults shown, descriptions as help. Only settings you change are sent. You can also switch to YAML, or leave everything as the package defaults.
+- **The install** is set up the way the VCF CLI does it: a service account with the rights kapp-controller needs, the values in a Secret, and a PackageInstall pinned to the version. Everything is labelled `app.kubernetes.io/managed-by: vks-fleet`, with your reason recorded.
+- **Checks:** already installed (update it instead), a version the cluster doesn't offer, a package that usually needs others first (for example Contour needs cert-manager), a namespace other than the repository's.
+- **Every cluster is dry-run first,** then installed one after another, stopping at the first failure.
+
+**Remove…** on an install you own deletes its PackageInstall; kapp-controller then removes what the package created, so you type the install's name to confirm. VKS-managed packages (CNI, CSI, sign-in and so on) can't be removed here. The service account, role and values Secret stay behind, because kapp-controller needs the account to finish; they can be deleted afterwards.
+
+For applications generally, GitOps (Argo CD or Flux, which the plugin already reads) or Headlamp's App Catalog plugin are a better fit than one-off installs from a browser. VM and cluster requests with approvals and leases belong in VCF Automation's catalog.
+
 **Packages** (sidebar: Packages), per signed-in cluster:
 
 - **Installed packages,** marked **managed by VKS** (installed and upgraded with the cluster, so not changed here) or managed by you.
@@ -623,6 +638,8 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  packageInstall.ts     Package install and removal plans (VCF CLI style)
+  valuesSchema.ts       Values form from a package's OpenAPI schema
   demo/                 Demo mode: a small Kubernetes API over in-memory objects (router.ts) and the fictional fleet (supervisor.ts, guest.ts)
   api/limiter.ts        Concurrency caps and per-cluster request statistics
   api/served.ts         Remembers resources that aren't installed and which API versions answer

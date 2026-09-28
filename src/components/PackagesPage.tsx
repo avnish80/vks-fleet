@@ -24,6 +24,8 @@ import { ActionDialog } from './ActionDialog';
 import { BatchActionDialog, BatchItem } from './BatchActionDialog';
 import { ChartStyles, KpiTile, useTone } from './charts';
 import { SignInHelper } from './SignInHelper';
+import { PackageInstallDialog } from './PackageInstallDialog';
+import { uninstallPlan } from '../packageInstall';
 import { NoClusters } from './EmptyState';
 
 const STATE: Record<PackageState, { text: string; status: 'success' | 'warning' | 'error' | '' }> = {
@@ -80,6 +82,7 @@ export function PackagesPage() {
   const [plan, setPlan] = React.useState<{ plan: ActionPlan; contextName: string } | null>(null);
   const [batch, setBatch] = React.useState<{ title: string; items: BatchItem[] } | null>(null);
   const [fleetVersion, setFleetVersion] = React.useState<Record<string, string>>({});
+  const [installing, setInstalling] = React.useState<{ refName: string; displayName: string } | null>(null);
 
   if (results === null) return <Loader title="Loading clusters" />;
   if (clusters.length === 0) return <NoClusters title="Packages" what="package information" />;
@@ -181,6 +184,9 @@ export function PackagesPage() {
                               Reconcile now
                             </Button>
                           )}
+                          <Button size="small" color="error" onClick={() => setPlan({ plan: uninstallPlan(c.name, r), contextName: r.contextName })}>
+                            Remove…
+                          </Button>
                         </Box>
                       ) : (
                         '—'
@@ -311,7 +317,8 @@ export function PackagesPage() {
       {catalogRows.length > 0 && (
         <SectionBox title="Catalog">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            What the clusters' repositories offer. Installing from here is on the roadmap; for now use kctrl or a PackageInstall.
+            What the clusters' repositories offer. Install… sets it up the way the VCF CLI does (service account, values Secret,
+            PackageInstall), with a values form from the package's own schema and a dry run on every cluster first.
           </Typography>
           <SimpleTable
             columns={[
@@ -320,6 +327,17 @@ export function PackagesPage() {
               { label: 'Newest', getter: (c: (typeof catalogRows)[number]) => c.versions[0] ?? '—' },
               { label: 'Installed in', getter: (c: (typeof catalogRows)[number]) => c.installedIn.join(', ') || '—' },
               { label: 'Available in', getter: (c: (typeof catalogRows)[number]) => c.availableIn.join(', ') },
+              {
+                label: '',
+                getter: (c: (typeof catalogRows)[number]) =>
+                  c.availableIn.length > c.installedIn.length && columns.some(cl => canWrite(cl.supervisorId)) ? (
+                    <Button size="small" variant="outlined" onClick={() => setInstalling({ refName: c.refName, displayName: c.displayName })}>
+                      Install…
+                    </Button>
+                  ) : (
+                    ''
+                  ),
+              },
             ]}
             data={catalogRows}
           />
@@ -327,6 +345,15 @@ export function PackagesPage() {
       )}
 
       {plan && <ActionDialog plan={plan.plan} writer={headlampWriter(plan.contextName)} onClose={() => setPlan(null)} onApplied={() => refresh()} />}
+      {installing && (
+        <PackageInstallDialog
+          refName={installing.refName}
+          displayName={installing.displayName}
+          targets={all.map(cp => ({ cluster: byKey.get(cp.clusterKey)!, cp, writable: canWrite(byKey.get(cp.clusterKey)?.supervisorId ?? '') })).filter(t => t.cluster)}
+          onClose={() => setInstalling(null)}
+          onDone={() => refresh()}
+        />
+      )}
       {batch && <BatchActionDialog title={batch.title} items={batch.items} onClose={() => setBatch(null)} onDone={() => refresh()} />}
     </>
   );

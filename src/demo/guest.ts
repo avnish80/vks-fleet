@@ -226,18 +226,81 @@ export function buildGuest(c: C, now: Date): Store {
     ...(c.name === 'analytics' ? [pkgi('tkg-system', 'contour', 'contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1')] : []),
   ]);
   add(s, 'packaging.carvel.dev', 'packagerepositories', [{ metadata: { namespace: 'tkg-system', name: 'vks-standard-packages' }, spec: { fetch: { imgpkgBundle: { image: `${VKS_IMAGE.replace('/vks-addons', '')}/repo:v3.7.0` } } }, status: { conditions: [{ type: 'ReconcileSucceeded', status: 'True' }] } }]);
+  // The repository's catalog: versions with their values schemas, and descriptions.
+  const str = (description: string, def?: string) => ({ type: 'string', description, ...(def !== undefined ? { default: def } : {}) });
+  const SCHEMAS: Record<string, any> = {
+    'cert-manager': { type: 'object', properties: { namespace: str('Namespace to install cert-manager into', 'cert-manager') } },
+    contour: {
+      type: 'object',
+      properties: {
+        namespace: str('Namespace for Contour and Envoy', 'tanzu-system-ingress'),
+        contour: { type: 'object', properties: { replicas: { type: 'integer', default: 2, description: 'Contour controller replicas' }, logLevel: { type: 'string', enum: ['info', 'debug'], default: 'info' } } },
+        envoy: {
+          type: 'object',
+          properties: {
+            service: { type: 'object', properties: { type: { type: 'string', enum: ['LoadBalancer', 'NodePort', 'ClusterIP'], default: 'LoadBalancer', description: 'How Envoy is exposed' } } },
+            hostPorts: { type: 'object', properties: { enable: { type: 'boolean', default: false, description: 'Bind Envoy to host ports 80/443' } } },
+          },
+        },
+        certificates: { type: 'object', properties: { useCertManager: { type: 'boolean', default: true, description: 'Issue the Contour/Envoy certificates with cert-manager' } } },
+      },
+    },
+    prometheus: {
+      type: 'object',
+      properties: {
+        namespace: str('Namespace for Prometheus', 'tanzu-system-monitoring'),
+        prometheus: {
+          type: 'object',
+          properties: {
+            deployment: { type: 'object', properties: { replicas: { type: 'integer', default: 1 } } },
+            pvc: { type: 'object', properties: { storage: str('Volume size for metrics', '150Gi'), storageClassName: str('Storage class (empty: the default class)', '') } },
+            config: { type: 'object', properties: { retention: str('How long to keep metrics', '42d') } },
+          },
+        },
+        ingress: { type: 'object', properties: { enabled: { type: 'boolean', default: false }, virtual_host_fqdn: str('Host name when ingress is enabled', 'prometheus.system.tanzu') } },
+      },
+    },
+    harbor: {
+      type: 'object',
+      properties: {
+        namespace: str('Namespace for Harbor', 'tanzu-system-registry'),
+        hostname: str('Harbor host name (required)'),
+        harborAdminPassword: str('Initial admin password (required)'),
+        persistence: { type: 'object', properties: { persistentVolumeClaim: { type: 'object', properties: { registry: { type: 'object', properties: { size: str('Registry storage', '50Gi') } } } } } },
+        trivy: { type: 'object', properties: { enabled: { type: 'boolean', default: true, description: 'Scan pushed images with Trivy' } } },
+      },
+    },
+  };
+  const defs: Array<[string, string]> = [
+    ['cert-manager.tanzu.vmware.com', '1.15.3+vmware.1-tkg.1'],
+    ['cert-manager.tanzu.vmware.com', '1.16.1+vmware.1-tkg.1'],
+    ['cert-manager.tanzu.vmware.com', '1.17.2+vmware.1-tkg.1'],
+    ['contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1'],
+    ['contour.tanzu.vmware.com', '1.31.0+vmware.1-tkg.1'],
+    ['fluent-bit.tanzu.vmware.com', '3.1.9+vmware.1-tkg.1'],
+    ['prometheus.tanzu.vmware.com', '2.54.1+vmware.1-tkg.1'],
+    ['harbor.tanzu.vmware.com', '2.12.1+vmware.1-tkg.1'],
+  ];
   add(
     s,
     'data.packaging.carvel.dev',
     'packages',
+    defs.map(([ref, v]) => {
+      const schema = SCHEMAS[ref.split('.')[0]];
+      return { metadata: { namespace: 'tkg-system', name: `${ref}.${v}` }, spec: { refName: ref, version: v, ...(schema ? { valuesSchema: { openAPIv3: schema } } : {}) } };
+    })
+  );
+  add(
+    s,
+    'data.packaging.carvel.dev',
+    'packagemetadatas',
     [
-      ['cert-manager.tanzu.vmware.com', '1.15.3+vmware.1-tkg.1'],
-      ['cert-manager.tanzu.vmware.com', '1.16.1+vmware.1-tkg.1'],
-      ['cert-manager.tanzu.vmware.com', '1.17.2+vmware.1-tkg.1'],
-      ['contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1'],
-      ['contour.tanzu.vmware.com', '1.31.0+vmware.1-tkg.1'],
-      ['fluent-bit.tanzu.vmware.com', '3.1.9+vmware.1-tkg.1'],
-    ].map(([ref, v]) => ({ metadata: { namespace: 'tkg-system', name: `${ref}.${v}` }, spec: { refName: ref, version: v } }))
+      ['cert-manager.tanzu.vmware.com', 'cert-manager', 'Certificate management for Kubernetes'],
+      ['contour.tanzu.vmware.com', 'Contour', 'Ingress controller built on Envoy'],
+      ['fluent-bit.tanzu.vmware.com', 'Fluent Bit', 'Log processor and forwarder'],
+      ['prometheus.tanzu.vmware.com', 'Prometheus', 'Metrics collection and alerting'],
+      ['harbor.tanzu.vmware.com', 'Harbor', 'Container registry with scanning and replication'],
+    ].map(([ref, displayName, shortDescription]) => ({ metadata: { namespace: 'tkg-system', name: ref }, spec: { displayName, shortDescription } }))
   );
 
   // Metrics (utilisation)
