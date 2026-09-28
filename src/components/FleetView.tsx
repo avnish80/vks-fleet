@@ -26,6 +26,8 @@ import { scannerIssues } from '../scannerIssues';
 import { observabilityIssues } from '../observability';
 import { compareVersions } from '../packages';
 import { useObservability } from '../useObservability';
+import { useSupervisorHealth } from '../useSupervisorHealth';
+import { supervisorHealthIssues } from '../supervisorHealth';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -147,6 +149,8 @@ export function FleetView() {
       .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
       .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName)
   );
+  const { persona: whoAmI } = useFleetData();
+  const supervisorHealth = useSupervisorHealth(all, inventoryAll, !!whoAmI && ['operator', 'readonly', 'unknown'].includes(whoAmI.persona));
   const scannerReports = useScannerReports(
     allClusters
       .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
@@ -173,6 +177,7 @@ export function FleetView() {
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
+          ...(supervisorHealth ?? []).flatMap(h => supervisorHealthIssues(h, all?.find(r => r.supervisor.id === h.supervisorId)?.supervisor.headlampCluster ?? '')),
           ...observabilityIssues(observability ?? [], scopedResults.flatMap(r => r.clusters), new Date(), key => {
             const r = scopedResults.find(x => x.clusters.some(c => c.key === key));
             return [...(r?.releases ?? [])].sort((a, b) => compareVersions(b, a))[0];
@@ -185,7 +190,7 @@ export function FleetView() {
             : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability, supervisorHealth]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

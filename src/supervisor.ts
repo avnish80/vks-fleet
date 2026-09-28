@@ -210,12 +210,14 @@ function ownerOf(pod: any): string | undefined {
  * replaced and is just waiting to be cleaned up.
  */
 export function servicePodHealth(pods: any[], now: Date): { problems: PodIssue[]; leftovers: number } {
-  const runningOwners = new Set(pods.filter(p => p?.status?.phase === 'Running').map(ownerOf).filter(Boolean));
+  // vSphere Pods the host couldn't run show "ProviderFailed" (as their reason, or in place of a phase).
+  const failed = (p: any) => p?.status?.phase === 'Failed' || p?.status?.reason === 'ProviderFailed' || p?.status?.phase === 'ProviderFailed';
+  const runningOwners = new Set(pods.filter(p => p?.status?.phase === 'Running' && !failed(p)).map(ownerOf).filter(Boolean));
   let leftovers = 0;
   const live: any[] = [];
   for (const p of pods) {
     const owner = ownerOf(p);
-    if (p?.status?.phase === 'Failed' && owner && runningOwners.has(owner)) {
+    if (failed(p) && owner && runningOwners.has(owner)) {
       leftovers += 1;
     } else {
       live.push(p);

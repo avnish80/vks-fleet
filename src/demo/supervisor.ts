@@ -98,7 +98,7 @@ export function buildSupervisor(now: Date): Store {
         annotations: n === 'acme-prod-7kq2p' ? { 'vmware-system-resource-pool-cpu-limit': '60000', 'vmware-system-resource-pool-memory-limit': '96Gi' } : {},
       },
     })),
-    ...['kube-system', 'default', 'svc-tkg-d7x2k', 'vmware-system-vks-public'].map(n => ({ metadata: { name: n, labels: {} } })),
+    ...['kube-system', 'default', 'svc-tkg-d7x2k', 'svc-auto-attach-k2m7q', 'svc-cci-ns-p4w9z', 'vmware-system-vks-public'].map(n => ({ metadata: { name: n, labels: {} } })),
   ]);
   for (const c of DEMO_CLUSTERS) {
     const machines = machineNames(c);
@@ -262,11 +262,31 @@ export function buildSupervisor(now: Date): Store {
       count: 312,
     },
   ]);
-  // Supervisor services, all running.
-  add(s, '', 'pods', ['capi-controller-manager', 'capv-controller-manager', 'vks-controller'].map(n => ({ metadata: { namespace: 'svc-tkg-d7x2k', name: `${n}-7d9f8-abcde` }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } })));
+  // Supervisor services (vSphere Pods): all running, but all on esx-01; one ProviderFailed pod left behind on esx-02.
+  const svcPod = (ns: string, rs: string, id: string, host: string, days: number, failed = false) => ({
+    metadata: { namespace: ns, name: `${rs}-${id}`, creationTimestamp: iso(days * 24), ownerReferences: [{ kind: 'ReplicaSet', name: rs, uid: `uid-${rs}`, controller: true }] },
+    spec: { nodeName: host },
+    status: failed ? { phase: 'Failed', reason: 'ProviderFailed', message: 'The vSphere Pod could not be started on the host' } : { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] },
+  });
+  add(s, '', 'pods', [
+    ...['capi-controller-manager', 'capv-controller-manager', 'vks-controller'].map(n => svcPod('svc-tkg-d7x2k', `${n}-7d9f8b6c4`, 'bx2kq', 'esx-01.demo.local', 14)),
+    svcPod('svc-auto-attach-k2m7q', 'auto-attach-57bc947bd7', 'dlbr4', 'esx-01.demo.local', 14),
+    svcPod('svc-auto-attach-k2m7q', 'auto-attach-57bc947bd7', 'pzwjb', 'esx-02.demo.local', 19, true),
+    svcPod('svc-cci-ns-p4w9z', 'cci-ns-controller-manager-6b57cd95c7', 'ts86r', 'esx-01.demo.local', 14),
+  ]);
+  // Controller leases, all renewing.
+  add(
+    s,
+    'coordination.k8s.io',
+    'leases',
+    ['capv-controller-manager-runtime', 'controller-leader-election-capi', 'controller-leader-election-runtime-extension', 'kubeadm-bootstrap-manager-leader-election-capi', 'kubeadm-control-plane-manager-leader-election-capi', 'svc-tkg-d7x2k-tkg-controller-runtime'].map((n, i) => ({
+      metadata: { namespace: 'svc-tkg-d7x2k', name: n },
+      spec: { holderIdentity: `4201a1b2c3d4_${i}f3c9e2a-7d41-4b8e-9a61-2c5d8e7f${i}0a1`, leaseDurationSeconds: 15, renewTime: new Date(now.getTime() - (2 + i) * 1000).toISOString() },
+    }))
+  );
   add(s, '', 'nodes', [
     { metadata: { name: '4201a1b2c3d4', labels: { 'node-role.kubernetes.io/control-plane': '' } }, status: { conditions: [{ type: 'Ready', status: 'True' }], nodeInfo: { kubeletVersion: 'v1.34.9+vmware.1' } } },
-    ...['01', '02', '03'].map(h => ({ metadata: { name: `esx-${h}.demo.local`, labels: {} }, status: { conditions: [{ type: 'Ready', status: 'True' }], nodeInfo: { kubeletVersion: 'v1.34.5-sph' } } })),
+    ...['01', '02', '03', '04'].map(h => ({ metadata: { name: `esx-${h}.demo.local`, labels: { 'node-role.kubernetes.io/agent': '' } }, status: { conditions: [{ type: 'Ready', status: 'True' }], nodeInfo: { kubeletVersion: 'v1.34.5-sph-c8d5566' } } })),
   ]);
   return s;
 }

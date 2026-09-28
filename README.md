@@ -424,6 +424,18 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Supervisor health
+
+**Supervisor health** (sidebar, near the top) watches the platform itself, from what its API lets an administrator read. The Supervisor's `/readyz` and `/metrics` aren't exposed through its endpoint, and even an SSO administrator can't list leases or admission webhooks cluster-wide, so it works from the outside. Per Supervisor:
+
+- **A health score** (0–100) and headline tiles: control-plane nodes, ESXi hosts, controllers, services, stuck objects, and the API response time the plugin measures itself.
+- **Controllers alive:** the leader-election leases of Cluster API, the vSphere provider, kubeadm bootstrap and control plane, the runtime extension and the VKS controller (in the `svc-tkg-…` namespace), plus VM Operator, NSX and CSI where readable. A controller that **stops renewing its lease is stuck or gone even if its pod shows Running**: that's a critical issue, as is a lease with no leader.
+- **Supervisor services** (vSphere Pods): running pods and their hosts, restarts, and pods failing with no replacement. **`ProviderFailed` pods** (the ESXi host couldn't run the vSphere Pod) left behind next to a running replacement are shown as leftovers, with **Clean up…** (dry run first; only the failed pods are deleted).
+- **Placement:** service pods per ESXi host. When **every service pod runs on one host while others are Ready**, that's a resilience warning: pods rescheduled after a host problem stay where they landed.
+- **The control plane** and hosts, the **reconcile backlog** by kind (clusters, machines, VMs, load balancers, NSX objects, subnets, volumes, with the one stuck longest), and **warning events by reason**.
+
+The Supervisor's own status, alarms and host health live in vCenter; a small read-only collector for those is planned.
+
 ## Observability
 
 **Observability** (sidebar) reads each cluster's own **Prometheus** and **Alertmanager** through the Kubernetes API's service proxy: the same connection and permissions as the rest of the plugin, with no extra endpoints, credentials or Grafana needed. VCF Operations isn't required.
@@ -530,6 +542,7 @@ Each cluster has deliberate problems, so every page has something to show:
 | Cluster | What it demonstrates |
 |---|---|
 | payments | The healthy one: hardened workloads, network policies, daily backups, Trivy reports, a saved kube-bench run |
+| Supervisor | Every service pod on one ESXi host while four are Ready, a ProviderFailed leftover to clean up, six controller leases renewing |
 | checkout | A node disk filling in about 38 hours, crash-loop and disk alerts from Alertmanager, a node stuck draining behind a PodDisruptionBudget, a crash-looping pod, a privileged pod, a cluster-admin grant, a partly failed backup, a failing package, images with critical CVEs |
 | sandbox | A Kubernetes version behind (upgrade available), no default StorageClass, no monitoring (to try Enable monitoring) |
 | analytics | Control-plane certificates expiring in 18 days, two node pools, Kyverno policy failures, a Kafka volume filling in about 3 days (Prometheus forecast) |
@@ -691,6 +704,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  supervisorHealth.ts   Supervisor health: leases, service pods and leftovers, placement, backlog, score, issues, clean-up
   compare.ts            Right-sizing (requests vs p95 use, node count, overcommit) and the same app across clusters
   observability.ts      Monitoring-stack discovery, Prometheus queries via the API proxy, panels, forecasts, alerts as issues
   provision.ts          VM and cluster manifests, capacity preview, create plans, YAML output
