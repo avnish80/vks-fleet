@@ -92,3 +92,13 @@ describe('vCenter matching by hosts', () => {
     assert.equal(matchSupervisor(st, { id: 'wld', headlampCluster: '10.150.4.2' } as any, 2), undefined, 'without hosts or an address, two of each: no guess');
   });
 });
+
+describe('chart detail statistics', () => {
+  test('min, average, p95, max, latest', async () => {
+    const { seriesStats } = await import('../src/observability');
+    const st = seriesStats(Array.from({ length: 20 }, (_, i) => [i, i + 1] as [number, number]))!;
+    assert.deepEqual([st.min, st.max, st.latest, st.avg], [1, 20, 20, 10.5]);
+    assert.equal(st.p95, 20);
+    assert.equal(seriesStats([]), undefined);
+  });
+});

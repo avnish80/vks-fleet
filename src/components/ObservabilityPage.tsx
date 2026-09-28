@@ -18,6 +18,7 @@ import { useWorkloadHealth } from '../useWorkload';
 import { ChartStyles, KpiTile } from './charts';
 import { NoClusters } from './EmptyState';
 import { PackageInstallDialog } from './PackageInstallDialog';
+import { PanelDetailDialog } from './PanelDetailDialog';
 import { SignInHelper } from './SignInHelper';
 import { formatValue, Marker, TimeSeriesChart } from './TimeSeriesChart';
 
@@ -37,6 +38,7 @@ export function ObservabilityPage() {
   const packages = usePackages(enabling ? targets.filter(t => t.key === enabling) : [], 120);
   const [serverFor, setServerFor] = React.useState<ObservabilitySummary | null>(null);
   const [compareOn, setCompareOn] = React.useState(false);
+  const [showForecasts, setShowForecasts] = React.useState(false);
   const comparisons = usePolling<AppComparison[]>(
     compareOn && summaries ? `compare|${summaries.filter(s => s.reachable).map(s => s.clusterKey).join(',')}` : null,
     async () =>
@@ -75,75 +77,6 @@ export function ObservabilityPage() {
           <KpiTile label="Slowest API (p99)" value={monitored.length ? formatValue(worstP99, 'seconds') : '—'} tone={worstP99 > 1 ? 'error' : worstP99 > 0.5 ? 'warning' : 'success'} />
         </Box>
       </SectionBox>
-
-      {forecasts.length > 0 && (
-        <SectionBox title="Running out (forecasts)">
-          <SimpleTable
-            columns={[
-              { label: 'Runs out in', getter: (f: Forecast & { s: ObservabilitySummary }) => <StatusLabel status={f.seconds < 2 * 86400 ? 'error' : f.seconds < 7 * 86400 ? 'warning' : ''}>{humanDuration(f.seconds)}</StatusLabel> },
-              { label: 'What', getter: (f: Forecast & { s: ObservabilitySummary }) => f.what },
-              { label: 'Where', getter: (f: Forecast & { s: ObservabilitySummary }) => <b>{f.subject}</b> },
-              { label: 'Cluster', getter: (f: Forecast & { s: ObservabilitySummary }) => <Button size="small" onClick={() => select(f.s.clusterKey)}>{f.s.clusterName}</Button> },
-            ]}
-            data={forecasts.sort((a, b) => a.seconds - b.seconds)}
-          />
-          <Typography variant="caption" color="text.secondary">At the rate of the last six hours; a straight line, so check the chart before acting on a long forecast.</Typography>
-        </SectionBox>
-      )}
-
-      {alerts.length > 0 && (
-        <SectionBox title="Alerts firing">
-          <SimpleTable
-            columns={[
-              { label: 'Severity', getter: (a: FiringAlert & { s: ObservabilitySummary }) => <StatusLabel status={a.severity === 'critical' ? 'error' : a.severity === 'warning' ? 'warning' : ''}>{a.severity}</StatusLabel> },
-              { label: 'Alert', getter: (a: FiringAlert & { s: ObservabilitySummary }) => <b>{a.name}</b> },
-              { label: 'Summary', getter: (a: FiringAlert & { s: ObservabilitySummary }) => a.summary ?? '—' },
-              { label: 'Cluster', getter: (a: FiringAlert & { s: ObservabilitySummary }) => a.s.clusterName },
-              { label: 'Since', getter: (a: FiringAlert & { s: ObservabilitySummary }) => (a.since ? new Date(a.since).toLocaleString() : '—') },
-            ]}
-            data={alerts}
-          />
-        </SectionBox>
-      )}
-
-      {list.some(s => s.deprecatedApis.length) && (
-        <SectionBox title="Upgrade safety: deprecated APIs in use">
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            From each API server's own count of requests to deprecated APIs, since it last started. Anything removed by a release
-            you plan to move to breaks its callers; the Upgrade Planner checks this for each cluster's target.
-          </Typography>
-          <SimpleTable
-            columns={[
-              { label: 'Cluster', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.s.clusterName },
-              { label: 'API', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => <b>{apiName(d)}</b> },
-              { label: 'Removed in', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.removedRelease ?? '—' },
-              {
-                label: 'Newest release here',
-                getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) =>
-                  d.newest ? <StatusLabel status={removedBy(d, d.newest) ? 'error' : 'success'}>{`${d.newest}${removedBy(d, d.newest) ? ': breaks' : ': fine'}`}</StatusLabel> : '—',
-              },
-            ]}
-            data={list.flatMap(s => {
-              const r = (results ?? []).find(x => x.clusters.some(c => c.key === s.clusterKey));
-              const newest = [...(r?.releases ?? [])].sort((a, b) => compareVersions(b, a))[0];
-              return s.deprecatedApis.map(d => ({ ...d, s, newest }));
-            })}
-          />
-        </SectionBox>
-      )}
-
-      {monitored.length > 1 && (
-        <SectionBox
-          title="The same app across clusters"
-          headerProps={{ actions: [<Button key="c" size="small" variant="outlined" onClick={() => setCompareOn(true)} disabled={compareOn}>{compareOn ? (comparisons ? 'Compared' : 'Comparing…') : 'Compare'}</Button>] }}
-        >
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Workloads with the same name and image in more than one cluster: CPU and memory per replica over the last hour,
-            restarts over the last day. Big differences point at the environment, not the code.
-          </Typography>
-          {compareOn && comparisons && (comparisons.length ? comparisons.map(a => <AppCompareCard key={`${a.app}|${a.repo}`} a={a} />) : <Typography color="text.secondary">No app runs in more than one monitored cluster.</Typography>)}
-        </SectionBox>
-      )}
 
       <SectionBox title="Clusters">
         <SimpleTable
@@ -189,6 +122,80 @@ export function ObservabilityPage() {
 
       {sel?.reachable && byKey.get(sel.clusterKey) && (
         <ClusterPanels summary={sel} cluster={byKey.get(sel.clusterKey)!} clusters={clusters} rng={rng} setRng={setRng} onClose={() => select(null)} />
+      )}
+
+      {monitored.length > 1 && (
+        <SectionBox
+          title="The same app across clusters"
+          headerProps={{ actions: [<Button key="c" size="small" variant="outlined" onClick={() => setCompareOn(true)} disabled={compareOn}>{compareOn ? (comparisons ? 'Compared' : 'Comparing…') : 'Compare'}</Button>] }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Workloads with the same name and image in more than one cluster: CPU and memory per replica over the last hour,
+            restarts over the last day. Big differences point at the environment, not the code.
+          </Typography>
+          {compareOn && comparisons && (comparisons.length ? comparisons.map(a => <AppCompareCard key={`${a.app}|${a.repo}`} a={a} />) : <Typography color="text.secondary">No app runs in more than one monitored cluster.</Typography>)}
+        </SectionBox>
+      )}
+
+      {list.some(s => s.deprecatedApis.length) && (
+        <SectionBox title="Upgrade safety: deprecated APIs in use">
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            From each API server's own count of requests to deprecated APIs, since it last started. Anything removed by a release
+            you plan to move to breaks its callers; the Upgrade Planner checks this for each cluster's target.
+          </Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Cluster', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.s.clusterName },
+              { label: 'API', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => <b>{apiName(d)}</b> },
+              { label: 'Removed in', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.removedRelease ?? '—' },
+              {
+                label: 'Newest release here',
+                getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) =>
+                  d.newest ? <StatusLabel status={removedBy(d, d.newest) ? 'error' : 'success'}>{`${d.newest}${removedBy(d, d.newest) ? ': breaks' : ': fine'}`}</StatusLabel> : '—',
+              },
+            ]}
+            data={list.flatMap(s => {
+              const r = (results ?? []).find(x => x.clusters.some(c => c.key === s.clusterKey));
+              const newest = [...(r?.releases ?? [])].sort((a, b) => compareVersions(b, a))[0];
+              return s.deprecatedApis.map(d => ({ ...d, s, newest }));
+            })}
+          />
+        </SectionBox>
+      )}
+
+      {alerts.length > 0 && (
+        <SectionBox title="Alerts firing">
+          <SimpleTable
+            columns={[
+              { label: 'Severity', getter: (a: FiringAlert & { s: ObservabilitySummary }) => <StatusLabel status={a.severity === 'critical' ? 'error' : a.severity === 'warning' ? 'warning' : ''}>{a.severity}</StatusLabel> },
+              { label: 'Alert', getter: (a: FiringAlert & { s: ObservabilitySummary }) => <b>{a.name}</b> },
+              { label: 'Summary', getter: (a: FiringAlert & { s: ObservabilitySummary }) => a.summary ?? '—' },
+              { label: 'Cluster', getter: (a: FiringAlert & { s: ObservabilitySummary }) => a.s.clusterName },
+              { label: 'Since', getter: (a: FiringAlert & { s: ObservabilitySummary }) => (a.since ? new Date(a.since).toLocaleString() : '—') },
+            ]}
+            data={alerts}
+          />
+        </SectionBox>
+      )}
+
+      {forecasts.length > 0 && (
+        <SectionBox
+          title={`Running out (forecasts: ${forecasts.length})`}
+          headerProps={{ actions: [<Button key="t" size="small" onClick={() => setShowForecasts(!showForecasts)}>{showForecasts ? 'Hide' : 'Show'}</Button>] }}
+        >
+          {showForecasts && (<>
+          <SimpleTable
+            columns={[
+              { label: 'Runs out in', getter: (f: Forecast & { s: ObservabilitySummary }) => <StatusLabel status={f.seconds < 2 * 86400 ? 'error' : f.seconds < 7 * 86400 ? 'warning' : ''}>{humanDuration(f.seconds)}</StatusLabel> },
+              { label: 'What', getter: (f: Forecast & { s: ObservabilitySummary }) => f.what },
+              { label: 'Where', getter: (f: Forecast & { s: ObservabilitySummary }) => <b>{f.subject}</b> },
+              { label: 'Cluster', getter: (f: Forecast & { s: ObservabilitySummary }) => <Button size="small" onClick={() => select(f.s.clusterKey)}>{f.s.clusterName}</Button> },
+            ]}
+            data={forecasts.sort((a, b) => a.seconds - b.seconds)}
+          />
+          <Typography variant="caption" color="text.secondary">At the rate of the last six hours; a straight line, so check the chart before acting on a long forecast.</Typography>
+          </>)}
+        </SectionBox>
       )}
 
       {serverFor && <ServerSetupDialog s={serverFor} onClose={() => setServerFor(null)} />}
@@ -304,7 +311,8 @@ function AppCompareCard({ a }: { a: AppComparison }) {
 function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { summary: ObservabilitySummary; cluster: FleetCluster; clusters: FleetCluster[]; rng: Range; setRng: (r: Range) => void; onClose: () => void }) {
   const end = Math.floor(Date.now() / 60000) * 60000;
   const start = end - RANGES[rng] * 1000;
-  const markers: Marker[] = (fleetTimeline(clusters, new Date(end), 8).get(cluster.key) ?? []).map(e => ({ time: new Date(e.time).getTime(), text: e.text, tone: e.tone }));
+  const markers: Marker[] = (fleetTimeline(clusters, new Date(end), 31).get(cluster.key) ?? []).map(e => ({ time: new Date(e.time).getTime(), text: e.text, tone: e.tone }));
+  const [detail, setDetail] = React.useState<Panel | null>(null);
   return (
     <SectionBox
       title={`${cluster.name}: metrics`}
@@ -315,8 +323,8 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
               {r}
             </Button>
           )),
-          <Button key="inc" size="small" variant="outlined" component={Link} to={`/vks-fleet/incident?cluster=${encodeURIComponent(cluster.key)}`}>
-            Incident timeline
+          <Button key="inc" size="small" variant="outlined" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(cluster.key)}`}>
+            Investigate
           </Button>,
           <Button key="x" size="small" onClick={onClose}>
             Close
@@ -325,15 +333,16 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
       }}
     >
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Dashed lines mark the fleet's changes in this cluster (node replacements, upgrades, actions); hover the triangle for what
-        happened. {markers.filter(m => m.time >= start).length ? '' : 'No changes in this window.'}
+        Hover a chart for values at that moment; click one for a larger view with statistics, more ranges and the changes in the window.
+        Markers are the fleet's own changes in this cluster. {markers.filter(m => m.time >= start).length ? '' : 'No changes in this window.'}
       </Typography>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 2 }}>
         {PANELS.map(p => (
-          <PanelCard key={p.id} panel={p} summary={summary} rng={rng} start={start} end={end} markers={markers} />
+          <PanelCard key={p.id} panel={p} summary={summary} rng={rng} start={start} end={end} markers={markers} onOpen={() => setDetail(p)} />
         ))}
       </Box>
       <RightSizingSection summary={summary} cluster={cluster} />
+      {detail && <PanelDetailDialog panel={detail} summary={summary} markers={markers} initialRange={rng} onClose={() => setDetail(null)} />}
     </SectionBox>
   );
 }
@@ -386,7 +395,7 @@ function RightSizingSection({ summary, cluster }: { summary: ObservabilitySummar
   );
 }
 
-function PanelCard({ panel, summary, rng, start, end, markers }: { panel: Panel; summary: ObservabilitySummary; rng: Range; start: number; end: number; markers: Marker[] }) {
+function PanelCard({ panel, summary, rng, start, end, markers, onOpen }: { panel: Panel; summary: ObservabilitySummary; rng: Range; start: number; end: number; markers: Marker[]; onOpen: () => void }) {
   const prom = summary.stack.prometheus!;
   const data = usePolling<{ series: Series[]; error?: string }>(
     `${summary.contextName}|${panel.id}|${rng}`,
@@ -401,8 +410,13 @@ function PanelCard({ panel, summary, rng, start, end, markers }: { panel: Panel;
     120
   );
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-      <Typography sx={{ fontWeight: 600, mb: 0.5 }}>{panel.title}</Typography>
+    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, transition: 'box-shadow 150ms', '&:hover': { boxShadow: 3 } }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
+        <Typography sx={{ fontWeight: 600, flex: 1 }}>{panel.title}</Typography>
+        <Button size="small" onClick={onOpen} sx={{ minWidth: 0, py: 0 }} title={panel.meaning}>
+          Expand
+        </Button>
+      </Box>
       {!data ? (
         <Typography variant="body2" color="text.secondary">Loading…</Typography>
       ) : data.error ? (

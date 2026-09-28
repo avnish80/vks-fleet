@@ -19,8 +19,7 @@ export const COMPLIANCE_ROUTE = '/vks-fleet/compliance';
 export const VULNS_ROUTE = '/vks-fleet/vulnerabilities';
 export const OBSERVABILITY_ROUTE = '/vks-fleet/observability';
 export const SUPERVISOR_HEALTH_ROUTE = '/vks-fleet/supervisor-health';
-export const INCIDENT_ROUTE = '/vks-fleet/incident';
-export const WALK_ROUTE = '/vks-fleet/walk';
+export const INVESTIGATE_ROUTE = '/vks-fleet/investigate';
 export const CLUSTER_PATH = '/vks-fleet/clusters/:supervisor/:namespace/:name';
 
 /** Every link to a cluster carries Supervisor + namespace + name, never the name alone. */

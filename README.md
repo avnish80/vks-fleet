@@ -424,30 +424,13 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
-## Explain: walk-down and incident timeline
+## Investigate
 
-**Walk down** (sidebar, or **Walk down** on an issue about a node) goes from a node, or a pod on it, down through everything VKS stacks under it:
+**Investigate** (sidebar, **Investigate** on any cluster issue, or from a cluster's charts) is one page for one cluster and one window (6 hours, 24 hours or 3 days), with two halves:
 
-- the **node** as the cluster sees it (pods with problems, pod networking failures)
-- its **Machine** (phase, deleting, failure domain)
-- its **VM** (power, VM class, zone)
-- the **ESXi host** it runs on (Ready as the Supervisor sees it, how many other VMs share it)
-- the **namespace's** memory overcommit
-- the **Supervisor's** health score
+**What happened**, on the left: the fleet's own changes and conditions, Alertmanager alerts with their start times, warning events, unusual metrics, forecasts and the open issues, as one story. A short summary names the first symptom and, **if a change came within two hours before it, suggests it as a possible trigger**, stated as a suggestion; when nothing preceded it, it says so. **Copy as post-mortem draft** (or Download .md) gives a Markdown draft with summary, impact, a timeline table, the likely trigger, actions and follow-ups; the parts only people can fill in are marked, and a notice asks for review before sharing.
 
-Each layer is marked healthy, warning or unhealthy, and the **deepest unhealthy layer is named as the likely one**: a problem low in the stack usually explains everything above it. Across the cluster, it also points out when **most problem nodes are VMs on the same host** ("look at that host first"). The host comes from VM Operator's `status.host`.
-
-**Incident timeline** (sidebar, **Timeline** on any cluster issue, or **Incident timeline** in Observability) assembles one story per cluster over 6 hours, 24 hours or 3 days:
-
-- the fleet's own **changes** and conditions (node replacements, scaling, upgrades, the plugin's actions)
-- **Alertmanager alerts** with their start times
-- **warning events**
-- **unusual** metrics and **forecasts**
-- the **open issues**
-
-A short summary names the first symptom and, **if a change came within two hours before it, suggests it as a possible trigger**. That's stated as a suggestion, and when nothing preceded it, it says so. **Copy as post-mortem draft** (or Download .md) gives a Markdown draft with summary, impact, a timeline table, the likely trigger, actions and follow-ups (the open issues and forecasts). The parts only people can fill in are marked, and a notice asks for review before sharing.
-
-**Charts** use smooth curves with soft fills. Hovering shows a crosshair and every series' value at that moment; thresholds are labelled; the fleet's changes appear as markers that explain themselves on hover.
+**The layers under a node**, on the right: the node as the cluster sees it, its Machine, its VM (power, class, zone), the ESXi host it runs on (from VM Operator's `status.host`), the namespace's memory overcommit and the Supervisor's health, each marked healthy, warning or unhealthy. **The deepest unhealthy layer is named as the likely one**: a problem low in the stack usually explains everything above it. Nodes with problems are marked in the picker and preselected; node names in the timeline can be walked down from; and when **most problem nodes are VMs on the same host**, that's called out first.
 
 ## Read by default, elevate to change
 
@@ -538,7 +521,9 @@ Then, in **Settings → vCenter collector**, set the context (`kubernetes-cluste
 - **Fleet overview:**
   - clusters monitored, alerts firing, things running out within 7 days, the slowest API server
   - per cluster: node CPU and memory peaks, API p99 latency and 5xx rate, container restarts in the last hour, alert count
-- **Per-cluster panels** (1 h, 24 h, 7 d): node CPU, memory and disk; API server latency and errors; etcd database size; container restarts; busiest pods; volume fill; network errors. A panel without data says what would collect it ("needs kube-state-metrics"), and alternative metric names are tried where exporters differ.
+- **The page is ordered for operators:** the clusters first, the selected cluster's charts and right-sizing right below, then the app comparison and upgrade safety, alerts, and **Running out** last as a collapsible section.
+- **Charts** use smooth curves with soft fills. Hovering shows a crosshair and every series' value at that moment; thresholds are labelled; the fleet's changes appear as markers that explain themselves on hover. **Expand** (or clicking a chart) opens a larger view: ranges from 1 hour to 30 days, per-series statistics (min, average, p95, max, latest, with those over the warning level marked), the changes in that window, **what the panel means** for an operator, and the PromQL behind it.
+- **Per-cluster panels** (1 h to 30 d): node CPU, memory and disk; API server latency and errors; etcd database size; container restarts; busiest pods; volume fill; network errors. A panel without data says what would collect it ("needs kube-state-metrics"), and alternative metric names are tried where exporters differ.
 - **Changes drawn on every chart:** the fleet's own changes in that cluster (node replacements, upgrades, conditions, the plugin's actions) appear as dashed markers, labelled on hover. A spike and its likely cause show up side by side.
 - **Forecasts instead of thresholds:** from the last six hours' trend, *when* a volume, a node's disk, etcd or a node's memory runs out, for example "streaming/data-kafka-1 runs out in about 3 days". Under 7 days is a warning issue; under 2 days is critical.
 - **Alerts:** Alertmanager's active alerts (not silenced or inhibited; Watchdog left out) become issues on the fleet page, grouped by alert name, with severity from their labels.
@@ -797,6 +782,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
   explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
   incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft
   vcenterStatus.ts      vCenter's view from the collector: reading, matching, scoring, issues

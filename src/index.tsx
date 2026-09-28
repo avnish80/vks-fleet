@@ -14,7 +14,7 @@ import { CompliancePage } from './components/CompliancePage';
 import { VulnerabilitiesPage } from './components/VulnerabilitiesPage';
 import { ObservabilityPage } from './components/ObservabilityPage';
 import { SupervisorHealthPage } from './components/SupervisorHealthPage';
-import { IncidentPage, WalkDownPage } from './components/ExplainPages';
+import { InvestigatePage } from './components/InvestigatePage';
 import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail, VmsPage } from './components/NamespacePages';
 import { CleanupPage } from './components/CleanupPage';
 import { MachinesPage } from './components/MachinesPage';
@@ -24,7 +24,7 @@ import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { APPS_ROUTE, COMPLIANCE_ROUTE, INCIDENT_ROUTE, OBSERVABILITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, WALK_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
+import { APPS_ROUTE, COMPLIANCE_ROUTE, INVESTIGATE_ROUTE, OBSERVABILITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
 import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
@@ -54,8 +54,7 @@ for (const child of [
   { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH, icon: 'mdi:lan' },
   { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE, icon: 'mdi:apps' },
   { name: 'vks-fleet-observability', label: 'Observability', url: OBSERVABILITY_ROUTE, icon: 'mdi:chart-timeline-variant' },
-  { name: 'vks-fleet-incident', label: 'Incident timeline', url: INCIDENT_ROUTE, icon: 'mdi:timeline-alert-outline' },
-  { name: 'vks-fleet-walk', label: 'Walk down', url: WALK_ROUTE, icon: 'mdi:layers-search-outline' },
+  { name: 'vks-fleet-investigate', label: 'Investigate', url: INVESTIGATE_ROUTE, icon: 'mdi:magnify-scan' },
   { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH, icon: 'mdi:package-variant-closed' },
   { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH, icon: 'mdi:arrow-up-bold-circle-outline' },
   { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH, icon: 'mdi:gauge' },
@@ -96,8 +95,7 @@ for (const page of [
   { path: VULNS_ROUTE, name: 'vks-fleet-vulns', component: () => (<PageFrame><VulnerabilitiesPage /></PageFrame>) },
   { path: OBSERVABILITY_ROUTE, name: 'vks-fleet-observability', component: () => (<PageFrame><ObservabilityPage /></PageFrame>) },
   { path: SUPERVISOR_HEALTH_ROUTE, name: 'vks-fleet-supervisor-health', component: () => (<PageFrame><SupervisorHealthPage /></PageFrame>) },
-  { path: INCIDENT_ROUTE, name: 'vks-fleet-incident', component: () => (<PageFrame><IncidentPage /></PageFrame>) },
-  { path: WALK_ROUTE, name: 'vks-fleet-walk', component: () => (<PageFrame><WalkDownPage /></PageFrame>) },
+  { path: INVESTIGATE_ROUTE, name: 'vks-fleet-investigate', component: () => (<PageFrame><InvestigatePage /></PageFrame>) },
   { path: SHOWBACK_PATH, name: 'vks-fleet-showback', component: () => (<PageFrame><ShowbackPage /></PageFrame>) },
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
     <PageFrame>

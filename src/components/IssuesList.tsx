@@ -154,18 +154,13 @@ function IssueCard({
           </Button>
         )}
         {issue.clusterKey && (
-          <Button size="small" component={Link} to={`/vks-fleet/incident?cluster=${encodeURIComponent(issue.clusterKey)}`} title="Everything around this cluster as one story, with a post-mortem draft">
-            Timeline
-          </Button>
-        )}
-        {issue.clusterKey && issue.affected.nodes[0] && (
           <Button
             size="small"
             component={Link}
-            to={`/vks-fleet/walk?cluster=${encodeURIComponent(issue.clusterKey)}&node=${encodeURIComponent(issue.affected.nodes[0])}`}
-            title="From the node down through its Machine, VM, host and namespace"
+            to={`/vks-fleet/investigate?cluster=${encodeURIComponent(issue.clusterKey)}${issue.affected.nodes[0] ? `&node=${encodeURIComponent(issue.affected.nodes[0])}` : ''}`}
+            title="What happened in this cluster as one story, and the layers under its nodes"
           >
-            Walk down
+            Investigate
           </Button>
         )}
         <Button size="small" onClick={() => setSilencing(true)}>

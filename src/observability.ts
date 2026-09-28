@@ -109,7 +109,7 @@ export function instant(client: SupervisorClient, prom: Endpoint, query: string)
   return cached(client.name && `${client.name}|${path}`, async () => parseVector(await client.get(path)));
 }
 
-export const RANGES = { '1h': 3600, '24h': 86400, '7d': 7 * 86400 } as const;
+export const RANGES = { '1h': 3600, '6h': 6 * 3600, '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400 } as const;
 export type Range = keyof typeof RANGES;
 
 export function range(client: SupervisorClient, prom: Endpoint, query: string, r: Range, now = Date.now()): Promise<Series[]> {
@@ -148,30 +148,33 @@ export interface Panel {
   needs: string;
   /** Limit for a warning colour, in the panel's unit. */
   warnAbove?: number;
+  /** What an operator should read into it. */
+  meaning: string;
 }
 
 const ROOT_FS = 'mountpoint="/",fstype!~"tmpfs|overlay|squashfs"';
 const nodeName = (l: Record<string, string>) => (l.node ?? l.instance ?? '').replace(/:\d+$/, '');
 
 export const PANELS: Panel[] = [
-  { id: 'node-cpu', title: 'Node CPU', unit: 'percent', needs: 'node-exporter', warnAbove: 85, legend: nodeName, queries: ['100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))'] },
-  { id: 'node-mem', title: 'Node memory', unit: 'percent', needs: 'node-exporter', warnAbove: 90, legend: nodeName, queries: ['100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'] },
-  { id: 'node-disk', title: 'Node disk (/)', unit: 'percent', needs: 'node-exporter', warnAbove: 85, legend: nodeName, queries: [`100 * (1 - node_filesystem_avail_bytes{${ROOT_FS}} / node_filesystem_size_bytes{${ROOT_FS}})`] },
+  { id: 'node-cpu', title: 'Node CPU', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Sustained use above 85% on a node means its pods are competing for CPU; look at Busiest pods for who, and at right-sizing.', legend: nodeName, queries: ['100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))'] },
+  { id: 'node-mem', title: 'Node memory', unit: 'percent', needs: 'node-exporter', warnAbove: 90, meaning: 'Above 90% the kubelet starts evicting pods. A steady climb is a leak; the forecast says when it runs out.', legend: nodeName, queries: ['100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'] },
+  { id: 'node-disk', title: 'Node disk (/)', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Images, logs and emptyDir volumes fill the root disk; the kubelet evicts pods when it runs low. Replacing the node clears it.', legend: nodeName, queries: [`100 * (1 - node_filesystem_avail_bytes{${ROOT_FS}} / node_filesystem_size_bytes{${ROOT_FS}})`] },
   {
     id: 'api-latency',
     title: 'API server latency (p99)',
     unit: 'seconds',
     needs: 'API server metrics',
     warnAbove: 1,
+    meaning: 'The slowest 1% of API requests. Over a second, controllers and kubectl feel it; etcd, a busy webhook or an overloaded control plane are the usual causes.',
     legend: () => 'p99',
     queries: ['histogram_quantile(0.99, sum by (le) (rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|CONNECT"}[5m])))'],
   },
-  { id: 'api-errors', title: 'API server errors (5xx)', unit: 'rate', needs: 'API server metrics', warnAbove: 0.5, legend: () => '5xx/s', queries: ['sum(rate(apiserver_request_total{code=~"5.."}[5m]))'] },
-  { id: 'etcd-size', title: 'etcd database size', unit: 'bytes', needs: 'etcd metrics', legend: l => nodeName(l) || 'etcd', queries: ['max by (instance) (etcd_mvcc_db_total_size_in_bytes)', 'max by (instance) (etcd_debugging_mvcc_db_total_size_in_bytes)'] },
-  { id: 'restarts', title: 'Container restarts (per hour)', unit: 'count', needs: 'kube-state-metrics', warnAbove: 3, legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[1h]))) > 0'] },
-  { id: 'top-cpu', title: 'Busiest pods (CPU cores)', unit: 'rate', needs: 'cAdvisor (kubelet)', legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])))'] },
-  { id: 'pvc-fill', title: 'Volume fill', unit: 'percent', needs: 'kubelet volume stats', warnAbove: 85, legend: l => `${l.namespace}/${l.persistentvolumeclaim}`, queries: ['topk(8, 100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)'] },
-  { id: 'net-errors', title: 'Network errors', unit: 'rate', needs: 'node-exporter', warnAbove: 1, legend: nodeName, queries: ['sum by (instance) (rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]))'] },
+  { id: 'api-errors', title: 'API server errors (5xx)', unit: 'rate', needs: 'API server metrics', warnAbove: 0.5, meaning: 'Requests the API server itself failed. A burst usually means etcd trouble or an admission webhook that is down.', legend: () => '5xx/s', queries: ['sum(rate(apiserver_request_total{code=~"5.."}[5m]))'] },
+  { id: 'etcd-size', title: 'etcd database size', unit: 'bytes', needs: 'etcd metrics', meaning: 'etcd stops accepting writes at its quota (2 GiB by default). Growth comes from events, secrets or custom resources piling up; compaction and defragmentation keep it in check.', legend: l => nodeName(l) || 'etcd', queries: ['max by (instance) (etcd_mvcc_db_total_size_in_bytes)', 'max by (instance) (etcd_debugging_mvcc_db_total_size_in_bytes)'] },
+  { id: 'restarts', title: 'Container restarts (per hour)', unit: 'count', needs: 'kube-state-metrics', warnAbove: 3, meaning: 'Repeated restarts are crash loops or OOM kills. Walk down from the pod: the cause may be the node, its VM or the namespace’s memory.', legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[1h]))) > 0'] },
+  { id: 'top-cpu', title: 'Busiest pods (CPU cores)', unit: 'rate', needs: 'cAdvisor (kubelet)', meaning: 'Who is using the CPU. Compare with what they request (right-sizing) and with the same app in other clusters.', legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])))'] },
+  { id: 'pvc-fill', title: 'Volume fill', unit: 'percent', needs: 'kubelet volume stats', warnAbove: 85, meaning: 'A full volume stops the application writing. Expand it if its storage class allows, or clean up; the forecast says how long there is.', legend: l => `${l.namespace}/${l.persistentvolumeclaim}`, queries: ['topk(8, 100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)'] },
+  { id: 'net-errors', title: 'Network errors', unit: 'rate', needs: 'node-exporter', warnAbove: 1, meaning: 'Receive and transmit errors on the node’s interfaces: usually the virtual network (MTU, the overlay, a host NIC), not the application.', legend: nodeName, queries: ['sum by (instance) (rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]))'] },
 ];
 
 /* ---------------- Forecasts ---------------- */
@@ -517,3 +520,12 @@ export function serverSetupCommands(context: string, exporterNamespace = 'tanzu-
     '',
   ].join('\n');
 }
+
+/** Statistics of one series over a window (for the chart detail view). */
+export function seriesStats(points: Array<[number, number]>) {
+  const v = points.map(p => p[1]).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!v.length) return undefined;
+  const p95 = v[Math.min(v.length - 1, Math.floor(v.length * 0.95))];
+  return { min: v[0], max: v[v.length - 1], avg: v.reduce((n, x) => n + x, 0) / v.length, p95, latest: points[points.length - 1][1] };
+}
+
