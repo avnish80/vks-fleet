@@ -152,7 +152,7 @@ export function InvestigatePage() {
               const mentioned = nodeIn(e.text);
               return (
                 <Box key={i} sx={{ position: 'relative', mb: 1.25 }}>
-                  <Box sx={{ position: 'absolute', left: -21, top: 5, width: 12, height: 12, borderRadius: '50%', bgcolor: DOT[e.tone], border: '2px solid white', boxShadow: '0 0 0 1px rgba(0,0,0,0.12)' }} />
+                  <Box sx={{ position: 'absolute', left: -21, top: 5, width: 12, height: 12, borderRadius: '50%', bgcolor: DOT[e.tone], border: 2, borderColor: 'background.paper', boxShadow: 1 }} />
                   <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'baseline', flexWrap: 'wrap' }}>
                     <Typography variant="caption" color="text.secondary" sx={{ minWidth: 118, fontVariantNumeric: 'tabular-nums' }}>
                       {e.time ? new Date(e.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'now'}

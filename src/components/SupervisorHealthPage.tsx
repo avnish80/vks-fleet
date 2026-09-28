@@ -234,41 +234,53 @@ function VcenterSection({ vc, read }: { vc?: VcSupervisor; read?: VcenterRead | 
           {m.text}
         </Alert>
       ))}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 2, mt: 1 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3, mt: 1 }}>
         <Box>
-          <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Control-plane VMs</Typography>
-          {vc.controlPlaneVMs.map(v => (
-            <Typography key={v.name} variant="body2">
-              <StatusLabel status={v.power === 'POWERED_ON' ? 'success' : 'error'}>{String(v.power ?? '?').toLowerCase().replace('_', ' ')}</StatusLabel> {v.name}
-              {v.cpus ? ` · ${v.cpus} vCPU, ${Math.round((v.memoryMiB ?? 0) / 1024)} GiB` : ''}
-            </Typography>
-          ))}
-          <Typography sx={{ fontWeight: 600, mt: 1.5, mb: 0.5 }}>Hosts</Typography>
-          {vc.hosts.map(x => (
-            <Typography key={x.name} variant="body2">
-              <StatusLabel status={vcHostOk(x) ? 'success' : 'error'}>{vcHostOk(x) ? 'connected' : `${String(x.connection ?? '?').toLowerCase()} / ${String(x.power ?? '?').toLowerCase().replace('_', ' ')}`}</StatusLabel> {x.name}
-            </Typography>
-          ))}
+          <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Control-plane VMs</Typography>
+          <SimpleTable
+            columns={[
+              { label: 'State', getter: (v: VcSupervisor['controlPlaneVMs'][number]) => <StatusLabel status={v.power === 'POWERED_ON' ? 'success' : 'error'}>{String(v.power ?? '?').toLowerCase().replace('_', ' ')}</StatusLabel> },
+              { label: 'VM', getter: (v: VcSupervisor['controlPlaneVMs'][number]) => <b>{v.name}</b> },
+              { label: 'Size', getter: (v: VcSupervisor['controlPlaneVMs'][number]) => (v.cpus ? `${v.cpus} vCPU, ${Math.round((v.memoryMiB ?? 0) / 1024)} GiB` : '—') },
+            ]}
+            data={vc.controlPlaneVMs}
+          />
+          <Typography sx={{ fontWeight: 700, mt: 2, mb: 0.5 }}>Hosts</Typography>
+          <SimpleTable
+            columns={[
+              { label: 'State', getter: (x: VcSupervisor['hosts'][number]) => <StatusLabel status={vcHostOk(x) ? 'success' : 'error'}>{vcHostOk(x) ? 'connected' : String(x.connection ?? '?').toLowerCase()}</StatusLabel> },
+              { label: 'Host', getter: (x: VcSupervisor['hosts'][number]) => <b>{x.name}</b> },
+              { label: 'Power', getter: (x: VcSupervisor['hosts'][number]) => String(x.power ?? '—').toLowerCase().replace('_', ' ') },
+            ]}
+            data={vc.hosts}
+          />
         </Box>
         <Box>
-          <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Supervisor Services (vCenter)</Typography>
+          <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Supervisor Services (vCenter)</Typography>
           {vc.services.length ? (
-            vc.services.map(x => (
-              <Typography key={x.id} variant="body2" title={x.messages?.map(m => m.text).join('\n')}>
-                <StatusLabel status={vcServiceOk(x.state) ? 'success' : x.state === 'ERROR' ? 'error' : 'warning'}>{x.state.toLowerCase()}</StatusLabel> {x.id}
-                {x.version ? ` ${x.version}` : ''}
-              </Typography>
-            ))
+            <SimpleTable
+              columns={[
+                { label: 'State', getter: (x: VcSupervisor['services'][number]) => <StatusLabel status={vcServiceOk(x.state) ? 'success' : x.state === 'ERROR' ? 'error' : 'warning'}>{x.state.toLowerCase()}</StatusLabel> },
+                { label: 'Service', getter: (x: VcSupervisor['services'][number]) => <b>{x.id.replace(/\.(vsphere\.vmware\.com|vmware\.com|vksm\.broadcom\.com)$/, '')}</b> },
+                { label: 'Version', getter: (x: VcSupervisor['services'][number]) => x.version ?? '—' },
+                { label: 'Notes', getter: (x: VcSupervisor['services'][number]) => x.messages?.map(m => m.text).join('; ') || '—' },
+              ]}
+              data={vc.services}
+            />
           ) : (
             <Typography variant="body2" color="text.secondary">None reported.</Typography>
           )}
-          <Typography sx={{ fontWeight: 600, mt: 1.5, mb: 0.5 }}>Alarms</Typography>
+          <Typography sx={{ fontWeight: 700, mt: 2, mb: 0.5 }}>Alarms</Typography>
           {vc.alarms.length ? (
-            vc.alarms.map((a, i) => (
-              <Typography key={i} variant="body2">
-                <StatusLabel status={a.status === 'red' ? 'error' : a.status === 'yellow' ? 'warning' : ''}>{a.acknowledged ? `${a.status}, acknowledged` : a.status}</StatusLabel> {a.entity}: {a.name}
-              </Typography>
-            ))
+            <SimpleTable
+              columns={[
+                { label: 'Level', getter: (a: VcSupervisor['alarms'][number]) => <StatusLabel status={a.status === 'red' ? 'error' : a.status === 'yellow' ? 'warning' : ''}>{a.acknowledged ? `${a.status}, acknowledged` : a.status}</StatusLabel> },
+                { label: 'On', getter: (a: VcSupervisor['alarms'][number]) => <b>{a.entity}</b> },
+                { label: 'Alarm', getter: (a: VcSupervisor['alarms'][number]) => a.name },
+                { label: 'Since', getter: (a: VcSupervisor['alarms'][number]) => (a.time ? new Date(a.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—') },
+              ]}
+              data={vc.alarms}
+            />
           ) : (
             <Typography variant="body2" color="text.secondary">
               {read.status?.notes?.find(n => /Alarms/.test(n)) ?? 'No triggered alarms.'}

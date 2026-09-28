@@ -173,7 +173,7 @@ function IssueCard({
 
       <Box sx={{ mt: 1.5, display: 'grid', gap: 1 }}>
         <Typography variant="body2">
-          <Box component="span" sx={{ color: 'text.secondary' }}>
+          <Box component="span" sx={{ fontWeight: 700 }}>
             Cause:{' '}
           </Box>
           {issue.cause}
@@ -191,12 +191,14 @@ function IssueCard({
         {chips('Pods', issue.affected.pods)}
         {issue.affected.clusters.length > 1 && chips('Clusters', issue.affected.clusters)}
         {issue.affected.tenants.length > 1 && chips('Tenants', issue.affected.tenants)}
-        <Typography variant="body2">
-          <Box component="span" sx={{ color: 'text.secondary' }}>
-            What to do:{' '}
-          </Box>
-          {issue.fix}
-        </Typography>
+        <Box sx={{ borderLeft: 3, borderColor: 'primary.main', pl: 1.25, py: 0.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+          <Typography variant="body2">
+            <Box component="span" sx={{ fontWeight: 700 }}>
+              What to do:{' '}
+            </Box>
+            {issue.fix}
+          </Typography>
+        </Box>
         {issue.runbook && issue.runbook.length > 0 && (
           <Box>
             <Button size="small" onClick={() => setShowRunbook(!showRunbook)}>

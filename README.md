@@ -33,6 +33,8 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 Search is one keystroke away everywhere: **Ctrl+K**.
 
+The plugin follows Headlamp's theme, light or dark: every colour comes from the theme, and charts, markers and status chips are legible on both.
+
 ## Ways to run it
 
 - **Operator deployment (recommended):** Headlamp inside a cluster (for example a small management VKS cluster), with the plugin from a ConfigMap, preset settings, and a job that keeps the Supervisor and cluster sign-ins fresh. See [`deploy/README.md`](deploy/README.md).

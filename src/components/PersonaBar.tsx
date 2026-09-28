@@ -109,7 +109,9 @@ export function PersonaBar() {
 function PageStyles() {
   return (
     <style>{`
-      .vks-fleet-page .MuiTableCell-head { font-weight: 600; white-space: nowrap; }
+      .vks-fleet-page .MuiTableCell-head { font-weight: 700; white-space: nowrap; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      .vks-fleet-page .MuiTableCell-root { padding-top: 6px; padding-bottom: 6px; }
+      .vks-fleet-page h2, .vks-fleet-page .MuiTypography-h5 { letter-spacing: -0.01em; }
       .vks-fleet-page .MuiTableCell-root { vertical-align: top; }
       .vks-fleet-page .MuiTableBody-root .MuiTableRow-root:hover > td { background-color: rgba(127, 127, 127, 0.06); }
       .vks-fleet-page table { font-variant-numeric: tabular-nums; }

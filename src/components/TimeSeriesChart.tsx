@@ -1,4 +1,4 @@
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Paper, Typography, useTheme } from '@mui/material';
 import React from 'react';
 import { Series, Unit } from '../observability';
 import { formatBytes } from '../quantity';
@@ -86,6 +86,9 @@ export function TimeSeriesChart({
   hoverAt?: number;
 }) {
   const uid = React.useMemo(() => `ts${Math.random().toString(36).slice(2, 8)}`, []);
+  const theme = useTheme();
+  const paper: string = theme?.palette?.background?.paper ?? '#ffffff';
+  const dark = theme?.palette?.mode === 'dark';
   const [hover, setHover] = React.useState<number | undefined>(hoverAt);
   const [markHover, setMarkHover] = React.useState<number | undefined>(undefined);
   const W = 640;
@@ -144,7 +147,7 @@ export function TimeSeriesChart({
           <g>
             <line x1={pad.l} x2={W - pad.r} y1={y(warnAbove)} y2={y(warnAbove)} stroke="#f59e0b" strokeDasharray="5 4" strokeOpacity={0.8} />
             <rect x={pad.l + 4} y={y(warnAbove) - 15} width={formatValue(warnAbove, unit).length * 6 + 34} height={13} rx={6.5} fill="#f59e0b" fillOpacity={0.15} />
-            <text x={pad.l + 10} y={y(warnAbove) - 5.5} fontSize="9.5" fill="#b45309" fontWeight={600}>
+            <text x={pad.l + 10} y={y(warnAbove) - 5.5} fontSize="9.5" fill={dark ? '#fbbf24' : '#b45309'} fontWeight={600}>
               {`warn ${formatValue(warnAbove, unit)}`}
             </text>
           </g>
@@ -162,14 +165,14 @@ export function TimeSeriesChart({
         {visibleMarkers.map((m, i) => (
           <g key={i} onMouseEnter={() => setMarkHover(i)} onMouseLeave={() => setMarkHover(undefined)} style={{ cursor: 'default' }}>
             <line x1={x(m.time)} x2={x(m.time)} y1={pad.t} y2={y(0)} stroke={MARK[m.tone]} strokeDasharray="2 3" strokeWidth={1.5} opacity={markHover === i ? 1 : 0.55} />
-            <circle cx={x(m.time)} cy={pad.t - 2} r={markHover === i ? 6 : 4.5} fill={MARK[m.tone]} stroke="white" strokeWidth={1.5} />
+            <circle cx={x(m.time)} cy={pad.t - 2} r={markHover === i ? 6 : 4.5} fill={MARK[m.tone]} stroke={paper} strokeWidth={1.5} />
           </g>
         ))}
         {hover !== undefined && (
           <g pointerEvents="none">
             <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={y(0)} stroke="currentColor" strokeOpacity={0.35} />
             {hoverRows.map(r => (
-              <circle key={r.i} cx={x(r.p![0])} cy={y(r.p![1])} r={4} fill={COLOURS[r.i]} stroke="white" strokeWidth={1.5} />
+              <circle key={r.i} cx={x(r.p![0])} cy={y(r.p![1])} r={4} fill={COLOURS[r.i]} stroke={paper} strokeWidth={1.5} />
             ))}
           </g>
         )}
@@ -211,8 +214,8 @@ export function TimeSeriesChart({
             top: -6,
             left: `${Math.min(70, (x(visibleMarkers[markHover].time) / W) * 100)}%`,
             transform: 'translateY(-100%)',
-            bgcolor: 'grey.900',
-            color: 'common.white',
+            bgcolor: dark ? 'grey.100' : 'grey.900',
+            color: dark ? 'grey.900' : 'common.white',
             borderRadius: 1,
             px: 1,
             py: 0.5,
