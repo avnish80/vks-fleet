@@ -86,3 +86,28 @@ describe('install on a demo cluster', () => {
     await assert.rejects(w.send(plan.requests('try it')[0], false), (e: Error) => e.message === DEMO_WRITE_REFUSED);
   });
 });
+
+describe('package names from any domain', () => {
+  test('short names and default install names are valid for every naming scheme', async () => {
+    const { shortPackage, defaultInstallName } = await import('../src/packages');
+    for (const [ref, short] of [
+      ['prometheus.tanzu.vmware.com', 'prometheus'],
+      ['prometheus.kubernetes.vmware.com', 'prometheus'],
+      ['cert-manager.community.tanzu.vmware.com', 'cert-manager'],
+      ['harbor.vsphere.vmware.com', 'harbor'],
+      ['My_App.example.org', 'My_App'],
+    ]) {
+      assert.equal(shortPackage(ref), short);
+      assert.match(defaultInstallName(ref), /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/);
+    }
+    assert.equal(defaultInstallName('My_App.example.org'), 'my-app');
+  });
+  test('the dependency hint recognises packages from another domain', () => {
+    const def = { refName: 'contour.kubernetes.vmware.com', version: '1.31.0', namespace: 'tkg-system' };
+    const p = installPlan({ cluster: 'c', def, namespace: 'tkg-system', name: 'contour', installed: [], versionsHere: ['1.31.0'] });
+    assert.equal(blocked(p), false);
+    assert.ok(p.checks.some(c => c.level === 'warn' && /cert-manager/.test(c.text)));
+    const bad = installPlan({ cluster: 'c', def, namespace: 'tkg-system', name: 'contour.kubernetes', installed: [], versionsHere: ['1.31.0'] });
+    assert.ok(bad.checks.some(c => c.level === 'block' && /"contour\.kubernetes" isn't valid/.test(c.text)));
+  });
+});

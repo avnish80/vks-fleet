@@ -6,7 +6,7 @@
  */
 import { ActionPlan, Check } from './actions';
 import { WriteRequest } from './api/client';
-import { isCorePackage, PackageDefinition, PackageInstallInfo, shortPackage } from './packages';
+import { defaultInstallName, isCorePackage, PackageDefinition, PackageInstallInfo, shortPackage } from './packages';
 
 const PKG = '/apis/packaging.carvel.dev/v1alpha1';
 const MERGE_JSON = 'application/json';
@@ -48,7 +48,8 @@ export function installPlan(i: InstallInput): ActionPlan {
   if (same) checks.push({ level: 'block', text: `${def.refName} is already installed here (${same.namespace}/${same.name}, ${same.version ?? '?'}). Update it instead.` });
   if (i.installed.some(p => p.namespace === ns && p.name === name)) checks.push({ level: 'block', text: `A package install named ${ns}/${name} already exists.` });
   if (!i.versionsHere.includes(def.version)) checks.push({ level: 'block', text: `Version ${def.version} isn't in this cluster's repositories.` });
-  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) || name.length > 40) checks.push({ level: 'block', text: 'The install name must be a short DNS label (lowercase letters, digits, dashes).' });
+  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) || name.length > 40)
+    checks.push({ level: 'block', text: `The install name "${name}" isn't valid: use lowercase letters, digits and dashes, up to 40 characters (for example "${defaultInstallName(def.refName)}").` });
   if (ns !== def.namespace) {
     checks.push({ level: 'warn', text: `The package lives in ${def.namespace}; installing into ${ns} only works if the repository is global (kapp-controller's packaging-global namespace) and ${ns} exists.` });
   }

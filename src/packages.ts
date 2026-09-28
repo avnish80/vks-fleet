@@ -257,6 +257,18 @@ export function isCorePackage(refName: string): boolean {
   );
 }
 
+/** A package's short name: its first name segment, whatever the domain ("prometheus.kubernetes.vmware.com" → "prometheus"). */
 export function shortPackage(refName: string): string {
-  return refName.replace(/\.tanzu\.vmware\.com$|\.vmware\.com$/, '');
+  return refName.split('.')[0] || refName;
+}
+
+/** A valid default install name for a package (a short DNS label). */
+export function defaultInstallName(refName: string): string {
+  const s = shortPackage(refName)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  return s || 'package';
 }

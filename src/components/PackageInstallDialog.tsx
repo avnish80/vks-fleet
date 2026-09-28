@@ -2,7 +2,7 @@ import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, Dia
 import React from 'react';
 import { headlampWriter } from '../api/headlampClient';
 import { installPlan } from '../packageInstall';
-import { ClusterPackages, compareVersions, shortPackage } from '../packages';
+import { ClusterPackages, compareVersions, defaultInstallName } from '../packages';
 import { FleetCluster } from '../types';
 import { buildValues, Field, schemaFields, valuesText } from '../valuesSchema';
 import { BatchActionDialog, BatchItem } from './BatchActionDialog';
@@ -31,7 +31,7 @@ export function PackageInstallDialog({ refName, displayName, targets, onClose, o
   const [version, setVersion] = React.useState(versions[0] ?? '');
   const firstDef = (selected[0] ?? eligible[0])?.cp.definitions?.find(d => d.refName === refName && d.version === version);
   const [namespace, setNamespace] = React.useState(firstDef?.namespace ?? 'tkg-system');
-  const [name, setName] = React.useState(shortPackage(refName));
+  const [name, setName] = React.useState(defaultInstallName(refName));
   const [mode, setMode] = React.useState<'form' | 'text'>('form');
   const [entries, setEntries] = React.useState<Record<string, string | boolean | undefined>>({});
   const [text, setText] = React.useState('');
@@ -96,7 +96,14 @@ export function PackageInstallDialog({ refName, displayName, targets, onClose, o
                 ))}
               </TextField>
               <TextField size="small" label="Namespace" value={namespace} onChange={e => setNamespace(e.target.value.trim())} helperText="Where the package's repository is, normally" />
-              <TextField size="small" label="Install name" value={name} onChange={e => setName(e.target.value.trim())} />
+              <TextField
+                size="small"
+                label="Install name"
+                value={name}
+                onChange={e => setName(e.target.value.trim().toLowerCase())}
+                error={!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) || name.length > 40}
+                helperText="Lowercase letters, digits and dashes"
+              />
             </Box>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
