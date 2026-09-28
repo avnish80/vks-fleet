@@ -183,6 +183,13 @@ export function buildGuest(c: C, now: Date): Store {
   ]);
   add(s, '', 'services', [
     { metadata: { namespace: 'kube-system', name: 'kube-dns' }, spec: { type: 'ClusterIP', clusterIP: '10.96.0.10', ports: [{ port: 53 }] } },
+    // The VKS Prometheus package (not on sandbox, to show "Enable monitoring").
+    ...(c.name === 'sandbox'
+      ? []
+      : ['prometheus-server', 'alertmanager', 'prometheus-node-exporter', 'prometheus-kube-state-metrics'].map(n => ({
+          metadata: { namespace: 'tanzu-system-monitoring', name: n },
+          spec: { type: 'ClusterIP', ports: [{ name: 'http', port: n.includes('exporter') ? 9100 : n.includes('state') ? 8080 : 80 }] },
+        }))),
     ...(c.name === 'payments' ? [{ metadata: { namespace: 'payments', name: 'api' }, spec: { type: 'LoadBalancer', ports: [{ port: 443 }], selector: { app: 'api' } }, status: { loadBalancer: { ingress: [{ ip: '198.51.100.70' }] } } }] : []),
   ]);
   add(s, '', 'persistentvolumeclaims', c.name === 'analytics' ? [0, 1, 2].map(i => ({ metadata: { namespace: 'streaming', name: `data-kafka-${i}` }, spec: { storageClassName: 'vsan-default-storage-policy' }, status: { phase: 'Bound', capacity: { storage: '50Gi' } } })) : []);

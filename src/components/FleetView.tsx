@@ -23,6 +23,8 @@ import { SinceLastVisit } from './Awareness';
 import { complianceIssues } from '../complianceReport';
 import { isolationIssues, isolationReport } from '../isolation';
 import { scannerIssues } from '../scannerIssues';
+import { observabilityIssues } from '../observability';
+import { useObservability } from '../useObservability';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -139,6 +141,11 @@ export function FleetView() {
   const packages = usePackages(packageTargets);
   const backups = useBackups(packageTargets);
   const complianceBaselines = useComplianceStore()?.baselines ?? {};
+  const observability = useObservability(
+    allClusters
+      .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
+      .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName)
+  );
   const scannerReports = useScannerReports(
     allClusters
       .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
@@ -165,6 +172,7 @@ export function FleetView() {
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
+          ...observabilityIssues(observability ?? [], scopedResults.flatMap(r => r.clusters)),
           ...(all && inventoryAll
             ? isolationIssues(
                 isolationReport(all, inventoryAll, null).filter(r => org === '__all__' || r.orgId === org),
@@ -173,7 +181,7 @@ export function FleetView() {
             : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

@@ -424,6 +424,22 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Observability
+
+**Observability** (sidebar) reads each cluster's own **Prometheus** and **Alertmanager** through the Kubernetes API's service proxy: the same connection and permissions as the rest of the plugin, with no extra endpoints, credentials or Grafana needed. VCF Operations isn't required.
+
+- **Finding the stack:** the VKS Prometheus package (`prometheus-server`, `alertmanager` in `tanzu-system-monitoring`), kube-prometheus-stack, or a plain `prometheus` service. node-exporter and kube-state-metrics are detected too.
+- **Enable monitoring…** on clusters without Prometheus installs the VKS Prometheus package from the cluster's own repository, through the package install flow: values form, dry run. It needs a default StorageClass (or `prometheus.pvc.storageClassName` in its values).
+- **Fleet overview:**
+  - clusters monitored, alerts firing, things running out within 7 days, the slowest API server
+  - per cluster: node CPU and memory peaks, API p99 latency and 5xx rate, container restarts in the last hour, alert count
+- **Per-cluster panels** (1 h, 24 h, 7 d): node CPU, memory and disk; API server latency and errors; etcd database size; container restarts; busiest pods; volume fill; network errors. A panel without data says what would collect it ("needs kube-state-metrics"), and alternative metric names are tried where exporters differ.
+- **Changes drawn on every chart:** the fleet's own changes in that cluster (node replacements, upgrades, conditions, the plugin's actions) appear as dashed markers, labelled on hover. A spike and its likely cause show up side by side.
+- **Forecasts instead of thresholds:** from the last six hours' trend, *when* a volume, a node's disk, etcd or a node's memory runs out, for example "streaming/data-kafka-1 runs out in about 3 days". Under 7 days is a warning issue; under 2 days is critical.
+- **Alerts:** Alertmanager's active alerts (not silenced or inhibited; Watchdog left out) become issues on the fleet page, grouped by alert name, with severity from their labels.
+
+Queries are cached for a minute per cluster, the panels only load for the cluster you open, and the summary refreshes every 5 minutes. They also go through the request limiter, like everything else. Querying through the proxy needs the `services/proxy` permission in the monitoring namespace: operators normally have it; tenants may not.
+
 ## Creating VMs and clusters
 
 A namespace's page has **New VM…** and **New cluster…**.
@@ -505,9 +521,9 @@ Each cluster has deliberate problems, so every page has something to show:
 | Cluster | What it demonstrates |
 |---|---|
 | payments | The healthy one: hardened workloads, network policies, daily backups, Trivy reports, a saved kube-bench run |
-| checkout | A node stuck draining behind a PodDisruptionBudget, a crash-looping pod, a privileged pod, a cluster-admin grant, a partly failed backup, a failing package, images with critical CVEs |
-| sandbox | A Kubernetes version behind (upgrade available), no default StorageClass |
-| analytics | Control-plane certificates expiring in 18 days, two node pools, Kyverno policy failures |
+| checkout | A node disk filling in about 38 hours, crash-loop and disk alerts from Alertmanager, a node stuck draining behind a PodDisruptionBudget, a crash-looping pod, a privileged pod, a cluster-admin grant, a partly failed backup, a failing package, images with critical CVEs |
+| sandbox | A Kubernetes version behind (upgrade available), no default StorageClass, no monitoring (to try Enable monitoring) |
+| analytics | Control-plane certificates expiring in 18 days, two node pools, Kyverno policy failures, a Kafka volume filling in about 3 days (Prometheus forecast) |
 
 Every request goes to in-memory data through the same code paths as real clusters, including the Pod Security probe (VKS's restricted default). **Dry runs work**, so action dialogs can be tried end to end. **Real changes are always refused.**
 
@@ -666,6 +682,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  observability.ts      Monitoring-stack discovery, Prometheus queries via the API proxy, panels, forecasts, alerts as issues
   provision.ts          VM and cluster manifests, capacity preview, create plans, YAML output
   packageInstall.ts     Package install and removal plans (VCF CLI style)
   valuesSchema.ts       Values form from a package's OpenAPI schema

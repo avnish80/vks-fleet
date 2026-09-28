@@ -8,6 +8,7 @@ import { SupervisorClient, SupervisorWriter, WriteRequest } from '../api/client'
 import { rememberingGet } from '../api/served';
 import { HeadlampClusterInfo } from '../contexts';
 import { buildGuest } from './guest';
+import { demoPrometheus, MONITORED } from './prometheus';
 import { answer, notFound, Store } from './router';
 import { buildSupervisor, contextName, DEMO_CLUSTERS, DEMO_PREFIX, DEMO_SUPERVISOR, demoContexts } from './supervisor';
 
@@ -51,6 +52,13 @@ export function demoClient(ctx: string, opts: { now?: Date; latencyMs?: number; 
         if (opts.latencyMs !== 0) await pause(opts.latencyMs ?? 60 + Math.random() * 140);
         const store = storeFor(ctx, opts.now);
         if (!store) throw notFound(path);
+        // Prometheus and Alertmanager behind the API's service proxy.
+        const proxied = /^\/api\/v1\/namespaces\/[^/]+\/services\/[^/]+\/proxy\//.test(path);
+        if (proxied) {
+          const c = DEMO_CLUSTERS.find(x => contextName(x.name) === ctx);
+          if (!c || !MONITORED.has(c.name)) throw notFound(path);
+          return demoPrometheus(c, path, opts.now ?? new Date()) as T;
+        }
         return answer(store, path) as T;
       };
       return opts.remember === false ? read() : rememberingGet(ctx, path, read);
