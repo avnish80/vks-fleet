@@ -108,6 +108,10 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     baseline: normalizeBaseline(raw?.baseline),
     readOnly: raw?.readOnly === true,
     demo: raw?.demo === true,
+    vcenter:
+      typeof raw?.vcenter?.context === 'string' && raw.vcenter.context.trim()
+        ? { context: raw.vcenter.context.trim(), namespace: (raw.vcenter.namespace || 'vks-fleet').trim(), configMap: (raw.vcenter.configMap || 'vks-fleet-vcenter').trim() }
+        : undefined,
     elevation: raw?.elevation?.enabled === true ? { enabled: true, suffix: typeof raw.elevation.suffix === 'string' && raw.elevation.suffix.trim() ? raw.elevation.suffix.trim() : '-admin' } : undefined,
     nodeScanImage: typeof raw?.nodeScanImage === 'string' && raw.nodeScanImage.trim() ? raw.nodeScanImage.trim() : undefined,
     nodeScanBenchmark: typeof raw?.nodeScanBenchmark === 'string' && raw.nodeScanBenchmark.trim() ? raw.nodeScanBenchmark.trim() : undefined,

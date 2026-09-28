@@ -50,6 +50,8 @@ jobs:
         run: |
           cp -r "$GITHUB_WORKSPACE/tests" ./tests
           npx --yes tsx@4 --test tests/*.test.ts
+          # The vCenter collector (standard-library Python)
+          python3 -m unittest discover -s "$GITHUB_WORKSPACE/deploy/collector" -p 'test_*.py'
 
       # Type-check against the real Headlamp types. Non-blocking so you still
       # get a build to try; if this step shows red, send the log output.

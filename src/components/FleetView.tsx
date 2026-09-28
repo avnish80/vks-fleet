@@ -28,6 +28,8 @@ import { compareVersions } from '../packages';
 import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
+import { useVcenterStatus } from '../useVcenterStatus';
+import { matchSupervisor, STALE_MINUTES, vcenterIssues } from '../vcenterStatus';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -151,6 +153,7 @@ export function FleetView() {
   );
   const { persona: whoAmI } = useFleetData();
   const supervisorHealth = useSupervisorHealth(all, inventoryAll, !!whoAmI && ['operator', 'readonly', 'unknown'].includes(whoAmI.persona));
+  const vcenter = useVcenterStatus(config);
   const scannerReports = useScannerReports(
     allClusters
       .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
@@ -177,6 +180,30 @@ export function FleetView() {
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
+          ...(vcenter?.status
+            ? (all ?? []).flatMap(r => {
+                const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length);
+                return v ? vcenterIssues(v, r.supervisor.id, r.supervisor.displayName ?? r.supervisor.id) : [];
+              })
+            : []),
+          ...(vcenter && (vcenter.error || (vcenter.ageMinutes ?? 0) > STALE_MINUTES) && (all ?? [])[0]
+            ? [
+                {
+                  id: 'vcenter-collector',
+                  severity: 'info' as const,
+                  supervisorId: all![0].supervisor.id,
+                  title: vcenter.error ? "The vCenter collector's data can't be read" : `The vCenter collector last wrote ${vcenter.ageMinutes} minutes ago`,
+                  cause: vcenter.error ?? 'It normally writes every 5 minutes.',
+                  evidence: [],
+                  affected: { clusters: [], tenants: [], nodes: [], pods: [] },
+                  fix: 'Check the collector CronJob (kubectl -n vks-fleet get cronjob,jobs,pods -l app.kubernetes.io/name=vks-fleet-collector) or its timer on the jump server.',
+                  primary: { label: 'Supervisor health', path: '/vks-fleet/supervisor-health' },
+                  links: [],
+                  findingIds: [],
+                  detectedAt: new Date().toISOString(),
+                },
+              ]
+            : []),
           ...(supervisorHealth ?? []).flatMap(h => supervisorHealthIssues(h, all?.find(r => r.supervisor.id === h.supervisorId)?.supervisor.headlampCluster ?? '')),
           ...observabilityIssues(observability ?? [], scopedResults.flatMap(r => r.clusters), new Date(), key => {
             const r = scopedResults.find(x => x.clusters.some(c => c.key === key));
@@ -190,7 +217,7 @@ export function FleetView() {
             : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability, supervisorHealth]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability, supervisorHealth, vcenter]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

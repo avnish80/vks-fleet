@@ -7,13 +7,16 @@ import { useFleetData } from '../fleetContext';
 import { BacklogRow, healthTone, LeaseInfo, leftoverCleanupPlan, responsiveness, ServiceState, SupervisorHealth } from '../supervisorHealth';
 import { SupervisorResult } from '../types';
 import { useSupervisorHealth } from '../useSupervisorHealth';
+import { useVcenterStatus } from '../useVcenterStatus';
+import { matchSupervisor, STALE_MINUTES, vcenterPenalty, VcenterRead, vcHostOk, VcSupervisor, vcServiceOk } from '../vcenterStatus';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
 
 const ago = (s?: number) => (s === undefined ? '—' : s < 5 ? 'just now' : s < 90 ? `${Math.round(s)} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`);
 
 export function SupervisorHealthPage() {
-  const { all, inventoryAll, persona, canWrite, refresh } = useFleetData();
+  const { all, inventoryAll, persona, canWrite, refresh, config } = useFleetData();
+  const vcenter = useVcenterStatus(config);
   const operator = !!persona && ['operator', 'readonly', 'unknown'].includes(persona.persona);
   const health = useSupervisorHealth(all, inventoryAll, operator);
   const [cleaning, setCleaning] = React.useState<{ h: SupervisorHealth; r: SupervisorResult } | null>(null);
@@ -30,14 +33,16 @@ export function SupervisorHealthPage() {
       <ChartStyles />
       {health.map(h => {
         const r = all.find(x => x.supervisor.id === h.supervisorId)!;
-        return <One key={h.supervisorId} h={h} r={r} canClean={canWrite(h.supervisorId)} onClean={() => setCleaning({ h, r })} />;
+        const vc = vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, all.length) : undefined;
+        return <One key={h.supervisorId} h={h} r={r} vc={vc} vcRead={config.vcenter ? vcenter ?? undefined : null} canClean={canWrite(h.supervisorId)} onClean={() => setCleaning({ h, r })} />;
       })}
       {cleaning && <ActionDialog plan={leftoverCleanupPlan(cleaning.h)} writer={supervisorWriter(cleaning.r.supervisor)} onClose={() => setCleaning(null)} onApplied={() => refresh()} />}
     </>
   );
 }
 
-function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; canClean: boolean; onClean: () => void }) {
+function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; vcRead?: VcenterRead | null; canClean: boolean; onClean: () => void }) {
+  const score = Math.max(0, h.score - (vc ? vcenterPenalty(vc) : 0));
   const cps = h.nodes.filter(n => n.role === 'control-plane');
   const hosts = h.nodes.filter(n => n.role === 'host');
   const leftovers = h.services.reduce((n, s) => n + s.leftovers.length, 0);
@@ -49,7 +54,7 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
     <>
       <SectionBox title={`${h.name}: Supervisor health`}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 2 }}>
-          <KpiTile label="Health" value={h.score} sub="out of 100" tone={healthTone(h.score)} meter={{ value: h.score, max: 100 }} />
+          <KpiTile label="Health" value={score} sub={vc ? 'out of 100, with vCenter' : 'out of 100'} tone={healthTone(score)} meter={{ value: score, max: 100 }} />
           <KpiTile label="Control plane" value={`${cps.filter(n => n.ready).length}/${cps.length}`} sub={cps.length === 1 ? 'single node' : 'nodes Ready'} tone={cps.every(n => n.ready) ? 'success' : 'error'} />
           <KpiTile label="ESXi hosts" value={`${hosts.filter(n => n.ready).length}/${hosts.length}`} sub="Ready" tone={hosts.every(n => n.ready) ? 'success' : 'warning'} />
           <KpiTile label="Controllers" value={`${h.leases.filter(l => l.state === 'ok').length}/${h.leases.length}`} sub="leases renewing" tone={h.leases.every(l => l.state === 'ok') ? 'success' : 'error'} />
@@ -63,6 +68,8 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
           </Alert>
         )}
       </SectionBox>
+
+      <VcenterSection vc={vc} read={vcRead} />
 
       <SectionBox title="Controllers">
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -178,10 +185,98 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
       <SectionBox title="Not visible from here">
         <Typography variant="body2" color="text.secondary">
           The Supervisor's own health checks (/readyz) and metrics (/metrics) aren't exposed through its endpoint, and even an SSO
-          administrator can't read cluster-wide leases or admission webhooks. The Supervisor's own status, alarms and host
-          health live in vCenter; a small read-only collector for those is planned.
+          administrator can't read cluster-wide leases or admission webhooks. {vc ? "vCenter's view (above) covers the Supervisor's own status." : ''}
         </Typography>
       </SectionBox>
     </>
   );
 }
+
+/** vCenter's own view of the Supervisor, from the collector (or how to set it up). */
+function VcenterSection({ vc, read }: { vc?: VcSupervisor; read?: VcenterRead | null }) {
+  if (read === null) {
+    return (
+      <SectionBox title="From vCenter">
+        <Typography variant="body2" color="text.secondary">
+          The Supervisor's own status (Workload Management), its control-plane VMs, Supervisor Services, hosts and alarms live in
+          vCenter. The vCenter collector (deploy/collector, read-only account) writes them into a ConfigMap this page reads; set
+          its location in Settings.
+        </Typography>
+      </SectionBox>
+    );
+  }
+  if (!read) return <SectionBox title="From vCenter"><Typography color="text.secondary">Reading…</Typography></SectionBox>;
+  if (read.error || !vc) {
+    return (
+      <SectionBox title="From vCenter">
+        <Alert severity="info">{read.error ?? "The collector's data has no Supervisor matching this one (by API address)."}</Alert>
+      </SectionBox>
+    );
+  }
+  const tone = (ok: boolean, bad: boolean) => (ok ? 'success' : bad ? 'error' : 'warning');
+  return (
+    <SectionBox title={`From vCenter${read.status?.vcenter ? ` (${read.status.vcenter})` : ''}`}>
+      {read.ageMinutes !== undefined && read.ageMinutes > STALE_MINUTES && (
+        <Alert severity="warning" sx={{ mb: 1.5 }}>
+          Collected {read.ageMinutes} minutes ago: the collector may have stopped (check its CronJob or timer).
+        </Alert>
+      )}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1.5 }}>
+        <StatusLabel status={tone(vc.configStatus === 'RUNNING', vc.configStatus === 'ERROR')}>{`Configuration: ${vc.configStatus.toLowerCase()}`}</StatusLabel>
+        <StatusLabel status={tone(vc.kubernetesStatus === 'READY', vc.kubernetesStatus === 'ERROR')}>{`Kubernetes: ${vc.kubernetesStatus.toLowerCase()}`}</StatusLabel>
+        <Typography variant="caption" color="text.secondary">
+          {vc.name ? `vSphere cluster ${vc.name}` : ''}
+          {read.ageMinutes !== undefined ? ` · collected ${read.ageMinutes} min ago` : ''}
+        </Typography>
+      </Box>
+      {vc.messages.map((m, i) => (
+        <Alert key={i} severity={m.severity === 'ERROR' ? 'error' : m.severity === 'WARNING' ? 'warning' : 'info'} sx={{ mb: 1 }}>
+          {m.text}
+        </Alert>
+      ))}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 2, mt: 1 }}>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Control-plane VMs</Typography>
+          {vc.controlPlaneVMs.map(v => (
+            <Typography key={v.name} variant="body2">
+              <StatusLabel status={v.power === 'POWERED_ON' ? 'success' : 'error'}>{String(v.power ?? '?').toLowerCase().replace('_', ' ')}</StatusLabel> {v.name}
+              {v.cpus ? ` · ${v.cpus} vCPU, ${Math.round((v.memoryMiB ?? 0) / 1024)} GiB` : ''}
+            </Typography>
+          ))}
+          <Typography sx={{ fontWeight: 600, mt: 1.5, mb: 0.5 }}>Hosts</Typography>
+          {vc.hosts.map(x => (
+            <Typography key={x.name} variant="body2">
+              <StatusLabel status={vcHostOk(x) ? 'success' : 'error'}>{vcHostOk(x) ? 'connected' : `${String(x.connection ?? '?').toLowerCase()} / ${String(x.power ?? '?').toLowerCase().replace('_', ' ')}`}</StatusLabel> {x.name}
+            </Typography>
+          ))}
+        </Box>
+        <Box>
+          <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Supervisor Services (vCenter)</Typography>
+          {vc.services.length ? (
+            vc.services.map(x => (
+              <Typography key={x.id} variant="body2" title={x.messages?.map(m => m.text).join('\n')}>
+                <StatusLabel status={vcServiceOk(x.state) ? 'success' : x.state === 'ERROR' ? 'error' : 'warning'}>{x.state.toLowerCase()}</StatusLabel> {x.id}
+                {x.version ? ` ${x.version}` : ''}
+              </Typography>
+            ))
+          ) : (
+            <Typography variant="body2" color="text.secondary">None reported.</Typography>
+          )}
+          <Typography sx={{ fontWeight: 600, mt: 1.5, mb: 0.5 }}>Alarms</Typography>
+          {vc.alarms.length ? (
+            vc.alarms.map((a, i) => (
+              <Typography key={i} variant="body2">
+                <StatusLabel status={a.status === 'red' ? 'error' : a.status === 'yellow' ? 'warning' : ''}>{a.acknowledged ? `${a.status}, acknowledged` : a.status}</StatusLabel> {a.entity}: {a.name}
+              </Typography>
+            ))
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {read.status?.notes?.find(n => /Alarms/.test(n)) ?? 'No triggered alarms.'}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    </SectionBox>
+  );
+}
+

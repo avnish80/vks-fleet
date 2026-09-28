@@ -1,0 +1,13 @@
+# The vCenter collector, as a component: include it from an overlay
+# (see overlays/vcenter). Edit collector.env for your vCenter.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - collector.yaml
+configMapGenerator:
+  - name: vks-fleet-collector-script
+    files:
+      - collect.py
+  - name: vks-fleet-collector-env
+    envs:
+      - collector.env

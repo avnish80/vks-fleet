@@ -236,6 +236,18 @@ export function SettingsPanel() {
         </Alert>
       )}
       <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+        <Typography sx={{ fontWeight: 600, mb: 0.5 }}>vCenter collector</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Where the collector (deploy/collector) writes vCenter's view of the Supervisors: a context the plugin can read, and the
+          ConfigMap's namespace and name. Leave the context empty if you don't run it.
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <TextField size="small" label="Context" placeholder="kubernetes-cluster-9yfw" value={raw.vcenter?.context ?? ''} onChange={e => settingsStore.update({ vcenter: { namespace: 'vks-fleet', configMap: 'vks-fleet-vcenter', ...(raw.vcenter ?? {}), context: e.target.value } })} />
+          <TextField size="small" label="Namespace" value={raw.vcenter?.namespace ?? 'vks-fleet'} onChange={e => settingsStore.update({ vcenter: { context: '', configMap: 'vks-fleet-vcenter', ...(raw.vcenter ?? {}), namespace: e.target.value } })} />
+          <TextField size="small" label="ConfigMap" value={raw.vcenter?.configMap ?? 'vks-fleet-vcenter'} onChange={e => settingsStore.update({ vcenter: { context: '', namespace: 'vks-fleet', ...(raw.vcenter ?? {}), configMap: e.target.value } })} />
+        </Box>
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
         <FormControlLabel
           control={
             <Checkbox

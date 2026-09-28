@@ -1,0 +1,102 @@
+# Reads the Supervisor's own status from vCenter (read-only account) every few
+# minutes and writes it into the vks-fleet-vcenter ConfigMap for the plugin.
+# Needs the Secret vks-fleet-vcenter (username, password); see deploy/README.md.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vks-fleet-collector
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vks-fleet-collector
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["vks-fleet-vcenter"]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vks-fleet-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vks-fleet-collector
+subjects:
+  - kind: ServiceAccount
+    name: vks-fleet-collector
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vks-fleet-collector
+  labels:
+    app.kubernetes.io/name: vks-fleet-collector
+    app.kubernetes.io/part-of: vks-fleet
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vks-fleet-collector
+        spec:
+          serviceAccountName: vks-fleet-collector
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: collect
+              image: python
+              command: ["python", "/app/collect.py"]
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: VCENTER_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: vks-fleet-vcenter
+                      key: username
+                - name: VCENTER_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: vks-fleet-vcenter
+                      key: password
+              envFrom:
+                - configMapRef:
+                    name: vks-fleet-collector-env
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: vks-fleet-collector-script

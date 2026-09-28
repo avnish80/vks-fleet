@@ -1,0 +1,11 @@
+# The base deployment plus the vCenter collector.
+#   kubectl -n vks-fleet create secret generic vks-fleet-vcenter \
+#     --from-literal=username=vks-fleet-ro@vsphere.local --from-literal=password='…'
+#   (edit deploy/collector/collector.env for your vCenter first)
+#   kubectl apply -k deploy/overlays/vcenter
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../..
+components:
+  - ../../collector

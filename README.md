@@ -453,7 +453,56 @@ On a shared, in-cluster deployment, per-user sign-in (OIDC) is the stronger end 
 - **Placement:** service pods per ESXi host. When **every service pod runs on one host while others are Ready**, that's a resilience warning: pods rescheduled after a host problem stay where they landed.
 - **The control plane** and hosts, the **reconcile backlog** by kind (clusters, machines, VMs, load balancers, NSX objects, subnets, volumes, with the one stuck longest), and **warning events by reason**.
 
-The Supervisor's own status, alarms and host health live in vCenter; a small read-only collector for those is planned.
+**From vCenter** (with the vCenter collector): the Supervisor's own status lives in vCenter. The collector ([`deploy/collector`](deploy/collector)) signs in with a **read-only vCenter account** and writes it into a ConfigMap the plugin reads through the normal Kubernetes connection, so the browser never talks to vCenter or holds its credentials. It adds:
+
+- the **configuration and Kubernetes status**, with vCenter's messages (the Workload Management view)
+- the **control-plane VMs** (power state, size)
+- **Supervisor Services** as vCenter sees them (version, state, messages)
+- the **ESXi hosts** of the cluster (connection, power)
+- **triggered alarms**, optionally: they need the `pyvmomi` library, since alarms aren't available over REST
+
+These feed the health score and raise issues, including a notice if the collector stops writing.
+
+**The account:** a vCenter SSO user with the built-in **Read-only** role at the vCenter root (propagated). If the Workload Management calls answer 403, the role also needs the Namespaces *view* privilege.
+
+**Running it in a cluster** (every 5 minutes, next to Headlamp's in-cluster deployment):
+
+```bash
+kubectl -n vks-fleet create secret generic vks-fleet-vcenter \
+  --from-literal=username=vks-fleet-ro@vsphere.local --from-literal=password='…'
+# set VCENTER in deploy/collector/collector.env, then:
+kubectl apply -k deploy/overlays/vcenter
+```
+
+**Or from a jump server** (writing into any cluster the plugin can read, for example `kubernetes-cluster-9yfw`):
+
+```bash
+kubectl --context kubernetes-cluster-9yfw create namespace vks-fleet
+printf '%s' 'the-password' > /root/.vcenter-pass-ro && chmod 600 /root/.vcenter-pass-ro
+pip install pyvmomi   # optional, for alarms
+
+cat > /etc/systemd/system/vks-vcenter.service <<'UNIT'
+[Unit]
+Description=vks-fleet vCenter collector
+[Service]
+Type=oneshot
+Environment=HOME=/root
+Environment=VCENTER=vc-wld01-a.site-a.vcf.lab VCENTER_USERNAME=vks-fleet-ro@vsphere.local VCENTER_PASSWORD_FILE=/root/.vcenter-pass-ro
+Environment=VCENTER_INSECURE=true KUBE_CONTEXT=kubernetes-cluster-9yfw OUTPUT_NAMESPACE=vks-fleet
+ExecStart=/usr/bin/python3 /root/collect.py
+UNIT
+cat > /etc/systemd/system/vks-vcenter.timer <<'UNIT'
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+UNIT
+cp deploy/collector/collect.py /root/collect.py
+systemctl daemon-reload && systemctl enable --now vks-vcenter.timer
+```
+
+Then, in **Settings → vCenter collector**, set the context (`kubernetes-cluster-9yfw`); the namespace and ConfigMap default to `vks-fleet` and `vks-fleet-vcenter`. Each vCenter record is matched to its Supervisor by API address, or directly when there's one of each.
 
 ## Observability
 
@@ -723,6 +772,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  vcenterStatus.ts      vCenter's view from the collector: reading, matching, scoring, issues
   elevation.ts          Read by default, elevate to change: time-boxed, with a reason; change contexts; stamping
   supervisorHealth.ts   Supervisor health: leases, service pods and leftovers, placement, backlog, score, issues, clean-up
   compare.ts            Right-sizing (requests vs p95 use, node count, overcommit) and the same app across clusters

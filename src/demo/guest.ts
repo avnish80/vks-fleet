@@ -84,6 +84,7 @@ export function buildGuest(c: C, now: Date): Store {
   add(s, '', 'namespaces', [
     ...['kube-system', 'default', 'kube-public', 'vmware-system-tkg', 'tkg-system', 'tanzu-system-monitoring'].map(n => ({ metadata: { name: n, labels: {} } })),
     ...appNs.filter(n => n !== 'default').map(n => ({ metadata: { name: n, labels: PSA[n] ? { 'pod-security.kubernetes.io/enforce': PSA[n] } : {} } })),
+    ...(c.name === 'payments' ? [{ metadata: { name: 'vks-fleet', labels: {} } }] : []),
     ...(c.name === 'payments' ? [{ metadata: { name: 'vks-fleet-scan', labels: { 'pod-security.kubernetes.io/enforce': 'privileged', 'app.kubernetes.io/managed-by': 'vks-fleet' } } }] : []),
   ]);
 
@@ -369,6 +370,32 @@ export function buildGuest(c: C, now: Date): Store {
       },
     ]);
     add(s, 'wgpolicyk8s.io', 'clusterpolicyreports', []);
+  }
+  // The vCenter collector's latest status, kept in payments (demo settings point at it).
+  if (c.name === 'payments') {
+    const status = {
+      collectedAt: iso(0.04),
+      vcenter: 'vc-demo.example',
+      supervisors: [
+        {
+          id: 'domain-c10',
+          name: 'demo-cluster-01',
+          configStatus: 'RUNNING',
+          kubernetesStatus: 'WARNING',
+          messages: [{ severity: 'WARNING', text: 'Memory usage on the Supervisor control plane is above 85%.' }],
+          apiEndpoints: ['10.10.0.2'],
+          controlPlaneVMs: [{ name: 'SupervisorControlPlaneVM (1)', power: 'POWERED_ON', cpus: 4, memoryMiB: 16384 }],
+          hosts: ['01', '02', '03', '04'].map(h => ({ name: `esx-${h}.demo.local`, connection: 'CONNECTED', power: 'POWERED_ON' })),
+          services: [
+            { id: 'tkg.vsphere.vmware.com', version: '3.7.0', state: 'CONFIGURED' },
+            { id: 'velero.vsphere.vmware.com', version: '1.6.2', state: 'ERROR', messages: [{ severity: 'ERROR', text: 'Image pull failed for the velero plugin.' }] },
+          ],
+          alarms: [{ entity: 'esx-02.demo.local', name: 'Host memory usage', status: 'yellow', time: iso(3), acknowledged: false }],
+        },
+      ],
+      errors: [],
+    };
+    add(s, '', 'configmaps', [{ metadata: { namespace: 'vks-fleet', name: 'vks-fleet-vcenter' }, data: { 'status.json': JSON.stringify(status) } }]);
   }
   // A saved kube-bench run on payments.
   if (c.name === 'payments') {
