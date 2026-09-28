@@ -180,7 +180,13 @@ export function buildSupervisor(now: Date): Store {
       machines.map(m => ({
         metadata: { namespace: c.ns, name: m.name, labels: { 'capv.vmware.com/cluster.name': c.name, ...(m.cp ? { 'capv.vmware.com/cluster.role': 'controlplane' } : { 'capv.vmware.com/cluster.role': 'node' }) } },
         spec: { className: m.cp ? 'best-effort-large' : c.pools.find(p => p.name === m.pool)?.vmClass ?? 'best-effort-medium', powerState: 'PoweredOn', storageClass: 'vsan-default-storage-policy' },
-        status: { powerState: 'PoweredOn', network: { primaryIP4: '172.16.0.10' }, conditions: [{ type: 'VirtualMachineCreated', status: 'True' }] },
+        // checkout's workers all landed on esx-02 (where its problems are); the rest spread out.
+        status: {
+          powerState: 'PoweredOn',
+          host: c.name === 'checkout' && !m.cp ? 'esx-02.demo.local' : `esx-0${(machines.indexOf(m) % 4) + 1}.demo.local`,
+          network: { primaryIP4: '172.16.0.10' },
+          conditions: [{ type: 'VirtualMachineCreated', status: 'True' }],
+        },
       }))
     );
     add(s, 'vmoperator.vmware.com', 'virtualmachineservices', [

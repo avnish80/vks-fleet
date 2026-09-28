@@ -605,6 +605,8 @@ export interface ServiceVm {
   volumes: string[];
   storageClass?: string;
   createdAt?: string;
+  /** The ESXi host it runs on (VM Operator's status.host), when reported. */
+  host?: string;
   /** The VKS cluster this VM is a node of (then it's shown with the cluster, not as a VM). */
   cluster?: string;
   conditions: ClusterCondition[];

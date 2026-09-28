@@ -173,7 +173,11 @@ def add_alarms(status, host, username, password, insecure):
             view.Destroy()
             if not cluster:
                 continue
-            entities = [cluster] + list(cluster.host) + [vm for vm in (cluster.resourcePool.vm if cluster.resourcePool else []) if vm.name.startswith(CP_VM_PREFIX)]
+            # Control-plane VMs can sit in nested resource pools: search the whole cluster.
+            vm_view = content.viewManager.CreateContainerView(cluster, [vim.VirtualMachine], True)
+            cp_vms = [vm for vm in vm_view.view if vm.name.startswith(CP_VM_PREFIX)]
+            vm_view.Destroy()
+            entities = [cluster] + list(cluster.host) + cp_vms
             for e in entities:
                 for a in e.triggeredAlarmState or []:
                     sup["alarms"].append(

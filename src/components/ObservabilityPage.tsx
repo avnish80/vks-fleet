@@ -1,7 +1,7 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Typography } from '@mui/material';
 import React from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import { Link, useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
 import { useFleetData } from '../fleetContext';
 import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual } from '../observability';
@@ -315,6 +315,9 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
               {r}
             </Button>
           )),
+          <Button key="inc" size="small" variant="outlined" component={Link} to={`/vks-fleet/incident?cluster=${encodeURIComponent(cluster.key)}`}>
+            Incident timeline
+          </Button>,
           <Button key="x" size="small" onClick={onClose}>
             Close
           </Button>,

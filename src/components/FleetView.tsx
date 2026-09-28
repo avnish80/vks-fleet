@@ -182,7 +182,12 @@ export function FleetView() {
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
           ...(vcenter?.status
             ? (all ?? []).flatMap(r => {
-                const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length);
+                const v = matchSupervisor(
+                  vcenter.status!,
+                  r.supervisor,
+                  (all ?? []).length,
+                  (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name)
+                );
                 return v ? vcenterIssues(v, r.supervisor.id, r.supervisor.displayName ?? r.supervisor.id) : [];
               })
             : []),

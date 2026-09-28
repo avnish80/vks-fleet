@@ -64,11 +64,16 @@ export async function fetchVcenterStatus(client: SupervisorClient, namespace: st
  * vCenter's record for a Supervisor: by its API address (a kubectl vsphere
  * context is named after it), or the only one when there's only one of each.
  */
-export function matchSupervisor(status: VcenterStatus, s: SupervisorConfig, configuredCount: number): VcSupervisor | undefined {
+export function matchSupervisor(status: VcenterStatus, s: SupervisorConfig, configuredCount: number, hostNames?: string[]): VcSupervisor | undefined {
   const names = [s.headlampCluster, s.headlampCluster.replace(/-admin$/, '')];
   const host = (e: string) => e.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
   const byEndpoint = status.supervisors.find(v => v.apiEndpoints.some(e => names.includes(host(e))));
   if (byEndpoint) return byEndpoint;
+  // The Supervisor's ESXi hosts are also its nodes, with the same names: the most reliable match.
+  if (hostNames?.length) {
+    const byHosts = status.supervisors.find(v => v.hosts.some(h => hostNames.includes(h.name)));
+    if (byHosts) return byHosts;
+  }
   return status.supervisors.length === 1 && configuredCount === 1 ? status.supervisors[0] : undefined;
 }
 

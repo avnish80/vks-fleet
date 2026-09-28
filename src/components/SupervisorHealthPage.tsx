@@ -33,7 +33,7 @@ export function SupervisorHealthPage() {
       <ChartStyles />
       {health.map(h => {
         const r = all.find(x => x.supervisor.id === h.supervisorId)!;
-        const vc = vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, all.length) : undefined;
+        const vc = vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, all.length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
         return <One key={h.supervisorId} h={h} r={r} vc={vc} vcRead={config.vcenter ? vcenter ?? undefined : null} canClean={canWrite(h.supervisorId)} onClean={() => setCleaning({ h, r })} />;
       })}
       {cleaning && <ActionDialog plan={leftoverCleanupPlan(cleaning.h)} writer={supervisorWriter(cleaning.r.supervisor)} onClose={() => setCleaning(null)} onApplied={() => refresh()} />}

@@ -424,6 +424,31 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Explain: walk-down and incident timeline
+
+**Walk down** (sidebar, or **Walk down** on an issue about a node) goes from a node, or a pod on it, down through everything VKS stacks under it:
+
+- the **node** as the cluster sees it (pods with problems, pod networking failures)
+- its **Machine** (phase, deleting, failure domain)
+- its **VM** (power, VM class, zone)
+- the **ESXi host** it runs on (Ready as the Supervisor sees it, how many other VMs share it)
+- the **namespace's** memory overcommit
+- the **Supervisor's** health score
+
+Each layer is marked healthy, warning or unhealthy, and the **deepest unhealthy layer is named as the likely one**: a problem low in the stack usually explains everything above it. Across the cluster, it also points out when **most problem nodes are VMs on the same host** ("look at that host first"). The host comes from VM Operator's `status.host`.
+
+**Incident timeline** (sidebar, **Timeline** on any cluster issue, or **Incident timeline** in Observability) assembles one story per cluster over 6 hours, 24 hours or 3 days:
+
+- the fleet's own **changes** and conditions (node replacements, scaling, upgrades, the plugin's actions)
+- **Alertmanager alerts** with their start times
+- **warning events**
+- **unusual** metrics and **forecasts**
+- the **open issues**
+
+A short summary names the first symptom and, **if a change came within two hours before it, suggests it as a possible trigger**. That's stated as a suggestion, and when nothing preceded it, it says so. **Copy as post-mortem draft** (or Download .md) gives a Markdown draft with summary, impact, a timeline table, the likely trigger, actions and follow-ups (the open issues and forecasts). The parts only people can fill in are marked, and a notice asks for review before sharing.
+
+**Charts** use smooth curves with soft fills. Hovering shows a crosshair and every series' value at that moment; thresholds are labelled; the fleet's changes appear as markers that explain themselves on hover.
+
 ## Read by default, elevate to change
 
 Everyday viewing needs no write rights, so it shouldn't have them. With **Settings → Read by default, elevate to change**:
@@ -502,7 +527,7 @@ cp deploy/collector/collect.py /root/collect.py
 systemctl daemon-reload && systemctl enable --now vks-vcenter.timer
 ```
 
-Then, in **Settings → vCenter collector**, set the context (`kubernetes-cluster-9yfw`); the namespace and ConfigMap default to `vks-fleet` and `vks-fleet-vcenter`. Each vCenter record is matched to its Supervisor by API address, or directly when there's one of each.
+Then, in **Settings → vCenter collector**, set the context (`kubernetes-cluster-9yfw`); the namespace and ConfigMap default to `vks-fleet` and `vks-fleet-vcenter`. Each vCenter record is matched to its Supervisor by API address, then by its ESXi hosts (which are also the Supervisor's nodes, with the same names; the reliable match, since vCenter lists management addresses rather than the load-balanced one), or directly when there's one of each.
 
 ## Observability
 
@@ -772,6 +797,8 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
+  incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft
   vcenterStatus.ts      vCenter's view from the collector: reading, matching, scoring, issues
   elevation.ts          Read by default, elevate to change: time-boxed, with a reason; change contexts; stamping
   supervisorHealth.ts   Supervisor health: leases, service pods and leftovers, placement, backlog, score, issues, clean-up

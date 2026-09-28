@@ -59,6 +59,7 @@ export function parseVms(supervisorId: string, vms: KubeObject[], images: Map<st
       image: imageRef ? images.get(imageRef) ?? imageRef : undefined,
       ip: status.network?.primaryIP4 ?? status.vmIp,
       zone: status.zone ?? v.metadata.labels?.['topology.kubernetes.io/zone'],
+      host: status.host || undefined,
       interfaces: (spec.network?.interfaces ?? []).map((i: any) => ({ name: i?.name ?? '', kind: i?.network?.kind, network: i?.network?.name })),
       volumes: (spec.volumes ?? []).map((x: any) => x?.persistentVolumeClaim?.claimName).filter(Boolean),
       storageClass: spec.storageClass,
