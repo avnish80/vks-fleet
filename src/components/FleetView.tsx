@@ -24,6 +24,7 @@ import { complianceIssues } from '../complianceReport';
 import { isolationIssues, isolationReport } from '../isolation';
 import { scannerIssues } from '../scannerIssues';
 import { observabilityIssues } from '../observability';
+import { compareVersions } from '../packages';
 import { useObservability } from '../useObservability';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
@@ -172,7 +173,10 @@ export function FleetView() {
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
           ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
-          ...observabilityIssues(observability ?? [], scopedResults.flatMap(r => r.clusters)),
+          ...observabilityIssues(observability ?? [], scopedResults.flatMap(r => r.clusters), new Date(), key => {
+            const r = scopedResults.find(x => x.clusters.some(c => c.key === key));
+            return [...(r?.releases ?? [])].sort((a, b) => compareVersions(b, a))[0];
+          }),
           ...(all && inventoryAll
             ? isolationIssues(
                 isolationReport(all, inventoryAll, null).filter(r => org === '__all__' || r.orgId === org),

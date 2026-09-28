@@ -1,10 +1,14 @@
 import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button, Paper, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Typography } from '@mui/material';
 import React from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
 import { useFleetData } from '../fleetContext';
-import { Alert as FiringAlert, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, Series } from '../observability';
+import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual } from '../observability';
+import { AppComparison, compareApps, fetchAppUsage, fetchRightSizing, RightSizing, WorkloadSizing } from '../compare';
+import { configuredByNamespace } from '../limits';
+import { compareVersions } from '../packages';
+import { formatBytes } from '../quantity';
 import { fleetTimeline } from '../timeline';
 import { FleetCluster } from '../types';
 import { useObservability } from '../useObservability';
@@ -31,6 +35,16 @@ export function ObservabilityPage() {
   const [rng, setRng] = React.useState<Range>('24h');
   const [enabling, setEnabling] = React.useState<string | null>(null);
   const packages = usePackages(enabling ? targets.filter(t => t.key === enabling) : [], 120);
+  const [serverFor, setServerFor] = React.useState<ObservabilitySummary | null>(null);
+  const [compareOn, setCompareOn] = React.useState(false);
+  const comparisons = usePolling<AppComparison[]>(
+    compareOn && summaries ? `compare|${summaries.filter(s => s.reachable).map(s => s.clusterKey).join(',')}` : null,
+    async () =>
+      compareApps(
+        (await Promise.all((summaries ?? []).filter(s => s.reachable).map(s => fetchAppUsage(headlampClient(s.contextName), s.stack.prometheus!, s.clusterName).catch(() => [])))).flat()
+      ),
+    600
+  );
 
   if (results === null) return <Loader title="Loading clusters" />;
   if (clusters.length === 0) return <NoClusters title="Observability" what="monitoring information" />;
@@ -92,6 +106,45 @@ export function ObservabilityPage() {
         </SectionBox>
       )}
 
+      {list.some(s => s.deprecatedApis.length) && (
+        <SectionBox title="Upgrade safety: deprecated APIs in use">
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            From each API server's own count of requests to deprecated APIs, since it last started. Anything removed by a release
+            you plan to move to breaks its callers; the Upgrade Planner checks this for each cluster's target.
+          </Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Cluster', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.s.clusterName },
+              { label: 'API', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => <b>{apiName(d)}</b> },
+              { label: 'Removed in', getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) => d.removedRelease ?? '—' },
+              {
+                label: 'Newest release here',
+                getter: (d: DeprecatedApi & { s: ObservabilitySummary; newest?: string }) =>
+                  d.newest ? <StatusLabel status={removedBy(d, d.newest) ? 'error' : 'success'}>{`${d.newest}${removedBy(d, d.newest) ? ': breaks' : ': fine'}`}</StatusLabel> : '—',
+              },
+            ]}
+            data={list.flatMap(s => {
+              const r = (results ?? []).find(x => x.clusters.some(c => c.key === s.clusterKey));
+              const newest = [...(r?.releases ?? [])].sort((a, b) => compareVersions(b, a))[0];
+              return s.deprecatedApis.map(d => ({ ...d, s, newest }));
+            })}
+          />
+        </SectionBox>
+      )}
+
+      {monitored.length > 1 && (
+        <SectionBox
+          title="The same app across clusters"
+          headerProps={{ actions: [<Button key="c" size="small" variant="outlined" onClick={() => setCompareOn(true)} disabled={compareOn}>{compareOn ? (comparisons ? 'Compared' : 'Comparing…') : 'Compare'}</Button>] }}
+        >
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Workloads with the same name and image in more than one cluster: CPU and memory per replica over the last hour,
+            restarts over the last day. Big differences point at the environment, not the code.
+          </Typography>
+          {compareOn && comparisons && (comparisons.length ? comparisons.map(a => <AppCompareCard key={`${a.app}|${a.repo}`} a={a} />) : <Typography color="text.secondary">No app runs in more than one monitored cluster.</Typography>)}
+        </SectionBox>
+      )}
+
       <SectionBox title="Clusters">
         <SimpleTable
           columns={[
@@ -101,6 +154,10 @@ export function ObservabilityPage() {
               getter: (s: ObservabilitySummary) =>
                 s.reachable ? (
                   <StatusLabel status="success">{`Prometheus ${s.version ?? ''}`.trim()}</StatusLabel>
+                ) : s.exportersOnly ? (
+                  <Button size="small" variant="outlined" onClick={() => setServerFor(s)} title="Exporters run here, but no Prometheus server stores or queries their metrics">
+                    Add a Prometheus server…
+                  </Button>
                 ) : s.stack.prometheus ? (
                   <span title={s.error}>
                     <StatusLabel status="warning">Found, not reachable</StatusLabel>
@@ -113,10 +170,10 @@ export function ObservabilityPage() {
                   'None'
                 ),
             },
-            { label: 'Node CPU (max)', getter: (s: ObservabilitySummary) => kpi(s.kpis.nodeCpu, 'percent', 85) },
-            { label: 'Node memory (max)', getter: (s: ObservabilitySummary) => kpi(s.kpis.nodeMem, 'percent', 90) },
-            { label: 'API p99', getter: (s: ObservabilitySummary) => kpi(s.kpis.apiP99, 'seconds', 1) },
-            { label: 'API 5xx/s', getter: (s: ObservabilitySummary) => kpi(s.kpis.api5xx, 'rate', 0.5) },
+            { label: 'Node CPU (max)', getter: (s: ObservabilitySummary) => kpi(s.kpis.nodeCpu, 'percent', 85, s.unusual.find(u => u.kpi === 'nodeCpu')) },
+            { label: 'Node memory (max)', getter: (s: ObservabilitySummary) => kpi(s.kpis.nodeMem, 'percent', 90, s.unusual.find(u => u.kpi === 'nodeMem')) },
+            { label: 'API p99', getter: (s: ObservabilitySummary) => kpi(s.kpis.apiP99, 'seconds', 1, s.unusual.find(u => u.kpi === 'apiP99')) },
+            { label: 'API 5xx/s', getter: (s: ObservabilitySummary) => kpi(s.kpis.api5xx, 'rate', 0.5, s.unusual.find(u => u.kpi === 'api5xx')) },
             { label: 'Restarts (1 h)', getter: (s: ObservabilitySummary) => kpi(s.kpis.restarts, 'count', 3) },
             { label: 'Alerts', getter: (s: ObservabilitySummary) => (s.stack.alertmanager ? (s.alertsReadable ? s.alerts.length : 'not reachable') : 'no Alertmanager') },
           ]}
@@ -134,6 +191,7 @@ export function ObservabilityPage() {
         <ClusterPanels summary={sel} cluster={byKey.get(sel.clusterKey)!} clusters={clusters} rng={rng} setRng={setRng} onClose={() => select(null)} />
       )}
 
+      {serverFor && <ServerSetupDialog s={serverFor} onClose={() => setServerFor(null)} />}
       {enabling && !enableTarget && <Loader title="Reading the cluster's package catalog" />}
       {enableTarget &&
         (() => {
@@ -159,9 +217,88 @@ export function ObservabilityPage() {
   );
 }
 
-function kpi(v: number | undefined, unit: Parameters<typeof formatValue>[1], warn: number) {
+function kpi(v: number | undefined, unit: Parameters<typeof formatValue>[1], warn: number, unusual?: Unusual) {
   if (v === undefined) return '—';
-  return <StatusLabel status={v > warn ? 'warning' : ''}>{formatValue(v, unit)}</StatusLabel>;
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+      <StatusLabel status={v > warn ? 'warning' : ''}>{formatValue(v, unit)}</StatusLabel>
+      {unusual && (
+        <span title={`A week ago at this time: ${formatValue(unusual.weekAgo, unit)}`}>
+          <StatusLabel status="warning">unusual for this time</StatusLabel>
+        </span>
+      )}
+    </Box>
+  );
+}
+
+function ServerSetupDialog({ s, onClose }: { s: ObservabilitySummary; onClose: () => void }) {
+  const [copied, setCopied] = React.useState(false);
+  const text = serverSetupCommands(s.contextName, s.stack.exporterNamespace);
+  return (
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>Add a Prometheus server to {s.clusterName}</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" sx={{ mb: 1 }}>
+          {s.clusterName} runs metric exporters ({[s.stack.nodeExporter && 'node-exporter', s.stack.kubeStateMetrics && 'kube-state-metrics'].filter(Boolean).join(', ')} in{' '}
+          {s.stack.exporterNamespace ?? 'the cluster'}), typically VKS's managed add-on, but no Prometheus server to store and query
+          them. These commands add one (with Alertmanager) in its own namespace, scraping the existing exporters without touching
+          them. Run them where Helm and the cluster's sign-in are available; it needs a default StorageClass.
+        </Typography>
+        <Box component="pre" sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1, fontSize: '0.78rem', overflowX: 'auto', maxHeight: 380 }}>
+          {text}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button
+          onClick={() => {
+            navigator.clipboard?.writeText(text);
+            setCopied(true);
+          }}
+        >
+          {copied ? 'Copied' : 'Copy commands'}
+        </Button>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function AppCompareCard({ a }: { a: AppComparison }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, borderRadius: 2 }}>
+      <Typography sx={{ fontWeight: 600 }}>
+        {a.app} <Typography component="span" variant="caption" color="text.secondary">{a.repo}</Typography>
+      </Typography>
+      {a.notes.map((n, i) => (
+        <Typography key={i} variant="body2" color="warning.main">
+          {n}
+        </Typography>
+      ))}
+      <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.85rem', mt: 0.5 }}>
+        <thead>
+          <tr>
+            {['Cluster', 'Version', 'Replicas', 'CPU / replica', 'Memory / replica', 'Restarts (24 h)'].map(h => (
+              <Box component="th" key={h} sx={{ textAlign: 'left', p: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+                {h}
+              </Box>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {a.rows.map(r => (
+            <tr key={`${r.cluster}/${r.namespace}`}>
+              <Box component="td" sx={{ p: 0.5 }}>{r.cluster} <Typography component="span" variant="caption" color="text.secondary">{r.namespace}</Typography></Box>
+              <Box component="td" sx={{ p: 0.5 }}>{r.tag}</Box>
+              <Box component="td" sx={{ p: 0.5 }}>{r.replicas}</Box>
+              <Box component="td" sx={{ p: 0.5 }}>{r.cpuPerReplica.toFixed(2)} cores</Box>
+              <Box component="td" sx={{ p: 0.5 }}>{formatBytes(r.memPerReplica)}</Box>
+              <Box component="td" sx={{ p: 0.5, color: r.restarts24h ? 'error.main' : undefined }}>{r.restarts24h}</Box>
+            </tr>
+          ))}
+        </tbody>
+      </Box>
+    </Paper>
+  );
 }
 
 function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { summary: ObservabilitySummary; cluster: FleetCluster; clusters: FleetCluster[]; rng: Range; setRng: (r: Range) => void; onClose: () => void }) {
@@ -193,7 +330,56 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
           <PanelCard key={p.id} panel={p} summary={summary} rng={rng} start={start} end={end} markers={markers} />
         ))}
       </Box>
+      <RightSizingSection summary={summary} cluster={cluster} />
     </SectionBox>
+  );
+}
+
+function RightSizingSection({ summary, cluster }: { summary: ObservabilitySummary; cluster: FleetCluster }) {
+  const { all, inventoryAll, limitsAll } = useFleetData();
+  const r = (all ?? []).find(x => x.clusters.some(c => c.key === cluster.key));
+  const data = usePolling<RightSizing>(
+    `sizing|${summary.contextName}`,
+    () => fetchRightSizing(headlampClient(summary.contextName), summary.stack.prometheus!, cluster, r?.vmClasses ?? [], limitsAll.get(cluster.namespace), configuredByNamespace(all ?? [], inventoryAll).get(cluster.namespace)),
+    900
+  );
+  if (!data) return <Typography sx={{ mt: 2 }} color="text.secondary">Working out right-sizing (a week of usage)…</Typography>;
+  const c = data.cluster;
+  const flagged = data.workloads.filter(w => w.verdict !== 'ok');
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="h6" sx={{ fontSize: '1.05rem', fontWeight: 600 }}>Right-sizing</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        What workloads ask for against what they use (95th percentile over the last week), with requests suggested at p95 plus 30%.
+        {data.historyHours !== undefined && data.historyHours < 72 ? ` Only ${data.historyHours} hours of history so far: treat these as rough.` : ''}
+      </Typography>
+      {c && (
+        <Alert severity={c.pool && c.pool.suggestedNodes < c.pool.nodes ? 'info' : 'success'} sx={{ mb: 1.5 }}>
+          Memory requested {formatBytes(c.requestedMem)}, used at p95 {formatBytes(c.p95Mem)}; CPU requested {c.requestedCpu.toFixed(1)} cores, used {c.p95Cpu.toFixed(1)}.
+          {c.pool && c.pool.suggestedNodes < c.pool.nodes
+            ? ` With right-sized requests, pool ${c.pool.name} needs about ${c.pool.suggestedNodes} ${c.pool.vmClass ?? ''} node${c.pool.suggestedNodes === 1 ? '' : 's'} instead of ${c.pool.nodes}, freeing ${formatBytes(c.freedMem ?? 0)} in ${cluster.namespace}${
+                c.overcommitBefore && c.overcommitAfter ? `: memory overcommit goes from ${c.overcommitBefore.toFixed(1)}× to ${c.overcommitAfter.toFixed(1)}×` : ''
+              }.`
+            : c.pool
+            ? ` Pool ${c.pool.name} is sized about right for what it runs.`
+            : ''}
+        </Alert>
+      )}
+      {flagged.length ? (
+        <SimpleTable
+          columns={[
+            { label: '', getter: (w: WorkloadSizing) => <StatusLabel status={w.verdict === 'under' ? 'error' : 'warning'}>{w.verdict === 'under' ? 'uses more than it asks' : 'asks for much more'}</StatusLabel> },
+            { label: 'Workload', getter: (w: WorkloadSizing) => <b>{`${w.namespace}/${w.workload}`}</b> },
+            { label: 'Pods', getter: (w: WorkloadSizing) => w.pods },
+            { label: 'CPU: asks → uses → suggest', getter: (w: WorkloadSizing) => `${w.cpuRequest.toFixed(2)} → ${w.cpuP95.toFixed(2)} → ${w.cpuSuggest.toFixed(2)}` },
+            { label: 'Memory: asks → uses → suggest', getter: (w: WorkloadSizing) => `${formatBytes(w.memRequest)} → ${formatBytes(w.memP95)} → ${formatBytes(w.memSuggest)}` },
+          ]}
+          data={flagged.slice(0, 15)}
+        />
+      ) : (
+        <Typography color="text.secondary">No workload is far off what it uses{data.workloads.length ? '' : ' (no requests recorded: needs kube-state-metrics)'}.</Typography>
+      )}
+    </Box>
   );
 }
 

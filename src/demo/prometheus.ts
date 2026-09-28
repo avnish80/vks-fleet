@@ -33,9 +33,56 @@ function seriesFor(c: C, q: string): Array<[Record<string, string>, (t: number) 
   return [];
 }
 
+const GiB = 2 ** 30;
+const MiB = 2 ** 20;
+
+/** Pods for usage, requests and image answers: [namespace, pod, image, cpu request, memory request, cpu p95, memory p95, cpu now, restarts 24 h]. */
+type DemoPod = [string, string, string, number, number, number, number, number, number];
+const POD_TABLE: Record<string, DemoPod[]> = {
+  payments: [
+    ...[0, 1, 2].map((i): DemoPod => ['payments', `api-6b7f9c4d8-${'bcd'[i]}x2kq`, 'registry.acme.example/payments/api:2.14.1', 0.25, 512 * MiB, 0.12, 300 * MiB, 0.1, 0]),
+    ...[0, 1].map((i): DemoPod => ['payments', `worker-5d4d9b688-${'bc'[i]}wq7m`, 'registry.acme.example/payments/worker:2.14.1', 2, 4 * GiB, 0.2, 700 * MiB, 0.15, 0]),
+    ['kube-system', 'coredns-7db6d8ff4d-x8k2p', 'localhost:5000/tkg/coredns:v1.11', 0.1, 1 * GiB, 0.02, 60 * MiB, 0.01, 0],
+  ],
+  checkout: [
+    ...[0, 1].map((i): DemoPod => ['shop', `cart-6b7f9c4d8-${'bc'[i]}clq9`, 'registry.acme.example/shop/cart:1.9.0', 0.25, 512 * MiB, 0.4, 420 * MiB, 0.35, i ? 41 : 0]),
+    ...[0, 1].map((i): DemoPod => ['shop', `api-7c8d9f2f2-${'bc'[i]}sp4t`, 'registry.acme.example/payments/api:2.13.0', 0.25, 512 * MiB, 0.2, 380 * MiB, 0.27, 0]),
+    ['legacy', 'sync-agent-5f6d7b8c9-lqg2n', 'registry.acme.example/legacy/sync:0.4', 0.5, 1 * GiB, 0.05, 90 * MiB, 0.04, 0],
+  ],
+  analytics: [
+    ...[0, 1, 2].map((i): DemoPod => ['streaming', `kafka-${i}`, 'docker.io/bitnami/kafka:3.8', 1, 8 * GiB, 0.8, 6.5 * GiB, 0.7, 0]),
+    ['ml', 'notebook-8d9b2c4d2-nztb2', 'docker.io/jupyter/base-notebook:2026-06-01', 4, 16 * GiB, 0.3, 1.2 * GiB, 0.2, 0],
+  ],
+};
+
+/** Deprecated APIs in use (illustrative; the demo fleet is fictional). */
+const DEPRECATED: Record<string, Array<Record<string, string>>> = {
+  checkout: [{ group: 'resource.k8s.io', version: 'v1beta1', resource: 'resourceclaims', removed_release: '1.37' }],
+  analytics: [{ group: 'flowcontrol.apiserver.k8s.io', version: 'v1beta3', resource: 'flowschemas', removed_release: '1.39' }],
+};
+
 /** Instant-only answers: forecasts (seconds until something runs out) and fleet KPIs. */
 function instantFor(c: C, q: string, t: number): Array<[Record<string, string>, number]> | undefined {
   const nodes = machineNames(c).map(m => m.name);
+  const pods = POD_TABLE[c.name] ?? [];
+  const perPod = (i: number) => pods.map(p => [{ namespace: p[0], pod: p[1] }, p[i] as number] as [Record<string, string>, number]);
+  // The same time last week: checkout's API was much faster then.
+  const week = /^last_over_time\(\((.*)\)\[10m:1m\] offset 1w\)$/.exec(q);
+  if (week) {
+    if (c.name === 'checkout' && /apiserver_request_duration/.test(week[1])) return [[{}, 0.12]];
+    const now = instantFor(c, week[1], t - 7 * 86400);
+    return now?.map(([l, v]) => [l, v * 0.95]);
+  }
+  if (q === 'apiserver_requested_deprecated_apis') return (DEPRECATED[c.name] ?? []).map(l => [l, 1]);
+  if (/^time\(\) - min\(prometheus_tsdb_lowest_timestamp_seconds\)$/.test(q)) return [[{}, 12 * 86400]];
+  if (/^quantile_over_time\(0\.95, sum by \(namespace, pod\) \(rate\(container_cpu/.test(q)) return perPod(5);
+  if (/^quantile_over_time\(0\.95, sum by \(namespace, pod\) \(container_memory/.test(q)) return perPod(6);
+  if (/kube_pod_container_resource_requests\{resource="cpu"\}/.test(q)) return perPod(3);
+  if (/kube_pod_container_resource_requests\{resource="memory"\}/.test(q)) return perPod(4);
+  if (/^count by \(namespace, pod, image\) \(kube_pod_container_info/.test(q)) return pods.map(p => [{ namespace: p[0], pod: p[1], image: p[2] }, 1]);
+  if (/^sum by \(namespace, pod\) \(rate\(container_cpu_usage_seconds_total\{container!="",container!="POD"\}\[1h\]\)\)$/.test(q)) return perPod(7);
+  if (/^sum by \(namespace, pod\) \(avg_over_time\(container_memory_working_set_bytes/.test(q)) return perPod(6);
+  if (/^sum by \(namespace, pod\) \(increase\(kube_pod_container_status_restarts_total\[24h\]\)\)$/.test(q)) return perPod(8);
   if (/deriv\(kubelet_volume_stats_available_bytes/.test(q)) return c.name === 'analytics' ? [[{ namespace: 'streaming', persistentvolumeclaim: 'data-kafka-1' }, 3.1 * 86400], [{ namespace: 'streaming', persistentvolumeclaim: 'data-kafka-2' }, 9.5 * 86400]] : [];
   if (/deriv\(node_filesystem_avail_bytes/.test(q)) return c.name === 'checkout' ? [[{ instance: `${nodes[nodes.length - 1]}:9100` }, 1.6 * 86400]] : [];
   if (/deriv\(etcd_mvcc_db_total_size_in_bytes/.test(q) || /deriv\(node_memory_MemAvailable_bytes/.test(q)) return [];

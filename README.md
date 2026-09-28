@@ -438,6 +438,15 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - **Forecasts instead of thresholds:** from the last six hours' trend, *when* a volume, a node's disk, etcd or a node's memory runs out, for example "streaming/data-kafka-1 runs out in about 3 days". Under 7 days is a warning issue; under 2 days is critical.
 - **Alerts:** Alertmanager's active alerts (not silenced or inhibited; Watchdog left out) become issues on the fleet page, grouped by alert name, with severity from their labels.
 
+**Compare** (on the same page):
+
+- **Unusual for this time:** each cluster's headline numbers (node CPU and memory, API latency and errors) are compared with the same time a week earlier. A real jump (1.5× and a minimum difference) gets an "unusual for this time" badge, so normal daily peaks don't.
+- **Upgrade safety: deprecated APIs in use.** The API server counts requests to deprecated APIs, with the release that removes each one. The page lists them per cluster against the newest release on the Supervisor, and the **Upgrade Planner** warns when a cluster's target would remove an API still in use. It's real traffic, not a manifest scan; the count covers calls since the API server last started.
+- **Right-sizing** (in each cluster's detail): what workloads ask for against what they use (95th percentile over the last week), with requests suggested at p95 plus 30%. Workloads asking for far more than they use, and those using more than they ask, are flagged. With a single worker pool, it also works out how many nodes the right-sized requests need, and **what that frees in the namespace, including memory overcommit before and after**. Short history is flagged ("only 20 hours so far").
+- **The same app across clusters:** workloads with the same name and image in several clusters, compared on CPU and memory per replica and restarts, with differences called out ("checkout uses 2.7× the CPU per replica", "Restarts only in checkout", "Different versions"). It queries every cluster, so it runs when you ask.
+
+**Exporters without a server.** On VKS the managed Prometheus add-on may run only node-exporter and kube-state-metrics, with no server to store or query them. The page says so, and **Add a Prometheus server…** gives the commands that add one (with Alertmanager) in its own namespace, scraping the existing exporters without touching the managed add-on.
+
 Queries are cached for a minute per cluster, the panels only load for the cluster you open, and the summary refreshes every 5 minutes. They also go through the request limiter, like everything else. Querying through the proxy needs the `services/proxy` permission in the monitoring namespace: operators normally have it; tenants may not.
 
 ## Creating VMs and clusters
@@ -682,6 +691,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  compare.ts            Right-sizing (requests vs p95 use, node count, overcommit) and the same app across clusters
   observability.ts      Monitoring-stack discovery, Prometheus queries via the API proxy, panels, forecasts, alerts as issues
   provision.ts          VM and cluster manifests, capacity preview, create plans, YAML output
   packageInstall.ts     Package install and removal plans (VCF CLI style)

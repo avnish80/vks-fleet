@@ -35,6 +35,7 @@ import { FleetCluster, SupervisorResult } from '../types';
 import { usePolling } from '../usePolling';
 import { configuredByNamespace } from '../limits';
 import { useWorkloadHealth } from '../useWorkload';
+import { useObservability } from '../useObservability';
 import { blockingPdbs } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
 
@@ -67,6 +68,16 @@ export function UpgradePlannerPage() {
   const { config, results, refresh, canWrite, limits, inventory } = useFleetData();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
+  // Deprecated APIs in real use (from each cluster's Prometheus), for the readiness checks.
+  const observed = useObservability(
+    clusters
+      .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
+      .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName)
+  );
+  const deprecatedOf = (key: string) => {
+    const s = (observed ?? []).find(x => x.clusterKey === key);
+    return s?.reachable ? s.deprecatedApis : undefined;
+  };
   const stored = usePlanRaw()?.entries ?? {};
   const [open, setOpen] = React.useState<string | null>(null);
   const [runWave, setRunWave] = React.useState<number | null>(null);
@@ -102,7 +113,7 @@ export function UpgradePlannerPage() {
       c,
       r,
       entry,
-      ready: readiness(c, entry, r.releases ?? [], r.vmClasses ?? [], pdbs?.get(c.key), limits.get(c.namespace), configured.get(c.namespace)),
+      ready: readiness(c, entry, r.releases ?? [], r.vmClasses ?? [], pdbs?.get(c.key), limits.get(c.namespace), configured.get(c.namespace), deprecatedOf(c.key)),
     };
   });
   const save = (c: FleetCluster, patch: Partial<PlanEntry>) =>

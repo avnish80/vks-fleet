@@ -64,7 +64,21 @@ export function PackageInstallDialog({ refName, displayName, targets, onClose, o
       <DialogTitle>Install {displayName}</DialogTitle>
       <DialogContent>
         {eligible.length === 0 ? (
-          <Alert severity="info">No cluster you can change offers {refName} without already having it installed.</Alert>
+          <Alert severity="info">
+            {(() => {
+              const offering = targets.filter(t => (t.cp.definitions ?? []).some(d => d.refName === refName));
+              const have = offering.filter(t => t.cp.items.some(i => i.refName === refName));
+              if (have.length) {
+                const where = have.map(t => {
+                  const i = t.cp.items.find(x => x.refName === refName)!;
+                  return `${t.cluster.name} (${i.namespace}/${i.name}${i.managedByVks ? ', managed by VKS' : ''})`;
+                });
+                return `${displayName} is already installed in ${where.join(', ')}.`;
+              }
+              if (!offering.length) return `No cluster's package repositories offer ${refName}.`;
+              return `You can't change the clusters that offer ${refName}.`;
+            })()}
+          </Alert>
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <Box>

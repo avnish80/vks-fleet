@@ -4,6 +4,7 @@
  * rolling upgrade), and waves: a canary first, then the rest, each wave
  * starting only when the previous one has finished healthy.
  */
+import { apiName, DeprecatedApi, removedBy } from './observability';
 import { blocked, Check, upgradePlan, upgradeProgress } from './actions';
 import { fits, quotaLines, upgradeSurge } from './headroom';
 import { formatBytes } from './quantity';
@@ -30,7 +31,9 @@ export function readiness(
   classes: VmClassInfo[],
   blockingPdbs?: string[],
   limits?: NamespaceLimits,
-  configured?: Configured
+  configured?: Configured,
+  /** Deprecated APIs the cluster's API server has been asked for (from Prometheus). */
+  deprecated?: DeprecatedApi[]
 ): Readiness {
   if (!entry || !entry.target) {
     return { level: 'nothing', checks: [{ level: 'ok', text: 'No newer release to move to.' }] };
@@ -65,6 +68,17 @@ export function readiness(
             text: `While it runs, memory in ${c.namespace} is ${during.toFixed(1)}× the namespace limit (${formatBytes(limits.memoryLimitBytes)}); new nodes may start slowly under load.`,
           }
         : { level: 'ok', text: `Memory stays within ${during.toFixed(1)}× the namespace limit while it runs.` }
+    );
+  }
+  if (deprecated) {
+    const removed = deprecated.filter(d => removedBy(d, entry.target));
+    checks.push(
+      removed.length
+        ? {
+            level: 'warn',
+            text: `Still in use and removed by ${entry.target}: ${removed.map(apiName).join(', ')}. Update whatever calls them first (the count covers calls since the API server last started, so a caller may already be gone).`,
+          }
+        : { level: 'ok', text: deprecated.length ? `No API in use is removed by ${entry.target}.` : 'No deprecated APIs in use.' }
     );
   }
   return {

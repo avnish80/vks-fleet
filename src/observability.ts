@@ -24,10 +24,12 @@ export interface MonitoringStack {
   grafana?: Endpoint;
   nodeExporter: boolean;
   kubeStateMetrics: boolean;
+  /** Where the exporters run (e.g. tanzu-system-monitoring for VKS's add-on). */
+  exporterNamespace?: string;
 }
 
 const PROM = [/^prometheus-server$/, /-kube-prometheus-prometheus$/, /^prometheus-k8s$/, /^prometheus$/, /^prometheus-operated$/];
-const ALERT = [/^alertmanager$/, /-kube-prometheus-alertmanager$/, /^alertmanager-main$/, /^alertmanager-operated$/];
+const ALERT = [/^alertmanager$/, /-kube-prometheus-alertmanager$/, /^alertmanager-main$/, /-alertmanager$/, /^alertmanager-operated$/];
 
 function pickPort(svc: any, preferred: number[]): string | undefined {
   const ports: any[] = svc?.spec?.ports ?? [];
@@ -54,6 +56,7 @@ export function discoverStack(services: any[]): MonitoringStack {
     grafana: find(services, [/grafana$/], [80, 3000]),
     nodeExporter: names.some(n => /node-exporter/.test(n)),
     kubeStateMetrics: names.some(n => /kube-state-metrics/.test(n)),
+    exporterNamespace: services.find(s => /node-exporter|kube-state-metrics/.test(String(s?.metadata?.name ?? '')))?.metadata?.namespace,
   };
 }
 
@@ -225,6 +228,55 @@ export function parseAlerts(items: any[]): Alert[] {
 
 /* ---------------- One cluster's summary ---------------- */
 
+/** A deprecated API the cluster's API server has been asked for (since it last started). */
+export interface DeprecatedApi {
+  group: string;
+  version: string;
+  resource: string;
+  subresource?: string;
+  /** The Kubernetes minor that removes it, e.g. "1.37". */
+  removedRelease?: string;
+}
+
+export function parseDeprecated(samples: Sample[]): DeprecatedApi[] {
+  const seen = new Set<string>();
+  return samples
+    .filter(s => s.value > 0)
+    .map(s => ({ group: s.labels.group || 'core', version: s.labels.version ?? '', resource: s.labels.resource ?? '', subresource: s.labels.subresource || undefined, removedRelease: s.labels.removed_release || undefined }))
+    .filter(d => {
+      const k = `${d.group}/${d.version}/${d.resource}/${d.subresource ?? ''}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+}
+
+/** Whether moving to `target` (e.g. v1.37.1+vmware.1) removes an API ("1.37"). */
+export function removedBy(api: DeprecatedApi, target: string): boolean {
+  const m = /^v?(\d+)\.(\d+)/.exec(target);
+  const r = /^(\d+)\.(\d+)/.exec(api.removedRelease ?? '');
+  if (!m || !r) return false;
+  return Number(m[1]) > Number(r[1]) || (Number(m[1]) === Number(r[1]) && Number(m[2]) >= Number(r[2]));
+}
+
+export const apiName = (d: DeprecatedApi) => `${d.group === 'core' ? '' : `${d.group}/`}${d.version} ${d.resource}${d.subresource ? `/${d.subresource}` : ''}`;
+
+/** A headline number well above the same time last week. */
+export interface Unusual {
+  kpi: 'nodeCpu' | 'nodeMem' | 'apiP99' | 'api5xx';
+  now: number;
+  weekAgo: number;
+}
+
+/** "Unusual" needs a real jump, not noise: 1.5× and a minimum difference per signal. */
+const UNUSUAL_MIN: Record<Unusual['kpi'], number> = { nodeCpu: 15, nodeMem: 12, apiP99: 0.2, api5xx: 0.2 };
+
+export function unusualKpis(now: Partial<Record<Unusual['kpi'], number>>, weekAgo: Partial<Record<Unusual['kpi'], number>>): Unusual[] {
+  return (Object.keys(UNUSUAL_MIN) as Array<Unusual['kpi']>)
+    .filter(k => now[k] !== undefined && weekAgo[k] !== undefined && now[k]! > weekAgo[k]! * 1.5 && now[k]! - weekAgo[k]! >= UNUSUAL_MIN[k])
+    .map(k => ({ kpi: k, now: now[k]!, weekAgo: weekAgo[k]! }));
+}
+
 export interface ObservabilitySummary {
   clusterKey: string;
   clusterName: string;
@@ -237,6 +289,12 @@ export interface ObservabilitySummary {
   forecasts: Forecast[];
   alerts: Alert[];
   alertsReadable: boolean;
+  /** Deprecated APIs in use (from the API server's own counter). */
+  deprecatedApis: DeprecatedApi[];
+  /** Headline numbers well above the same time last week. */
+  unusual: Unusual[];
+  /** Exporters found, but no Prometheus server to store and query their metrics. */
+  exportersOnly: boolean;
   error?: string;
 }
 
@@ -249,7 +307,20 @@ const KPI_QUERIES: Record<keyof ObservabilitySummary['kpis'], string> = {
 };
 
 export async function fetchSummary(client: SupervisorClient, clusterKey: string, clusterName: string, contextName: string): Promise<ObservabilitySummary> {
-  const base: ObservabilitySummary = { clusterKey, clusterName, contextName, stack: { nodeExporter: false, kubeStateMetrics: false }, reachable: false, kpis: {}, forecasts: [], alerts: [], alertsReadable: false };
+  const base: ObservabilitySummary = {
+    clusterKey,
+    clusterName,
+    contextName,
+    stack: { nodeExporter: false, kubeStateMetrics: false },
+    reachable: false,
+    kpis: {},
+    forecasts: [],
+    alerts: [],
+    alertsReadable: false,
+    deprecatedApis: [],
+    unusual: [],
+    exportersOnly: false,
+  };
   let services: any[] = [];
   try {
     services = (await client.get<{ items?: any[] }>('/api/v1/services'))?.items ?? [];
@@ -257,7 +328,7 @@ export async function fetchSummary(client: SupervisorClient, clusterKey: string,
     return { ...base, error: `Services not readable: ${describeError(err)}` };
   }
   const stack = discoverStack(services);
-  const out: ObservabilitySummary = { ...base, stack };
+  const out: ObservabilitySummary = { ...base, stack, exportersOnly: !stack.prometheus && (stack.nodeExporter || stack.kubeStateMetrics) };
   if (!stack.prometheus) return out;
   try {
     const info: any = await client.get(`${proxyBase(stack.prometheus)}/api/v1/status/buildinfo`);
@@ -268,7 +339,23 @@ export async function fetchSummary(client: SupervisorClient, clusterKey: string,
     return out;
   }
   const prom = stack.prometheus;
+  const weekAgo: Partial<Record<Unusual['kpi'], number>> = {};
   await Promise.all([
+    ...(Object.keys(UNUSUAL_MIN) as Array<Unusual['kpi']>).map(async k => {
+      try {
+        const v = (await instant(client, prom, `last_over_time((${KPI_QUERIES[k]})[10m:1m] offset 1w)`))[0]?.value;
+        if (v !== undefined) weekAgo[k] = v;
+      } catch {
+        // no history from a week ago yet
+      }
+    }),
+    (async () => {
+      try {
+        out.deprecatedApis = parseDeprecated(await instant(client, prom, 'apiserver_requested_deprecated_apis'));
+      } catch {
+        // API server metrics not collected
+      }
+    })(),
     ...(Object.keys(KPI_QUERIES) as Array<keyof typeof KPI_QUERIES>).map(async k => {
       try {
         const v = (await instant(client, prom, KPI_QUERIES[k]))[0]?.value;
@@ -295,6 +382,7 @@ export async function fetchSummary(client: SupervisorClient, clusterKey: string,
     })(),
   ]);
   out.forecasts.sort((a, b) => a.seconds - b.seconds);
+  out.unusual = unusualKpis(out.kpis, weekAgo);
   return out;
 }
 
@@ -302,7 +390,7 @@ export async function fetchSummary(client: SupervisorClient, clusterKey: string,
 
 export const OBSERVABILITY_PATH = '/vks-fleet/observability';
 
-export function observabilityIssues(summaries: ObservabilitySummary[], clusters: FleetCluster[], now: Date = new Date()): Issue[] {
+export function observabilityIssues(summaries: ObservabilitySummary[], clusters: FleetCluster[], now: Date = new Date(), newestRelease?: (clusterKey: string) => string | undefined): Issue[] {
   const out: Issue[] = [];
   for (const s of summaries) {
     const c = clusters.find(x => x.key === s.clusterKey);
@@ -336,6 +424,21 @@ export function observabilityIssues(summaries: ObservabilitySummary[], clusters:
             : 'Find the workload whose memory is growing (Busiest pods, Node memory) before the node starts evicting.',
       });
     }
+    if (s.deprecatedApis.length) {
+      const newest = newestRelease?.(c.key);
+      const soon = newest ? s.deprecatedApis.filter(d => removedBy(d, newest)) : [];
+      out.push({
+        ...base,
+        id: `${c.key}#deprecated-apis`,
+        severity: soon.length ? 'warning' : 'info',
+        title: soon.length
+          ? `${c.name} still uses APIs removed by ${newest}: ${soon.map(apiName).join(', ')}`
+          : `${c.name} uses ${s.deprecatedApis.length} deprecated API${s.deprecatedApis.length === 1 ? '' : 's'}`,
+        cause: 'From the API server’s own counter of requests to deprecated APIs (since it last started).',
+        evidence: s.deprecatedApis.map(d => `${apiName(d)}${d.removedRelease ? ` (removed in ${d.removedRelease})` : ''}`),
+        fix: 'Find the callers (controllers, CI jobs, Helm charts) and move them to the newer API version before upgrading. The API server’s audit log names the callers.',
+      });
+    }
     const byName = new Map<string, Alert[]>();
     for (const a of s.alerts) byName.set(a.name, [...(byName.get(a.name) ?? []), a]);
     for (const [name, list] of byName) {
@@ -352,4 +455,65 @@ export function observabilityIssues(summaries: ObservabilitySummary[], clusters:
     }
   }
   return out;
+}
+
+/* ---------------- Adding a server next to existing exporters ---------------- */
+
+/**
+ * Commands that add a Prometheus server (and Alertmanager) which scrapes the
+ * exporters already running (VKS's managed add-on), without touching them.
+ */
+export function serverSetupCommands(context: string, exporterNamespace = 'tanzu-system-monitoring', namespace = 'monitoring'): string {
+  const values = [
+    `# Reuse the exporters the cluster already runs (in ${exporterNamespace}).`,
+    'prometheus-node-exporter:',
+    '  enabled: false',
+    'kube-state-metrics:',
+    '  enabled: false',
+    'prometheus-pushgateway:',
+    '  enabled: false',
+    'alertmanager:',
+    '  enabled: true',
+    '  persistence:',
+    '    size: 2Gi',
+    'server:',
+    '  retention: 7d',
+    '  persistentVolume:',
+    '    size: 20Gi',
+    'extraScrapeConfigs: |',
+    '  - job_name: existing-node-exporter',
+    '    kubernetes_sd_configs:',
+    '      - role: endpoints',
+    `        namespaces: { names: [${exporterNamespace}] }`,
+    '    relabel_configs:',
+    '      - source_labels: [__meta_kubernetes_service_name]',
+    '        regex: .*node-exporter',
+    '        action: keep',
+    '      - source_labels: [__meta_kubernetes_pod_node_name]',
+    '        target_label: node',
+    '  - job_name: existing-kube-state-metrics',
+    '    kubernetes_sd_configs:',
+    '      - role: endpoints',
+    `        namespaces: { names: [${exporterNamespace}] }`,
+    '    relabel_configs:',
+    '      - source_labels: [__meta_kubernetes_service_name]',
+    '        regex: .*kube-state-metrics',
+    '        action: keep',
+  ].join('\n');
+  return [
+    `C=${context}`,
+    `kubectl --context $C create namespace ${namespace}`,
+    `kubectl --context $C label namespace ${namespace} pod-security.kubernetes.io/enforce=baseline`,
+    '',
+    "cat > /tmp/prom-values.yaml <<'VALUES'",
+    values,
+    'VALUES',
+    '',
+    'helm repo add prometheus-community https://prometheus-community.github.io/helm-charts',
+    'helm repo update',
+    `helm upgrade --install prometheus prometheus-community/prometheus -n ${namespace} \\`,
+    '  --kube-context $C -f /tmp/prom-values.yaml',
+    `kubectl --context $C -n ${namespace} get pods,pvc,svc`,
+    '',
+  ].join('\n');
 }
