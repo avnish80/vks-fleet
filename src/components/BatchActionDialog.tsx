@@ -1,4 +1,5 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material';
+import { ElevationGate } from './Elevation';
 import React from 'react';
 import { ActionPlan, blocked } from '../actions';
 import { describeError, SupervisorWriter } from '../api/client';
@@ -53,6 +54,7 @@ export function BatchActionDialog({
     <Dialog open onClose={phase === 'applying' ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
+        <ElevationGate />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
           <Typography variant="body2">
             {runnable.length} to change, one after another{skipped.length ? `; ${skipped.length} left out` : ''}.

@@ -1,4 +1,5 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material';
+import { ElevationGate } from './Elevation';
 import React from 'react';
 import { headlampClient, headlampWriter } from '../api/headlampClient';
 import { DEFAULT_BENCHMARK, DEFAULT_KUBE_BENCH_IMAGE, SCAN_NS } from '../nodeScan';
@@ -42,6 +43,7 @@ export function NodeScanDialog({
     <Dialog open onClose={phase === 'running' ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Node scan of {cluster}</DialogTitle>
       <DialogContent>
+        <ElevationGate />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
           <Typography variant="body2">
             Runs <b>kube-bench</b> (the open-source CIS scanner) on one control-plane node and one worker, for what the API can't show:

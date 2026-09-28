@@ -235,6 +235,44 @@ export function SettingsPanel() {
           Demo mode is on: every page shows the fictional fleet. Your Supervisor settings are kept and come back when you turn it off.
         </Alert>
       )}
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={raw.elevation?.enabled === true}
+              onChange={e => settingsStore.update({ elevation: { ...(raw.elevation ?? {}), enabled: e.target.checked } })}
+            />
+          }
+          label="Read by default, elevate to change: everyday viewing uses each Supervisor's sign-in as configured (make it a read-only account); changes need Elevate (top bar), with a reason and a time limit, and then go through an admin sign-in."
+        />
+        {raw.elevation?.enabled && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 1, ml: 4 }}>
+            <Typography variant="body2" color="text.secondary">
+              The admin sign-ins are separate kubeconfig contexts. For each cluster the change context is its read context plus a suffix
+              (kubernetes-cluster-mnet → kubernetes-cluster-mnet{raw.elevation?.suffix || '-admin'}); for a Supervisor it can be named
+              here. The refresh script in the README signs in both accounts and names the contexts this way.
+            </Typography>
+            <TextField
+              size="small"
+              label="Suffix of admin contexts"
+              value={raw.elevation?.suffix ?? '-admin'}
+              onChange={e => settingsStore.update({ elevation: { enabled: true, suffix: e.target.value } })}
+              sx={{ maxWidth: 260 }}
+            />
+            {(raw.supervisors ?? []).map((sv, i) => (
+              <TextField
+                key={sv.headlampCluster ?? i}
+                size="small"
+                label={`Change context for ${sv.displayName || sv.headlampCluster}`}
+                placeholder={`${sv.headlampCluster}${raw.elevation?.suffix || '-admin'}`}
+                value={sv.adminContext ?? ''}
+                onChange={e => settingsStore.update({ supervisors: (raw.supervisors ?? []).map((x, k) => (k === i ? { ...x, adminContext: e.target.value } : x)) })}
+                sx={{ maxWidth: 420 }}
+              />
+            ))}
+          </Box>
+        )}
+      </Paper>
       <FormControlLabel
         control={
           <Checkbox
@@ -324,7 +362,7 @@ function Diagnostics() {
         <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem', mt: 1 }}>
           <thead>
             <tr>
-              {['Cluster (context)', 'Requests', 'Per minute', 'Errors', 'Average', 'Slowest', 'Last error'].map(h => (
+              {['Cluster (context)', 'Requests', 'Per minute', 'Errors', 'Denied / not found', 'Average', 'Slowest', 'Last error'].map(h => (
                 <Box component="th" key={h} sx={{ textAlign: 'left', p: 0.75, borderBottom: 1, borderColor: 'divider' }}>
                   {h}
                 </Box>
@@ -338,6 +376,7 @@ function Diagnostics() {
                 <Box component="td" sx={{ p: 0.75 }}>{c.requests}</Box>
                 <Box component="td" sx={{ p: 0.75 }}>{(c.requests / minutes).toFixed(1)}</Box>
                 <Box component="td" sx={{ p: 0.75, color: c.errors ? 'error.main' : undefined }}>{c.errors}</Box>
+                <Box component="td" sx={{ p: 0.75, color: 'text.secondary' }} title="Expected answers to probes (a tool not installed, a namespace not readable)">{c.expected ?? 0}</Box>
                 <Box component="td" sx={{ p: 0.75 }}>{c.requests ? `${Math.round(c.totalMs / c.requests)} ms` : '—'}</Box>
                 <Box component="td" sx={{ p: 0.75 }}>{c.slowestMs} ms</Box>
                 <Box component="td" sx={{ p: 0.75, color: 'text.secondary', maxWidth: 360, overflowWrap: 'anywhere' }}>{c.lastError ?? ''}</Box>

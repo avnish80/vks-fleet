@@ -424,6 +424,25 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Read by default, elevate to change
+
+Everyday viewing needs no write rights, so it shouldn't have them. With **Settings → Read by default, elevate to change**:
+
+- **Everything is read with a read-only sign-in:** the contexts as configured, for example `10.150.4.2` and `kubernetes-cluster-mnet`.
+- **Changes need Elevate** (top bar), with **a reason** and **a time limit** (5 to 60 minutes). While elevated, the bar shows the countdown and **Drop**. Elevation ends when the time is up, when dropped, or when the page reloads, and it's never saved.
+- **While elevated, only change requests** switch to the admin sign-in: `10.150.4.2-admin` (or the context set per Supervisor) and `<cluster>-admin`. Reads stay read-only.
+- **Every change made while elevated records when and why** (`vks-fleet/elevated`, `vks-fleet/elevation-reason`) on the objects it creates or merge-patches, so the change audit shows it.
+- **Actions stay visible in read-only mode.** Their dialogs start with an inline **Elevate** step; dry runs need write rights too, so they run after it.
+
+**Setting it up on a jump server:**
+
+1. In vCenter, create a read-only SSO user (for example `fleet-viewer@wld.sso`) and give it **Can view** on the vSphere namespaces. VKS maps that to read-only access inside the clusters too, while *Can edit* maps to cluster-admin.
+2. Store both passwords in root-only files, `/root/.vsphere-pass-read` and `/root/.vsphere-pass-admin` (`chmod 600`).
+3. Use [`deploy/jump-server/vks-refresh.sh`](deploy/jump-server/vks-refresh.sh) instead of the single-account script. It signs in the admin first and renames its contexts with `-admin` (a second `kubectl vsphere login` would otherwise overwrite them), then signs in the read-only account under the plain names, and restarts Headlamp. Run it from the same systemd timer.
+4. Turn the setting on. Each Supervisor's change context defaults to `<context>-admin` and can be set explicitly.
+
+On a shared, in-cluster deployment, per-user sign-in (OIDC) is the stronger end state: everyone signs in as themselves, and elevation becomes signing in with an admin role.
+
 ## Supervisor health
 
 **Supervisor health** (sidebar, near the top) watches the platform itself, from what its API lets an administrator read. The Supervisor's `/readyz` and `/metrics` aren't exposed through its endpoint, and even an SSO administrator can't list leases or admission webhooks cluster-wide, so it works from the outside. Per Supervisor:
@@ -704,6 +723,7 @@ src/
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
+  elevation.ts          Read by default, elevate to change: time-boxed, with a reason; change contexts; stamping
   supervisorHealth.ts   Supervisor health: leases, service pods and leftovers, placement, backlog, score, issues, clean-up
   compare.ts            Right-sizing (requests vs p95 use, node count, overcommit) and the same app across clusters
   observability.ts      Monitoring-stack discovery, Prometheus queries via the API proxy, panels, forecasts, alerts as issues

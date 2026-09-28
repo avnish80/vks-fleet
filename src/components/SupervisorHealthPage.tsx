@@ -10,7 +10,7 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
 
-const ago = (s?: number) => (s === undefined ? '—' : s < 90 ? `${Math.round(s)} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`);
+const ago = (s?: number) => (s === undefined ? '—' : s < 5 ? 'just now' : s < 90 ? `${Math.round(s)} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`);
 
 export function SupervisorHealthPage() {
   const { all, inventoryAll, persona, canWrite, refresh } = useFleetData();
@@ -42,6 +42,8 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
   const hosts = h.nodes.filter(n => n.role === 'host');
   const leftovers = h.services.reduce((n, s) => n + s.leftovers.length, 0);
   const stuck = h.backlog.reduce((n, b) => n + b.notReady, 0);
+  // The control-plane VM's node name is an id; say what it is.
+  const label = (node?: string) => (!node ? '—' : cps.some(n => n.name === node) ? `control-plane VM (${node.slice(0, 8)}…)` : node);
   const resp = responsiveness(requestStats().clusters.find(c => c.cluster === r.supervisor.headlampCluster));
   return (
     <>
@@ -66,7 +68,7 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           Each controller holds a leader-election lease and renews it every few seconds. A lease that stops renewing means the
           controller is stuck or gone, even if its pod shows Running.
-          {h.leasesUnreadable.length ? ` Not readable with this account: ${h.leasesUnreadable.join(', ')}.` : ''}
+          {h.leasesUnreadable.length ? ` (${h.leasesUnreadable.length} more namespaces aren't readable with this account.)` : ''}
         </Typography>
         {h.leases.length ? (
           <SimpleTable
@@ -74,7 +76,7 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
               { label: 'State', getter: (l: LeaseInfo) => <StatusLabel status={l.state === 'ok' ? 'success' : 'error'}>{l.state === 'ok' ? 'Renewing' : l.state === 'stale' ? 'Stale' : 'No leader'}</StatusLabel> },
               { label: 'Controller', getter: (l: LeaseInfo) => <b>{l.controller}</b> },
               { label: 'Last renewed', getter: (l: LeaseInfo) => ago(l.renewedSecondsAgo) },
-              { label: 'Leader on', getter: (l: LeaseInfo) => l.holderNode ?? '—' },
+              { label: 'Leader on', getter: (l: LeaseInfo) => label(l.holderNode) },
               { label: 'Lease', getter: (l: LeaseInfo) => `${l.namespace}/${l.name}` },
             ]}
             data={h.leases}
@@ -101,7 +103,7 @@ function One({ h, r, canClean, onClean }: { h: SupervisorHealth; r: SupervisorRe
           columns={[
             { label: 'State', getter: (s: ServiceState) => <StatusLabel status={s.state === 'ok' ? 'success' : s.state === 'down' ? 'error' : 'warning'}>{s.state === 'ok' ? 'Running' : s.state === 'down' ? 'Down' : 'Degraded'}</StatusLabel> },
             { label: 'Service', getter: (s: ServiceState) => <b>{s.name}</b> },
-            { label: 'Running on', getter: (s: ServiceState) => s.running.map(p => p.host ?? '?').join(', ') || '—' },
+            { label: 'Running on', getter: (s: ServiceState) => s.running.map(p => label(p.host)).join(', ') || (s.state === 'ok' ? 'no long-running pods' : '—') },
             { label: 'Restarts', getter: (s: ServiceState) => s.running.reduce((n, p) => n + p.restarts, 0) },
             {
               label: 'Left behind',

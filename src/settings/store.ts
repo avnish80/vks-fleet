@@ -2,6 +2,7 @@ import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 import { normalizeConfig, PLUGIN_NAME } from '../config';
 import { PluginConfig } from '../types';
 import { setDemoMode } from '../demo';
+import { configureElevation } from '../elevation';
 import { effectiveSettings } from './effective';
 import { useManagedConfig } from './managed';
 
@@ -22,5 +23,10 @@ export function usePluginConfig(): PluginConfig {
   const managed = useManagedConfig();
   const config = normalizeConfig(effectiveSettings(raw, managed));
   setDemoMode(config.demo === true);
+  configureElevation({
+    enabled: config.elevation?.enabled === true && !config.demo,
+    suffix: config.elevation?.suffix ?? '-admin',
+    supervisorAdmin: Object.fromEntries(config.supervisors.map(s => [s.headlampCluster, s.adminContext ?? `${s.headlampCluster}${config.elevation?.suffix ?? '-admin'}`])),
+  });
   return config;
 }

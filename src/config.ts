@@ -65,6 +65,7 @@ function normalizeSupervisor(raw: Partial<SupervisorConfig>): SupervisorConfig |
   return {
     id,
     headlampCluster,
+    ...(typeof raw.adminContext === 'string' && raw.adminContext.trim() ? { adminContext: raw.adminContext.trim() } : {}),
     displayName: raw.displayName?.trim() || undefined,
     namespaces: Array.isArray(raw.namespaces) ? parseNamespaces(raw.namespaces.join(',')) : [],
     // Never set → VCFA default. Explicitly cleared → namespace is the tenant.
@@ -107,6 +108,7 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
     baseline: normalizeBaseline(raw?.baseline),
     readOnly: raw?.readOnly === true,
     demo: raw?.demo === true,
+    elevation: raw?.elevation?.enabled === true ? { enabled: true, suffix: typeof raw.elevation.suffix === 'string' && raw.elevation.suffix.trim() ? raw.elevation.suffix.trim() : '-admin' } : undefined,
     nodeScanImage: typeof raw?.nodeScanImage === 'string' && raw.nodeScanImage.trim() ? raw.nodeScanImage.trim() : undefined,
     nodeScanBenchmark: typeof raw?.nodeScanBenchmark === 'string' && raw.nodeScanBenchmark.trim() ? raw.nodeScanBenchmark.trim() : undefined,
     identitySwitch: raw?.identitySwitch !== false,

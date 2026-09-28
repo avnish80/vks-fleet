@@ -208,7 +208,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     refreshing,
     personas,
     persona: primary,
-    canWrite: id => (config.readOnly ? false : personas.get(id)?.canWrite ?? true),
+    // With elevation on, the read-only sign-in can't change anything, but elevating can: actions stay available.
+    canWrite: id => (config.readOnly ? false : config.elevation?.enabled && !config.demo ? true : personas.get(id)?.canWrite ?? true),
     org,
     setOrg: o => {
       viewStore.update({ org: o });

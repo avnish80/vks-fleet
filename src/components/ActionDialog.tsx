@@ -13,6 +13,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { ElevationGate } from './Elevation';
+import { useElevation } from '../elevation';
 import React, { ReactNode } from 'react';
 import {
   ActionPlan,
@@ -74,10 +76,12 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
   const [applying, setApplying] = React.useState(false);
   const [applyError, setApplyError] = React.useState<string | null>(null);
   const isBlocked = blocked(plan);
+  const elev = useElevation();
+  const needsElevation = elev.enabled && !elev.active;
 
-  // Preview with a server-side dry run whenever the planned change changes.
+  // Preview with a server-side dry run whenever the planned change changes (after elevating, when that's needed).
   React.useEffect(() => {
-    if (isBlocked) {
+    if (isBlocked || needsElevation) {
       setDry({ state: 'skipped' });
       return;
     }
@@ -90,7 +94,7 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
       cancelled = true;
     };
     // plan.id captures everything that changes the requests.
-  }, [plan.id, isBlocked]);
+  }, [plan.id, isBlocked, needsElevation]);
 
   const reasonOk = !plan.reasonRequired || reason.trim().length > 0;
   const confirmOk = !plan.confirmText || confirm.trim() === plan.confirmText;
@@ -114,6 +118,7 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
     <Dialog open onClose={applying ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{plan.title}</DialogTitle>
       <DialogContent>
+        <ElevationGate />
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
           <Typography>{plan.summary}</Typography>
           {children}

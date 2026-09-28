@@ -10,6 +10,8 @@ export interface SupervisorConfig {
    * and must not change once links have been shared.
    */
   id: string;
+  /** With elevation on: the context used for changes (an admin sign-in), e.g. "10.150.4.2-admin". */
+  adminContext?: string;
   /** Name of the Headlamp cluster (kubeconfig context) that points at this Supervisor. */
   headlampCluster: string;
   /** Friendly name shown in the UI. Defaults to the id. */
@@ -67,6 +69,8 @@ export interface PluginConfig {
   nodeScanBenchmark?: string;
   /** Demo mode: a fictional fleet instead of the configured Supervisors (nothing is ever changed). */
   demo?: boolean;
+  /** Read by default, elevate to change (time-boxed, with a reason). */
+  elevation?: { enabled: boolean; suffix?: string };
 }
 
 export interface Silence {

@@ -108,7 +108,8 @@ export function analyseService(namespace: string, pods: any[], now: Date): Servi
     ageDays: p?.metadata?.creationTimestamp ? (now.getTime() - new Date(p.metadata.creationTimestamp).getTime()) / 86400e3 : 0,
     owner: ownerOf(p),
   });
-  const all = pods.map(p => ({ raw: p, v: view(p) }));
+  // Completed pods (finished Jobs: installs, setup steps) are neither running nor failing.
+  const all = pods.filter(p => p?.status?.phase !== 'Succeeded').map(p => ({ raw: p, v: view(p) }));
   const running = all.filter(x => x.v.phase === 'Running' && !isProviderFailed(x.raw)).map(x => x.v);
   const runningOwners = new Set(running.map(r => r.owner).filter(Boolean));
   const bad = all.filter(x => isProviderFailed(x.raw) || x.v.phase === 'Failed' || (x.v.phase === 'Pending' && x.v.ageDays > 10 / 1440));
@@ -121,7 +122,7 @@ export function analyseService(namespace: string, pods: any[], now: Date): Servi
     running,
     leftovers,
     failing,
-    state: running.length === 0 && pods.length > 0 ? 'down' : failing.length || notReady.length ? 'degraded' : 'ok',
+    state: running.length === 0 && failing.length > 0 ? 'down' : failing.length || notReady.length ? 'degraded' : 'ok',
   };
 }
 

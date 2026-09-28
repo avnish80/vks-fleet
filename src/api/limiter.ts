@@ -18,7 +18,10 @@ const queue: Waiting[] = [];
 export interface ClusterStats {
   cluster: string;
   requests: number;
+  /** Real failures: server errors, timeouts, network, expired sign-ins. */
   errors: number;
+  /** Expected answers to probes: denied (403) or not installed (404). Not failures. */
+  expected: number;
   totalMs: number;
   slowestMs: number;
   lastError?: string;
@@ -42,12 +45,16 @@ export function limited<T>(cluster: string, fn: () => Promise<T>): Promise<T> {
       total += 1;
       inFlight.set(cluster, (inFlight.get(cluster) ?? 0) + 1);
       const t0 = Date.now();
-      const s = stats.get(cluster) ?? { cluster, requests: 0, errors: 0, totalMs: 0, slowestMs: 0 };
+      const s = stats.get(cluster) ?? { cluster, requests: 0, errors: 0, expected: 0, totalMs: 0, slowestMs: 0 };
       stats.set(cluster, s);
       fn()
         .then(resolve, err => {
-          s.errors += 1;
-          s.lastError = String((err as Error)?.message ?? err).slice(0, 160);
+          const status = (err as { status?: number })?.status;
+          if (status === 403 || status === 404) s.expected += 1;
+          else {
+            s.errors += 1;
+            s.lastError = String((err as Error)?.message ?? err).slice(0, 160);
+          }
           reject(err);
         })
         .finally(() => {

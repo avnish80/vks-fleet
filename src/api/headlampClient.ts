@@ -6,6 +6,7 @@ import { demoClient, demoClusterList, demoModeOn, demoWriter, isDemoContext } fr
 import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
 import { limited } from './limiter';
 import { rememberingGet } from './served';
+import { changeContext, current, stamp } from '../elevation';
 
 /**
  * SupervisorClient backed by Headlamp's API proxy, targeting one Headlamp
@@ -58,10 +59,13 @@ function withDryRun(path: string, dryRun: boolean): string {
 export function headlampWriter(headlampCluster: string): SupervisorWriter {
   if (isDemoContext(headlampCluster)) return demoWriter(headlampCluster);
   return {
-    send(req: WriteRequest, dryRun: boolean): Promise<unknown> {
+    send(original: WriteRequest, dryRun: boolean): Promise<unknown> {
+      // Read by default, elevate to change: while elevated, changes go to the admin context and are stamped.
+      const { context, elevated } = changeContext(headlampCluster);
+      const req = elevated ? stamp(original, current()) : original;
       const params: Record<string, unknown> = {
         method: req.method,
-        cluster: headlampCluster,
+        cluster: context,
         headers: {
           Accept: 'application/json',
           'Content-Type': req.contentType ?? 'application/json',

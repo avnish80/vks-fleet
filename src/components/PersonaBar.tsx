@@ -1,5 +1,6 @@
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
 import { Guard } from './Guard';
+import { ElevationControl } from './Elevation';
 import React, { ReactNode } from 'react';
 import { FleetProvider, useFleetData } from '../fleetContext';
 import { identityLabel } from '../identity';
@@ -35,6 +36,7 @@ export function PersonaBar() {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: colour }} />
+          <ElevationControl />
           {config.demo && (
             <Box
               title="Demo mode (Settings): a fictional fleet; nothing is ever changed"
