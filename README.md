@@ -12,6 +12,27 @@ The same plugin serves every audience. What each person sees and can do is decid
 
 > **Independent project.** vks-fleet is a personal open-source project. It is not a VMware or Broadcom product, and it is not affiliated with, endorsed by or supported by Broadcom. VMware, vSphere, VCF, VKS and related names are trademarks of Broadcom and are used here only to describe what the plugin works with. The plugin uses only publicly documented APIs.
 
+## The pages
+
+The sidebar has eleven entries. Five are hubs with tabs, each keeping what used to be separate pages under one header; every old link still opens the right tab.
+
+| Entry | What's in it |
+|---|---|
+| **VKS fleet** | The fleet page: org cards, overview, clusters, issues |
+| **Supervisor health** | The platform itself: controllers, services, placement, hosts, vCenter's view |
+| **Namespaces** | Per-org namespaces, quotas, VMs, networks; New VM… and New cluster… |
+| **Compute** | Nodes (machines) · VMs |
+| **Network** | VPCs, subnets, load balancers, NSX objects |
+| **Applications** | Apps across clusters, image drift, GitOps |
+| **Observability** | Prometheus charts with change markers, forecasts, alerts, right-sizing, comparisons |
+| **Investigate** | One cluster's timeline with a post-mortem draft, beside the walk-down through its layers |
+| **Security** | Posture · Compliance · Vulnerabilities |
+| **Lifecycle** | Packages · Upgrades |
+| **Capacity & cost** | Capacity · Showback |
+| **Governance** | Baseline · Cleanup · Access |
+
+Search is one keystroke away everywhere: **Ctrl+K**.
+
 ## Ways to run it
 
 - **Operator deployment (recommended):** Headlamp inside a cluster (for example a small management VKS cluster), with the plugin from a ConfigMap, preset settings, and a job that keeps the Supervisor and cluster sign-ins fresh. See [`deploy/README.md`](deploy/README.md).

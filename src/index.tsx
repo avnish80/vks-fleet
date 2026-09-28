@@ -6,21 +6,13 @@ import {
 import React from 'react';
 import { ClusterDetail } from './components/ClusterDetail';
 import { MachineDetail } from './components/MachineDetail';
-import { AccessPage } from './components/AccessPanel';
-import { BaselinePage } from './components/BaselinePage';
-import { CapacityPage } from './components/CapacityPage';
-import { AppsPage, SecurityPage, ShowbackPage } from './components/InsightPages';
-import { CompliancePage } from './components/CompliancePage';
-import { VulnerabilitiesPage } from './components/VulnerabilitiesPage';
+import { AppsPage } from './components/InsightPages';
 import { ObservabilityPage } from './components/ObservabilityPage';
 import { SupervisorHealthPage } from './components/SupervisorHealthPage';
 import { InvestigatePage } from './components/InvestigatePage';
-import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail, VmsPage } from './components/NamespacePages';
-import { CleanupPage } from './components/CleanupPage';
-import { MachinesPage } from './components/MachinesPage';
-import { UpgradePlannerPage } from './components/UpgradePlannerPage';
+import { CapacityHub, ComputeHub, GovernanceHub, LifecycleHub, SecurityHub } from './components/Hubs';
+import { NamespaceDetail, NamespacesPage, NetworkPage, VmDetail } from './components/NamespacePages';
 import { PageFrame } from './components/PersonaBar';
-import { PackagesPage } from './components/PackagesPage';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
@@ -46,32 +38,24 @@ registerSidebarEntry({
 });
 
 for (const child of [
-  { name: 'vks-fleet-search', label: 'Search', url: SEARCH_ROUTE, icon: 'mdi:magnify' },
   { name: 'vks-fleet-supervisor-health', label: 'Supervisor health', url: SUPERVISOR_HEALTH_ROUTE, icon: 'mdi:heart-pulse' },
   { name: 'vks-fleet-namespaces', label: 'Namespaces', url: NAMESPACE_BASE, icon: 'mdi:folder-network-outline' },
-  { name: 'vks-fleet-machines', label: 'Machines', url: MACHINES_PATH, icon: 'mdi:server' },
-  { name: 'vks-fleet-vms', label: 'VMs', url: VM_BASE, icon: 'mdi:monitor' },
+  { name: 'vks-fleet-compute', label: 'Compute', url: MACHINES_PATH, icon: 'mdi:server' },
   { name: 'vks-fleet-network', label: 'Network', url: NETWORK_PATH, icon: 'mdi:lan' },
   { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE, icon: 'mdi:apps' },
   { name: 'vks-fleet-observability', label: 'Observability', url: OBSERVABILITY_ROUTE, icon: 'mdi:chart-timeline-variant' },
   { name: 'vks-fleet-investigate', label: 'Investigate', url: INVESTIGATE_ROUTE, icon: 'mdi:magnify-scan' },
-  { name: 'vks-fleet-packages', label: 'Packages', url: PACKAGES_PATH, icon: 'mdi:package-variant-closed' },
-  { name: 'vks-fleet-upgrades', label: 'Upgrades', url: UPGRADES_PATH, icon: 'mdi:arrow-up-bold-circle-outline' },
-  { name: 'vks-fleet-capacity', label: 'Capacity', url: CAPACITY_PATH, icon: 'mdi:gauge' },
   { name: 'vks-fleet-security', label: 'Security', url: SECURITY_ROUTE, icon: 'mdi:shield-lock-outline' },
-  { name: 'vks-fleet-compliance', label: 'Compliance', url: COMPLIANCE_ROUTE, icon: 'mdi:clipboard-check-outline' },
-  { name: 'vks-fleet-vulns', label: 'Vulnerabilities', url: VULNS_ROUTE, icon: 'mdi:bug-outline' },
-  { name: 'vks-fleet-baseline', label: 'Baseline', url: BASELINE_PATH, icon: 'mdi:ruler-square' },
-  { name: 'vks-fleet-cleanup', label: 'Cleanup', url: CLEANUP_PATH, icon: 'mdi:broom' },
-  { name: 'vks-fleet-access', label: 'Access', url: ACCESS_PATH, icon: 'mdi:account-key-outline' },
-  { name: 'vks-fleet-showback', label: 'Showback', url: SHOWBACK_PATH, icon: 'mdi:cash-multiple' },
+  { name: 'vks-fleet-lifecycle', label: 'Lifecycle', url: PACKAGES_PATH, icon: 'mdi:package-variant-closed' },
+  { name: 'vks-fleet-capacity', label: 'Capacity & cost', url: CAPACITY_PATH, icon: 'mdi:gauge' },
+  { name: 'vks-fleet-governance', label: 'Governance', url: BASELINE_PATH, icon: 'mdi:ruler-square' },
 ]) {
   registerSidebarEntry({ parent: 'vks-fleet', ...child, useClusterURL: false, sidebar: 'HOME' });
 }
 
 registerRoute({
   path: SEARCH_ROUTE,
-  sidebar: { item: 'vks-fleet-search', sidebar: 'HOME' },
+  sidebar: SIDEBAR,
   name: 'vks-fleet-search',
   exact: true,
   useClusterURL: false,
@@ -86,42 +70,22 @@ registerRoute({
 for (const page of [
   { path: NAMESPACE_BASE, name: 'vks-fleet-namespaces', component: () => (<PageFrame><NamespacesPage /></PageFrame>) },
   { path: NAMESPACE_PATH, name: 'vks-fleet-namespace', item: 'vks-fleet-namespaces', component: () => (<PageFrame><NamespaceDetail /></PageFrame>) },
-  { path: VM_BASE, name: 'vks-fleet-vms', component: () => (<PageFrame><VmsPage /></PageFrame>) },
-  { path: VM_PATH, name: 'vks-fleet-vm', item: 'vks-fleet-vms', component: () => (<PageFrame><VmDetail /></PageFrame>) },
+  { path: VM_BASE, name: 'vks-fleet-vms', item: 'vks-fleet-compute', component: () => (<PageFrame><ComputeHub /></PageFrame>) },
+  { path: VM_PATH, name: 'vks-fleet-vm', item: 'vks-fleet-compute', component: () => (<PageFrame><ComputeHub><VmDetail /></ComputeHub></PageFrame>) },
   { path: NETWORK_PATH, name: 'vks-fleet-network', component: () => (<PageFrame><NetworkPage /></PageFrame>) },
   { path: APPS_ROUTE, name: 'vks-fleet-apps', component: () => (<PageFrame><AppsPage /></PageFrame>) },
-  { path: SECURITY_ROUTE, name: 'vks-fleet-security', component: () => (<PageFrame><SecurityPage /></PageFrame>) },
-  { path: COMPLIANCE_ROUTE, name: 'vks-fleet-compliance', component: () => (<PageFrame><CompliancePage /></PageFrame>) },
-  { path: VULNS_ROUTE, name: 'vks-fleet-vulns', component: () => (<PageFrame><VulnerabilitiesPage /></PageFrame>) },
+  { path: SECURITY_ROUTE, name: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
+  { path: COMPLIANCE_ROUTE, name: 'vks-fleet-compliance', item: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
+  { path: VULNS_ROUTE, name: 'vks-fleet-vulns', item: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
   { path: OBSERVABILITY_ROUTE, name: 'vks-fleet-observability', component: () => (<PageFrame><ObservabilityPage /></PageFrame>) },
   { path: SUPERVISOR_HEALTH_ROUTE, name: 'vks-fleet-supervisor-health', component: () => (<PageFrame><SupervisorHealthPage /></PageFrame>) },
   { path: INVESTIGATE_ROUTE, name: 'vks-fleet-investigate', component: () => (<PageFrame><InvestigatePage /></PageFrame>) },
-  { path: SHOWBACK_PATH, name: 'vks-fleet-showback', component: () => (<PageFrame><ShowbackPage /></PageFrame>) },
-  { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', component: () => (
-    <PageFrame>
-      <UpgradePlannerPage />
-    </PageFrame>
-  ) },
-  { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => (
-    <PageFrame>
-      <CapacityPage />
-    </PageFrame>
-  ) },
-  { path: BASELINE_PATH, name: 'vks-fleet-baseline', component: () => (
-    <PageFrame>
-      <BaselinePage />
-    </PageFrame>
-  ) },
-  { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', component: () => (
-    <PageFrame>
-      <CleanupPage />
-    </PageFrame>
-  ) },
-  { path: ACCESS_PATH, name: 'vks-fleet-access', component: () => (
-    <PageFrame>
-      <AccessPage />
-    </PageFrame>
-  ) },
+  { path: SHOWBACK_PATH, name: 'vks-fleet-showback', item: 'vks-fleet-capacity', component: () => (<PageFrame><CapacityHub /></PageFrame>) },
+  { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', item: 'vks-fleet-lifecycle', component: () => (<PageFrame><LifecycleHub /></PageFrame>) },
+  { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => (<PageFrame><CapacityHub /></PageFrame>) },
+  { path: BASELINE_PATH, name: 'vks-fleet-baseline', item: 'vks-fleet-governance', component: () => (<PageFrame><GovernanceHub /></PageFrame>) },
+  { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', item: 'vks-fleet-governance', component: () => (<PageFrame><GovernanceHub /></PageFrame>) },
+  { path: ACCESS_PATH, name: 'vks-fleet-access', item: 'vks-fleet-governance', component: () => (<PageFrame><GovernanceHub /></PageFrame>) },
 ]) {
   registerRoute({
     path: page.path,
@@ -136,28 +100,28 @@ for (const page of [
 
 registerRoute({
   path: MACHINES_PATH,
-  sidebar: { item: 'vks-fleet-machines', sidebar: 'HOME' },
+  sidebar: { item: 'vks-fleet-compute', sidebar: 'HOME' },
   name: 'vks-fleet-machines',
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
   component: () => (
     <PageFrame>
-      <MachinesPage />
+      <ComputeHub />
     </PageFrame>
   ),
 });
 
 registerRoute({
   path: PACKAGES_PATH,
-  sidebar: { item: 'vks-fleet-packages', sidebar: 'HOME' },
+  sidebar: { item: 'vks-fleet-lifecycle', sidebar: 'HOME' },
   name: 'vks-fleet-packages',
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
   component: () => (
     <PageFrame>
-      <PackagesPage />
+      <LifecycleHub />
     </PageFrame>
   ),
 });
@@ -192,14 +156,16 @@ registerRoute({
 
 registerRoute({
   path: MACHINE_PATH,
-  sidebar: SIDEBAR,
+  sidebar: { item: 'vks-fleet-compute', sidebar: 'HOME' },
   name: 'vks-fleet-machine',
   exact: true,
   useClusterURL: false,
   noAuthRequired: true,
   component: () => (
     <PageFrame>
-      <MachineDetail />
+      <ComputeHub>
+        <MachineDetail />
+      </ComputeHub>
     </PageFrame>
   ),
 });
