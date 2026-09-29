@@ -10,7 +10,7 @@ import { HeadlampClusterInfo } from '../contexts';
 import { buildGuest } from './guest';
 import { demoPrometheus, MONITORED } from './prometheus';
 import { answer, notFound, Store } from './router';
-import { buildSupervisor, contextName, DEMO_CLUSTERS, DEMO_PREFIX, DEMO_SUPERVISOR, demoContexts } from './supervisor';
+import { buildSupervisor, contextName, DEMO_CLUSTERS, DEMO_PREFIX, DEMO_SUPERVISOR, demoContexts, demoClusters, demoScale } from './supervisor';
 
 export { DEMO_SUPERVISOR_RAW } from './supervisor';
 
@@ -22,15 +22,16 @@ export const demoModeOn = () => enabled;
 export const isDemoContext = (ctx: string) => ctx === DEMO_SUPERVISOR || ctx.startsWith(`${DEMO_PREFIX}:`);
 export const DEMO_WRITE_REFUSED = 'Demo mode: nothing is changed. Dry runs work; turn demo mode off in Settings to act on real clusters.';
 
-let cache: { at: number; supervisor: Store; guests: Map<string, Store> } | undefined;
+let cache: { at: number; scale: number; supervisor: Store; guests: Map<string, Store> } | undefined;
 
 /** The demo data, rebuilt every 10 minutes so ages and "since last visit" stay plausible. */
 export function demoStores(now: Date = new Date()) {
-  if (!cache || now.getTime() - cache.at > 10 * 60 * 1000 || now.getTime() < cache.at) {
+  if (!cache || cache.scale !== demoScale() || now.getTime() - cache.at > 10 * 60 * 1000 || now.getTime() < cache.at) {
     cache = {
       at: now.getTime(),
+      scale: demoScale(),
       supervisor: buildSupervisor(now),
-      guests: new Map(DEMO_CLUSTERS.map(c => [contextName(c.name), buildGuest(c, now)])),
+      guests: new Map(demoClusters().map(c => [contextName(c.name), buildGuest(c, now)])),
     };
   }
   return cache;

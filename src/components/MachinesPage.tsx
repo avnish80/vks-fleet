@@ -1,8 +1,9 @@
-import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { Loader, SectionBox, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, FormControlLabel, Switch, Typography } from '@mui/material';
 import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { PagedTable } from './scale';
 import { formatDuration } from '../capi/v1beta1';
 import { clusterPath, machinePath } from '../routes';
 import { FleetCluster, MachineInfo } from '../types';
@@ -47,7 +48,8 @@ export function MachinesPage() {
       {shown.length === 0 ? (
         <Typography color="text.secondary">Every machine is running, ready and powered on.</Typography>
       ) : (
-        <SimpleTable
+        <PagedTable
+          filterText={(r: Row) => `${r.nodeName ?? r.name} ${r.cluster.name} ${r.role} ${r.pool ?? ''} ${r.phase}`}
           columns={[
             { label: 'Node', getter: (r: Row) => <Link to={machinePath(r.cluster, r.name)}>{r.nodeName ?? r.name}</Link> },
             { label: 'Cluster', getter: (r: Row) => <Link to={clusterPath(r.cluster)}>{r.cluster.name}</Link> },

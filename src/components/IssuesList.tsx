@@ -250,10 +250,21 @@ export function IssuesList({
   showCluster?: boolean;
   limit?: number;
 }) {
-  const [all, setAll] = React.useState(false);
-  const shown = all ? issues : issues.slice(0, limit);
+  const [count, setCount] = React.useState(limit);
+  const [q, setQ] = React.useState('');
+  const needle = q.trim().toLowerCase();
+  const matching = needle ? issues.filter(i => `${i.title} ${i.clusterName ?? ''} ${i.tenantName ?? ''} ${i.severity}`.toLowerCase().includes(needle)) : issues;
+  const shown = matching.slice(0, count);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      {issues.length > limit && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <TextField size="small" placeholder="Filter issues (title, cluster, org, severity)…" value={q} onChange={e => { setQ(e.target.value); setCount(limit); }} sx={{ width: 360 }} />
+          <Typography variant="caption" color="text.secondary">
+            {matching.length === issues.length ? `${issues.length} issues` : `${matching.length} of ${issues.length}`}
+          </Typography>
+        </Box>
+      )}
       {shown.map(i => (
         <IssueCard
           key={i.id}
@@ -263,10 +274,13 @@ export function IssuesList({
           showCluster={showCluster}
         />
       ))}
-      {issues.length > limit && (
-        <Box>
-          <Button size="small" onClick={() => setAll(!all)}>
-            {all ? 'Show fewer' : `Show all ${issues.length}`}
+      {matching.length > count && (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" onClick={() => setCount(count + limit)}>
+            Show {Math.min(limit, matching.length - count)} more ({matching.length - count} left)
+          </Button>
+          <Button size="small" onClick={() => setCount(matching.length)}>
+            Show all
           </Button>
         </Box>
       )}

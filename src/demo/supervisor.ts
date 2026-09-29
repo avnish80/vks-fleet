@@ -42,6 +42,26 @@ interface DemoCluster {
   stuck?: boolean;
 }
 
+/** The demo fleet's size: the four base clusters, cloned with numbered names beyond that (Settings → demo fleet size). */
+let scale = 4;
+export function setDemoScale(n: number): void {
+  scale = Math.max(4, Math.min(200, Math.round(n) || 4));
+}
+export const demoScale = () => scale;
+/** The base name a clone was made from ("checkout-3" → "checkout"): the special cases key on it. */
+export const baseName = (c: { name: string }) => c.name.replace(/-\d+$/, '');
+
+export function demoClusters(): DemoCluster[] {
+  const out = [...DEMO_CLUSTERS];
+  const hosts = ['10.20.0', '10.20.1', '10.30.0', '10.30.1'];
+  for (let i = DEMO_CLUSTERS.length; i < scale; i++) {
+    const base = DEMO_CLUSTERS[i % DEMO_CLUSTERS.length];
+    const k = Math.floor(i / DEMO_CLUSTERS.length) + 1;
+    out.push({ ...base, name: `${base.name}-${k}`, host: `${hosts[i % 4]}.${100 + i}`, pools: base.pools.map(p => ({ ...p })), stuck: base.stuck && k % 2 === 1 });
+  }
+  return out;
+}
+
 export const DEMO_CLUSTERS: DemoCluster[] = [
   { name: 'payments', ns: 'acme-prod-7kq2p', host: '10.20.0.11', version: 'v1.36.2+vmware.2', cls: 'builtin-generic-v3.7.0', pools: [{ name: 'np-1', replicas: 3, vmClass: 'best-effort-large' }], certDays: 300 },
   { name: 'checkout', ns: 'acme-prod-7kq2p', host: '10.20.0.12', version: 'v1.36.2+vmware.2', cls: 'builtin-generic-v3.7.0', pools: [{ name: 'np-1', replicas: 2, vmClass: 'best-effort-medium' }], certDays: 250, stuck: true },
@@ -65,7 +85,7 @@ export const contextName = (cluster: string) => `${DEMO_PREFIX}:${cluster}`;
 export function demoContexts(): HeadlampClusterInfo[] {
   return [
     { name: DEMO_SUPERVISOR, server: 'https://10.10.0.2:443' },
-    ...DEMO_CLUSTERS.map(c => ({ name: contextName(c.name), server: `https://${c.host}:6443` })),
+    ...demoClusters().map(c => ({ name: contextName(c.name), server: `https://${c.host}:6443` })),
   ];
 }
 
@@ -100,7 +120,7 @@ export function buildSupervisor(now: Date): Store {
     })),
     ...['kube-system', 'default', 'svc-tkg-d7x2k', 'svc-auto-attach-k2m7q', 'svc-cci-ns-p4w9z', 'vmware-system-vks-public'].map(n => ({ metadata: { name: n, labels: {} } })),
   ]);
-  for (const c of DEMO_CLUSTERS) {
+  for (const c of demoClusters()) {
     const machines = machineNames(c);
     add(s, 'cluster.x-k8s.io', 'clusters', [
       {

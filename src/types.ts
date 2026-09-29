@@ -69,6 +69,8 @@ export interface PluginConfig {
   nodeScanBenchmark?: string;
   /** Demo mode: a fictional fleet instead of the configured Supervisors (nothing is ever changed). */
   demo?: boolean;
+  /** Demo fleet size (clusters), to see the pages at scale. */
+  demoScale?: number;
   /** Where the vCenter collector writes its ConfigMap (a context the plugin can read). */
   vcenter?: { context: string; namespace: string; configMap: string };
   /** Read by default, elevate to change (time-boxed, with a reason). */

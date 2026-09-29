@@ -309,7 +309,9 @@ const tone = (v?: number, warn = 80, bad = 90) => (v === undefined ? '' : v > ba
 /** Utilisation of the control-plane VMs and hosts, from vCenter's performance counters, with the last 24 hours. */
 function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metrics?: VcMetrics }) {
   const end = Math.floor(Date.now() / 60000) * 60000;
-  const start = end - 24 * 3600e3;
+  // Fit the window to the history there is: an hour at least, a day at most.
+  const first = Math.min(...(metrics?.history ?? []).map(h => new Date(h.t).getTime()), end);
+  const start = end - Math.min(24 * 3600e3, Math.max(3600e3, (end - first) * 1.1));
   const vms = entities.filter(e => e.kind === 'vm');
   const hosts = entities.filter(e => e.kind === 'host');
   const names = entities.map(e => e.name);
@@ -356,7 +358,7 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
           {samples} sample{samples === 1 ? '' : 's'} so far; the collector adds one every 5 minutes, and the day’s curve builds up over 24 hours.
         </Typography>
       )}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 2 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: 2 }}>
         {charts.map(c => {
           const series = historySeries(metrics, c.who, c.metric);
           return (
@@ -368,7 +370,7 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
                 </Button>
               </Box>
               {series.length ? (
-                <TimeSeriesChart series={series} legend={legend} unit={c.unit} start={start} end={end} warnAbove={c.warn} height={150} />
+                <TimeSeriesChart series={series} legend={legend} unit={c.unit} start={start} end={end} warnAbove={c.warn} height={190} />
               ) : (
                 <Typography variant="body2" color="text.secondary">No history yet: the collector adds a sample every 5 minutes.</Typography>
               )}

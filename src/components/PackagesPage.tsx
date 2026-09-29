@@ -25,6 +25,7 @@ import { BatchActionDialog, BatchItem } from './BatchActionDialog';
 import { ChartStyles, KpiTile, useTone } from './charts';
 import { SignInHelper } from './SignInHelper';
 import { PackageInstallDialog } from './PackageInstallDialog';
+import { ClusterSections, PagedTable } from './scale';
 import { uninstallPlan } from '../packageInstall';
 import { NoClusters } from './EmptyState';
 
@@ -149,57 +150,79 @@ export function PackagesPage() {
         )}
       </SectionBox>
 
-      {columns.map(c => {
-        const cp = all.find(x => x.clusterKey === c.key)!;
-        const list = rows.filter(r => r.cluster.key === c.key);
-        return (
-          <SectionBox key={c.key} title={`${c.name}: installed`}>
-            {cp.error ? (
-              <Typography color="text.secondary">Couldn't read packages: {cp.error}</Typography>
-            ) : (
-              <SimpleTable
-                columns={[
-                  { label: 'Package', getter: (r: Row) => <Link to={pkgiPath(r.contextName, r)}>{shortPackage(r.refName)}</Link> },
-                  { label: 'Version', getter: (r: Row) => r.version ?? '—' },
-                  {
-                    label: 'Status',
-                    getter: (r: Row) => (r.paused ? <StatusLabel status="warning">Paused</StatusLabel> : <PackageStateLabel state={r.state} />),
-                  },
-                  { label: 'Managed by', getter: (r: Row) => (r.managedByVks ? 'VKS' : 'You') },
-                  {
-                    label: 'Update',
-                    getter: (r: Row) =>
-                      writable(r) ? <UpdateCell row={r} onPlan={p => setPlan({ plan: p, contextName: r.contextName })} /> : r.update ?? '—',
-                  },
-                  {
-                    label: 'Actions',
-                    getter: (r: Row) =>
-                      writable(r) ? (
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Button size="small" onClick={() => setPlan({ plan: packagePausePlan(c.name, r, !r.paused), contextName: r.contextName })}>
-                            {r.paused ? 'Resume' : 'Pause'}
-                          </Button>
-                          {!r.paused && (
-                            <Button size="small" onClick={() => setPlan({ plan: packageKickPlan(c.name, r), contextName: r.contextName })}>
-                              Reconcile now
-                            </Button>
-                          )}
-                          <Button size="small" color="error" onClick={() => setPlan({ plan: uninstallPlan(c.name, r), contextName: r.contextName })}>
-                            Remove…
-                          </Button>
-                        </Box>
-                      ) : (
-                        '—'
-                      ),
-                  },
-                  { label: 'Message', getter: (r: Row) => (r.state === 'failed' ? r.message ?? '—' : r.syncPeriod ? `sync every ${r.syncPeriod}` : '—') },
-                ]}
-                data={list}
-              />
-            )}
-          </SectionBox>
-        );
-      })}
+      <SectionBox title={`Installed, by cluster (${columns.length})`}>
+        <ClusterSections
+          openFirst={columns.length <= 3}
+          sections={columns.map(c => {
+            const cp = all.find(x => x.clusterKey === c.key)!;
+            const list = rows.filter(r => r.cluster.key === c.key);
+            const bad = list.filter(r => failing.includes(r)).length;
+            const upd = list.filter(r => updates.includes(r)).length;
+            const drift = list.filter(r => drifting.some(d => d.refName === r.refName && d.versions.get(c.key) !== undefined && d.versions.get(c.key) !== d.newest)).length;
+            const table = (limit?: number) =>
+              cp.error ? (
+                <Typography color="text.secondary">Couldn't read packages: {cp.error}</Typography>
+              ) : (
+                  <SimpleTable
+                    columns={[
+                      { label: 'Package', getter: (r: Row) => <Link to={pkgiPath(r.contextName, r)}>{shortPackage(r.refName)}</Link> },
+                      { label: 'Version', getter: (r: Row) => r.version ?? '—' },
+                      {
+                        label: 'Status',
+                        getter: (r: Row) => (r.paused ? <StatusLabel status="warning">Paused</StatusLabel> : <PackageStateLabel state={r.state} />),
+                      },
+                      { label: 'Managed by', getter: (r: Row) => (r.managedByVks ? 'VKS' : 'You') },
+                      {
+                        label: 'Update',
+                        getter: (r: Row) =>
+                          writable(r) ? <UpdateCell row={r} onPlan={p => setPlan({ plan: p, contextName: r.contextName })} /> : r.update ?? '—',
+                      },
+                      {
+                        label: 'Actions',
+                        getter: (r: Row) =>
+                          writable(r) ? (
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              <Button size="small" onClick={() => setPlan({ plan: packagePausePlan(c.name, r, !r.paused), contextName: r.contextName })}>
+                                {r.paused ? 'Resume' : 'Pause'}
+                              </Button>
+                              {!r.paused && (
+                                <Button size="small" onClick={() => setPlan({ plan: packageKickPlan(c.name, r), contextName: r.contextName })}>
+                                  Reconcile now
+                                </Button>
+                              )}
+                              <Button size="small" color="error" onClick={() => setPlan({ plan: uninstallPlan(c.name, r), contextName: r.contextName })}>
+                                Remove…
+                              </Button>
+                            </Box>
+                          ) : (
+                            '—'
+                          ),
+                      },
+                      { label: 'Message', getter: (r: Row) => (r.state === 'failed' ? r.message ?? '—' : r.syncPeriod ? `sync every ${r.syncPeriod}` : '—') },
+                    ]}
+                    data={limit ? list.slice(0, limit) : list}
+                  />
+              );
+            return {
+              key: c.key,
+              title: c.name,
+              subtitle: `${list.length} packages`,
+              weight: bad * 10 + drift * 3 + upd,
+              count: list.length,
+              chips: (
+                <>
+                  {bad > 0 && <StatusLabel status="error">{`${bad} failing`}</StatusLabel>}
+                  {drift > 0 && <StatusLabel status="warning">{`${drift} drifting`}</StatusLabel>}
+                  {upd > 0 && <StatusLabel status="">{`${upd} updates`}</StatusLabel>}
+                  {!bad && !drift && !upd && <StatusLabel status="success">up to date</StatusLabel>}
+                </>
+              ),
+              renderPreview: (limit: number) => table(limit),
+              renderAll: () => table(),
+            };
+          })}
+        />
+      </SectionBox>
 
       {columns.length > 0 && (
         <SectionBox title="Versions across the fleet">
@@ -294,7 +317,8 @@ export function PackagesPage() {
 
       {repos.length > 0 && (
         <SectionBox title="Package repositories">
-          <SimpleTable
+          <PagedTable
+            filterText={(r: (typeof repos)[number]) => `${r.cluster} ${r.namespace}/${r.name} ${r.state}`}
             columns={[
               { label: 'Cluster', getter: (r: (typeof repos)[number]) => r.cluster },
               { label: 'Repository', getter: (r: (typeof repos)[number]) => `${r.namespace}/${r.name}` },

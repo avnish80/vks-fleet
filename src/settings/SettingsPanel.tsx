@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Checkbox, FormControlLabel, Paper, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, FormControlLabel, Paper, TextField, Typography, MenuItem } from '@mui/material';
 import { MAX_PER_CLUSTER, MAX_TOTAL, requestStats } from '../api/limiter';
 import React from 'react';
 import {
@@ -233,6 +233,23 @@ export function SettingsPanel() {
       {raw.demo === true && (
         <Alert severity="info" sx={{ mb: 1 }}>
           Demo mode is on: every page shows the fictional fleet. Your Supervisor settings are kept and come back when you turn it off.
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              select
+              size="small"
+              label="Demo fleet size"
+              value={Number(raw.demoScale) || 4}
+              onChange={e => settingsStore.update({ demoScale: Number(e.target.value) })}
+              sx={{ minWidth: 220 }}
+              helperText="More clusters, cloned from the four with numbered names, to see every page at scale."
+            >
+              {[4, 12, 20, 50].map(n => (
+                <MenuItem key={n} value={n}>
+                  {n} clusters
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
         </Alert>
       )}
       <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>

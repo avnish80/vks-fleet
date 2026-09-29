@@ -17,6 +17,7 @@ import { NoClusters } from './EmptyState';
 import { SignInHelper } from './SignInHelper';
 import { IsolationSection } from './IsolationSection';
 import { NodeScanDialog } from './NodeScanDialog';
+import { ClusterSections, PagedTable } from './scale';
 import { BenchTest, isForeignBenchmark, latest, mergeNodeScan, NodeScanRun } from '../nodeScan';
 import { useNodeScans } from '../useNodeScans';
 import { removeSilence, SilenceDialog } from './SilenceDialog';
@@ -29,6 +30,15 @@ const STATUS: Record<ControlStatus, { text: string; status: 'success' | 'warning
   'node-scan': { text: 'Needs node scan', status: '' },
 };
 const OWNER: Record<ControlResult['owner'], string> = { vks: 'VKS', you: 'Cluster owner', shared: 'Shared' };
+
+interface FleetFailing {
+  id: string;
+  title: string;
+  owner: ControlResult['owner'];
+  remediation: string;
+  clusters: string[];
+}
+const ORDER: Record<ControlStatus, number> = { fail: 0, review: 1, pass: 2, na: 3 } as any;
 
 export function CompliancePage() {
   const { config, results, canWrite } = useFleetData();
@@ -64,6 +74,17 @@ export function CompliancePage() {
   const baselines = store.baselines ?? {};
   const keep = (r: ControlResult) =>
     (owner === 'all' || (owner === 'you' ? r.owner !== 'vks' : r.owner !== 'you')) && r.level <= level && (!onlyFailing || r.status === 'fail');
+  const fleetFailing: FleetFailing[] = (() => {
+    const m = new Map<string, FleetFailing>();
+    for (const s of list)
+      for (const r of s.compliance)
+        if (r.status === 'fail' && !isWaived(silences, s.clusterKey, r.id)) {
+          const cur = m.get(r.id) ?? { id: r.id, title: r.title, owner: r.owner, remediation: r.remediation, clusters: [] };
+          cur.clusters.push(s.clusterName);
+          m.set(r.id, cur);
+        }
+    return Array.from(m.values()).sort((a, b) => b.clusters.length - a.clusters.length || a.id.localeCompare(b.id));
+  })();
   const effective = (s: ClusterScan) => s.compliance.map(r => (r.status === 'fail' && isWaived(silences, s.clusterKey, r.id) ? { ...r, status: 'pass' as ControlStatus } : r));
   const fleet = scoreResults(list.flatMap(s => effective(s).filter(r => r.level <= level)));
   const failing = list.reduce((n, s) => n + s.compliance.filter(r => r.status === 'fail' && !isWaived(silences, s.clusterKey, r.id)).length, 0);
@@ -180,50 +201,36 @@ export function CompliancePage() {
         </SectionBox>
       )}
 
-      {list.map(s => {
-        const drift = complianceDrift(baselines[s.clusterKey], s.compliance);
-        const rows = s.compliance.filter(keep);
-        const sc = scoreResults(effective(s));
-        return (
-          <Box key={s.clusterKey} id={encodeURIComponent(s.clusterKey)} sx={{ scrollMarginTop: 72 }}>
-            <SectionBox
-              title={`${s.clusterName}: ${sc.scored ? `${sc.pct}%` : 'not scored'} (${sc.scored} of ${sc.total} checks scored)`}
-              headerProps={{
-                actions: [
-                  ...(clusterOf.get(s.clusterKey) && canWrite(clusterOf.get(s.clusterKey)!.supervisorId)
-                    ? [
-                        <Button key="scan" size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName })}>
-                          Run node scan…
-                        </Button>,
-                      ]
-                    : []),
-                  <Button key="base" size="small" onClick={() => complianceStore.update({ baselines: { ...baselines, [s.clusterKey]: snapshot(s.compliance) } })}>
-                    {baselines[s.clusterKey] ? 'Save as new baseline' : 'Save as baseline'}
-                  </Button>,
-                ],
-              }}
-            >
-              {s.errors.length > 0 && (
-                <Alert severity="info" sx={{ mb: 1 }}>
-                  Partly checked: {s.errors.slice(0, 3).join('; ')}
-                </Alert>
-              )}
-              {baselines[s.clusterKey] ? (
-                drift.length ? (
-                  <Alert severity={drift.some(d => d.worse) ? 'warning' : 'success'} sx={{ mb: 1 }}>
-                    Since the baseline of {new Date(baselines[s.clusterKey].at).toLocaleString()}:{' '}
-                    {drift.map(d => `${d.id} ${d.from} → ${d.to}`).join('; ')}
-                  </Alert>
-                ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    No change since the baseline of {new Date(baselines[s.clusterKey].at).toLocaleString()}.
-                  </Typography>
-                )
-              ) : (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Save a baseline to be told when a control changes (drift).
-                </Typography>
-              )}
+      {list.length > 1 && fleetFailing.length > 0 && (
+        <SectionBox title="Failing across the fleet">
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            A control that fails in most clusters is one problem to fix once (a template, a package default, a policy), not one per cluster.
+          </Typography>
+          <PagedTable
+            pageSize={10}
+            filterText={(r: FleetFailing) => `${r.id} ${r.title} ${r.owner}`}
+            columns={[
+              { label: 'Failing in', getter: (r: FleetFailing) => <StatusLabel status={r.clusters.length > list.length / 2 ? 'error' : 'warning'}>{`${r.clusters.length} of ${list.length}`}</StatusLabel> },
+              { label: 'Control', getter: (r: FleetFailing) => <><b>{r.id}</b> {r.title}</> },
+              { label: 'Owner', getter: (r: FleetFailing) => OWNER[r.owner] },
+              { label: 'Clusters', getter: (r: FleetFailing) => <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{r.clusters.join(', ')}</Typography> },
+              { label: 'Remediation', getter: (r: FleetFailing) => r.remediation },
+            ]}
+            data={fleetFailing}
+          />
+        </SectionBox>
+      )}
+
+      <SectionBox title={`By cluster (${list.length})`}>
+        <ClusterSections
+          openFirst={list.length <= 3}
+          sections={list.map(s => {
+            const drift = complianceDrift(baselines[s.clusterKey], s.compliance);
+            const rows = [...s.compliance.filter(keep)].sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+            const sc = scoreResults(effective(s));
+            const fails = s.compliance.filter(r => r.status === 'fail' && !isWaived(silences, s.clusterKey, r.id)).length;
+            const review = s.compliance.filter(r => r.status === 'review').length;
+            const table = (limit?: number) => (
               <SimpleTable
                 columns={[
                   {
@@ -255,17 +262,68 @@ export function CompliancePage() {
                     },
                   },
                 ]}
-                data={rows}
+                data={limit ? rows.slice(0, limit) : rows}
               />
-              <NodeScanResults
-                runs={nodeScans.get(s.clusterKey) ?? []}
-                showAll={!!showAllTests[s.clusterKey]}
-                toggle={() => setShowAllTests({ ...showAllTests, [s.clusterKey]: !showAllTests[s.clusterKey] })}
-              />
-            </SectionBox>
-          </Box>
-        );
-      })}
+            );
+            return {
+              key: s.clusterKey,
+              title: s.clusterName,
+              subtitle: sc.scored ? `${sc.pct}% (${sc.scored} of ${sc.total} scored)` : 'not scored',
+              weight: fails * 10 + review,
+              count: rows.length,
+              chips: (
+                <>
+                  <StatusLabel status={fails ? 'error' : 'success'}>{`${fails} failing`}</StatusLabel>
+                  {review > 0 && <StatusLabel status="warning">{`${review} to review`}</StatusLabel>}
+                  {drift.some(d => d.worse) && <StatusLabel status="warning">drift</StatusLabel>}
+                </>
+              ),
+              renderPreview: (limit: number) => (
+                <Box id={encodeURIComponent(s.clusterKey)} sx={{ scrollMarginTop: 72 }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                    {clusterOf.get(s.clusterKey) && canWrite(clusterOf.get(s.clusterKey)!.supervisorId) && (
+                      <Button size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName })}>
+                        Run node scan…
+                      </Button>
+                    )}
+                    <Button size="small" onClick={() => complianceStore.update({ baselines: { ...baselines, [s.clusterKey]: snapshot(s.compliance) } })}>
+                      {baselines[s.clusterKey] ? 'Save as new baseline' : 'Save as baseline'}
+                    </Button>
+                  </Box>
+                  {s.errors.length > 0 && (
+                    <Alert severity="info" sx={{ mb: 1 }}>
+                      Partly checked: {s.errors.slice(0, 3).join('; ')}
+                    </Alert>
+                  )}
+                  {baselines[s.clusterKey] ? (
+                    drift.length ? (
+                      <Alert severity={drift.some(d => d.worse) ? 'warning' : 'success'} sx={{ mb: 1 }}>
+                        Since the baseline of {new Date(baselines[s.clusterKey].at).toLocaleString()}:{' '}
+                        {drift.map(d => `${d.id} ${d.from} → ${d.to}`).join('; ')}
+                      </Alert>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        No change since the baseline of {new Date(baselines[s.clusterKey].at).toLocaleString()}.
+                      </Typography>
+                    )
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Save a baseline to be told when a control changes (drift).
+                    </Typography>
+                  )}
+                  {table(limit)}
+                  <NodeScanResults
+                    runs={nodeScans.get(s.clusterKey) ?? []}
+                    showAll={!!showAllTests[s.clusterKey]}
+                    toggle={() => setShowAllTests({ ...showAllTests, [s.clusterKey]: !showAllTests[s.clusterKey] })}
+                  />
+                </Box>
+              ),
+              renderAll: () => table(),
+            };
+          })}
+        />
+      </SectionBox>
 
       {(scanner ?? []).some(r => r.compliance.length) && (
         <SectionBox title="Trivy Operator compliance reports">

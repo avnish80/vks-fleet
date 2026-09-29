@@ -2,6 +2,7 @@ import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-
 import { Alert, Box, Button, FormControlLabel, Switch, TextField, Typography } from '@mui/material';
 import React, { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { PagedTable } from './scale';
 import { vmPowerPlan, vmRestartPlan, vmSnapshotPlan, ActionPlan } from '../actions';
 import { supervisorWriter } from '../api/headlampClient';
 import { formatDuration } from '../capi/v1beta1';
@@ -66,8 +67,9 @@ export function NamespacesPage() {
       {Array.from(byOrg.entries())
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([org, list]) => (
-          <SectionBox key={org} title={`${org}: namespaces`}>
-            <SimpleTable
+          <SectionBox key={org} title={`${org}: namespaces (${list.length})`}>
+            <PagedTable
+              filterText={(n: NsRow) => n.name}
               columns={[
                 { label: 'Namespace', getter: (n: NsRow) => <Link to={namespacePath(n.r.supervisor.id, n.name)}>{n.name}</Link> },
                 { label: 'Clusters', getter: (n: NsRow) => n.clusters.length },

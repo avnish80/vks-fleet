@@ -4,7 +4,7 @@
  * reports and a saved kube-bench run, each cluster with its own problems.
  */
 import { add, Store } from './router';
-import { DEMO_CLUSTERS, machineNames } from './supervisor';
+import { DEMO_CLUSTERS, machineNames, baseName } from './supervisor';
 
 type C = (typeof DEMO_CLUSTERS)[number];
 
@@ -49,7 +49,7 @@ export function buildGuest(c: C, now: Date): Store {
   const machines = machineNames(c);
   const cp = machines.find(m => m.cp)!;
   const workers = machines.filter(m => !m.cp);
-  const apps = APPS[c.name] ?? [];
+  const apps = APPS[baseName(c)] ?? [];
 
   // Nodes, with each kubelet's live configuration.
   add(
@@ -74,7 +74,7 @@ export function buildGuest(c: C, now: Date): Store {
         authorization: { mode: 'Webhook' },
         readOnlyPort: 0,
         rotateCertificates: true,
-        protectKernelDefaults: c.name === 'payments',
+        protectKernelDefaults: baseName(c) === 'payments',
       },
     });
   }
@@ -84,8 +84,8 @@ export function buildGuest(c: C, now: Date): Store {
   add(s, '', 'namespaces', [
     ...['kube-system', 'default', 'kube-public', 'vmware-system-tkg', 'tkg-system', 'tanzu-system-monitoring'].map(n => ({ metadata: { name: n, labels: {} } })),
     ...appNs.filter(n => n !== 'default').map(n => ({ metadata: { name: n, labels: PSA[n] ? { 'pod-security.kubernetes.io/enforce': PSA[n] } : {} } })),
-    ...(c.name === 'payments' ? [{ metadata: { name: 'vks-fleet', labels: {} } }] : []),
-    ...(c.name === 'payments' ? [{ metadata: { name: 'vks-fleet-scan', labels: { 'pod-security.kubernetes.io/enforce': 'privileged', 'app.kubernetes.io/managed-by': 'vks-fleet' } } }] : []),
+    ...(baseName(c) === 'payments' ? [{ metadata: { name: 'vks-fleet', labels: {} } }] : []),
+    ...(baseName(c) === 'payments' ? [{ metadata: { name: 'vks-fleet-scan', labels: { 'pod-security.kubernetes.io/enforce': 'privileged', 'app.kubernetes.io/managed-by': 'vks-fleet' } } }] : []),
   ]);
 
   // Control-plane static pods (flags readable through the API) and the CNI on every node.
@@ -185,40 +185,40 @@ export function buildGuest(c: C, now: Date): Store {
   add(s, '', 'services', [
     { metadata: { namespace: 'kube-system', name: 'kube-dns' }, spec: { type: 'ClusterIP', clusterIP: '10.96.0.10', ports: [{ port: 53 }] } },
     // The VKS Prometheus package (not on sandbox, to show "Enable monitoring").
-    ...(c.name === 'sandbox'
+    ...(baseName(c) === 'sandbox'
       ? []
       : ['prometheus-server', 'alertmanager', 'prometheus-node-exporter', 'prometheus-kube-state-metrics'].map(n => ({
           metadata: { namespace: 'tanzu-system-monitoring', name: n },
           spec: { type: 'ClusterIP', ports: [{ name: 'http', port: n.includes('exporter') ? 9100 : n.includes('state') ? 8080 : 80 }] },
         }))),
-    ...(c.name === 'payments' ? [{ metadata: { namespace: 'payments', name: 'api' }, spec: { type: 'LoadBalancer', ports: [{ port: 443 }], selector: { app: 'api' } }, status: { loadBalancer: { ingress: [{ ip: '198.51.100.70' }] } } }] : []),
+    ...(baseName(c) === 'payments' ? [{ metadata: { namespace: 'payments', name: 'api' }, spec: { type: 'LoadBalancer', ports: [{ port: 443 }], selector: { app: 'api' } }, status: { loadBalancer: { ingress: [{ ip: '198.51.100.70' }] } } }] : []),
   ]);
-  add(s, '', 'persistentvolumeclaims', c.name === 'analytics' ? [0, 1, 2].map(i => ({ metadata: { namespace: 'streaming', name: `data-kafka-${i}` }, spec: { storageClassName: 'vsan-default-storage-policy' }, status: { phase: 'Bound', capacity: { storage: '50Gi' } } })) : []);
+  add(s, '', 'persistentvolumeclaims', baseName(c) === 'analytics' ? [0, 1, 2].map(i => ({ metadata: { namespace: 'streaming', name: `data-kafka-${i}` }, spec: { storageClassName: 'vsan-default-storage-policy' }, status: { phase: 'Bound', capacity: { storage: '50Gi' } } })) : []);
   add(
     s,
     'policy',
     'poddisruptionbudgets',
-    c.name === 'checkout' ? [{ metadata: { namespace: 'shop', name: 'cart' }, spec: { minAvailable: 2, selector: { matchLabels: { app: 'cart' } } }, status: { currentHealthy: 1, desiredHealthy: 2, disruptionsAllowed: 0, expectedPods: 2 } }] : []
+    baseName(c) === 'checkout' ? [{ metadata: { namespace: 'shop', name: 'cart' }, spec: { minAvailable: 2, selector: { matchLabels: { app: 'cart' } } }, status: { currentHealthy: 1, desiredHealthy: 2, disruptionsAllowed: 0, expectedPods: 2 } }] : []
   );
   add(
     s,
     'networking.k8s.io',
     'networkpolicies',
-    c.name === 'payments' ? ['payments'].map(ns => ({ metadata: { namespace: ns, name: 'default-deny' }, spec: { podSelector: {}, policyTypes: ['Ingress', 'Egress'] } })) : []
+    baseName(c) === 'payments' ? ['payments'].map(ns => ({ metadata: { namespace: ns, name: 'default-deny' }, spec: { podSelector: {}, policyTypes: ['Ingress', 'Egress'] } })) : []
   );
-  add(s, '', 'events', c.name === 'checkout' ? [{ metadata: { namespace: 'shop', name: 'cart.1' }, type: 'Warning', reason: 'BackOff', message: 'Back-off restarting failed container cart', involvedObject: { kind: 'Pod', namespace: 'shop', name: pods.find(p => p.metadata.namespace === 'shop' && p.status.containerStatuses[0].state.waiting)?.metadata.name }, count: 41, lastTimestamp: iso(0.1) }] : []);
+  add(s, '', 'events', baseName(c) === 'checkout' ? [{ metadata: { namespace: 'shop', name: 'cart.1' }, type: 'Warning', reason: 'BackOff', message: 'Back-off restarting failed container cart', involvedObject: { kind: 'Pod', namespace: 'shop', name: pods.find(p => p.metadata.namespace === 'shop' && p.status.containerStatuses[0].state.waiting)?.metadata.name }, count: 41, lastTimestamp: iso(0.1) }] : []);
   add(s, 'storage.k8s.io', 'storageclasses', [
-    { metadata: { name: 'vsan-default-storage-policy', annotations: c.name === 'sandbox' ? {} : { 'storageclass.kubernetes.io/is-default-class': 'true' } }, provisioner: 'csi.vsphere.vmware.com' },
+    { metadata: { name: 'vsan-default-storage-policy', annotations: baseName(c) === 'sandbox' ? {} : { 'storageclass.kubernetes.io/is-default-class': 'true' } }, provisioner: 'csi.vsphere.vmware.com' },
     { metadata: { name: 'vsan-default-storage-policy-latebinding' }, provisioner: 'csi.vsphere.vmware.com', volumeBindingMode: 'WaitForFirstConsumer' },
   ]);
   add(s, '', 'serviceaccounts', appNs.map(ns => ({ metadata: { namespace: ns, name: 'default' }, ...(ns === 'payments' ? { automountServiceAccountToken: false } : {}) })));
-  add(s, '', 'resourcequotas', c.name === 'payments' ? [{ metadata: { namespace: 'payments', name: 'compute' }, spec: {}, status: {} }] : []);
+  add(s, '', 'resourcequotas', baseName(c) === 'payments' ? [{ metadata: { namespace: 'payments', name: 'compute' }, spec: {}, status: {} }] : []);
   add(s, '', 'limitranges', []);
   add(s, '', 'configmaps', []);
   add(s, 'rbac.authorization.k8s.io', 'clusterroles', [{ metadata: { name: 'cluster-admin' }, rules: [{ apiGroups: ['*'], resources: ['*'], verbs: ['*'] }] }, { metadata: { name: 'view' }, rules: [{ apiGroups: [''], resources: ['pods'], verbs: ['get', 'list'] }] }]);
   add(s, 'rbac.authorization.k8s.io', 'clusterrolebindings', [
     { metadata: { name: 'cluster-admin' }, roleRef: { kind: 'ClusterRole', name: 'cluster-admin' }, subjects: [{ kind: 'Group', name: 'system:masters' }] },
-    ...(c.name === 'checkout' ? [{ metadata: { name: 'dev-admin' }, roleRef: { kind: 'ClusterRole', name: 'cluster-admin' }, subjects: [{ kind: 'User', name: 'dev@acme.example' }] }] : []),
+    ...(baseName(c) === 'checkout' ? [{ metadata: { name: 'dev-admin' }, roleRef: { kind: 'ClusterRole', name: 'cluster-admin' }, subjects: [{ kind: 'User', name: 'dev@acme.example' }] }] : []),
   ]);
 
   // Packages (Carvel)
@@ -229,9 +229,9 @@ export function buildGuest(c: C, now: Date): Store {
   });
   add(s, 'packaging.carvel.dev', 'packageinstalls', [
     pkgi('vmware-system-tkg', `${c.name}-antrea`, 'antrea.tanzu.vmware.com', '2.3.0+vmware.1-tkg.1'),
-    pkgi('tkg-system', 'cert-manager', 'cert-manager.tanzu.vmware.com', c.name === 'sandbox' ? '1.15.3+vmware.1-tkg.1' : '1.16.1+vmware.1-tkg.1'),
-    ...(c.name === 'checkout' ? [pkgi('tkg-system', 'fluent-bit', 'fluent-bit.tanzu.vmware.com', '3.1.9+vmware.1-tkg.1', { failed: 'kapp: Error: waiting on reconcile daemonset/fluent-bit: timed out' })] : []),
-    ...(c.name === 'analytics' ? [pkgi('tkg-system', 'contour', 'contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1')] : []),
+    pkgi('tkg-system', 'cert-manager', 'cert-manager.tanzu.vmware.com', baseName(c) === 'sandbox' ? '1.15.3+vmware.1-tkg.1' : '1.16.1+vmware.1-tkg.1'),
+    ...(baseName(c) === 'checkout' ? [pkgi('tkg-system', 'fluent-bit', 'fluent-bit.tanzu.vmware.com', '3.1.9+vmware.1-tkg.1', { failed: 'kapp: Error: waiting on reconcile daemonset/fluent-bit: timed out' })] : []),
+    ...(baseName(c) === 'analytics' ? [pkgi('tkg-system', 'contour', 'contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1')] : []),
   ]);
   add(s, 'packaging.carvel.dev', 'packagerepositories', [{ metadata: { namespace: 'tkg-system', name: 'vks-standard-packages' }, spec: { fetch: { imgpkgBundle: { image: `${VKS_IMAGE.replace('/vks-addons', '')}/repo:v3.7.0` } } }, status: { conditions: [{ type: 'ReconcileSucceeded', status: 'True' }] } }]);
   // The repository's catalog: versions with their values schemas, and descriptions.
@@ -316,8 +316,8 @@ export function buildGuest(c: C, now: Date): Store {
   add(s, 'metrics.k8s.io', 'pods', pods.filter(p => !p.metadata.namespace.startsWith('kube')).map(p => ({ metadata: { namespace: p.metadata.namespace, name: p.metadata.name }, containers: [{ name: 'c', usage: { cpu: '120m', memory: '300Mi' } }] })));
 
   // Backups (Velero) on the acme production clusters.
-  if (c.name === 'payments' || c.name === 'checkout') {
-    const ok = c.name === 'payments';
+  if (baseName(c) === 'payments' || baseName(c) === 'checkout') {
+    const ok = baseName(c) === 'payments';
     add(
       s,
       'velero.io',
@@ -332,7 +332,7 @@ export function buildGuest(c: C, now: Date): Store {
   }
 
   // Trivy Operator reports (production clusters).
-  if (c.name === 'payments' || c.name === 'checkout') {
+  if (baseName(c) === 'payments' || baseName(c) === 'checkout') {
     const vr = (ns: string, name: string, server: string, repo: string, tag: string, crit: number, high: number, fixed: boolean) => ({
       metadata: { namespace: ns, name: `${name}-${suffixOf(name, 1)}`, labels: { 'trivy-operator.resource.kind': 'Deployment', 'trivy-operator.resource.name': name, 'trivy-operator.container.name': name } },
       report: {
@@ -345,18 +345,18 @@ export function buildGuest(c: C, now: Date): Store {
         ],
       },
     });
-    const own = c.name === 'payments' ? [vr('payments', 'api', 'registry.acme.example', 'payments/api', '2.14.1', 0, 2, true)] : [vr('shop', 'cart', 'registry.acme.example', 'shop/cart', '1.9.0', 3, 9, true), vr('shop', 'api', 'registry.acme.example', 'payments/api', '2.13.0', 1, 6, true)];
+    const own = baseName(c) === 'payments' ? [vr('payments', 'api', 'registry.acme.example', 'payments/api', '2.14.1', 0, 2, true)] : [vr('shop', 'cart', 'registry.acme.example', 'shop/cart', '1.9.0', 3, 9, true), vr('shop', 'api', 'registry.acme.example', 'payments/api', '2.13.0', 1, 6, true)];
     add(s, 'aquasecurity.github.io', 'vulnerabilityreports', [...own, { ...vr('kube-system', 'antrea-agent', 'projects.packages.broadcom.com', 'vsphere/supervisor/vks-standard-packages/3.7.0-20260618/vks-addons', '', 21, 60, true) }]);
     add(s, 'aquasecurity.github.io', 'configauditreports', [
       { metadata: { namespace: apps[0].ns, labels: { 'trivy-operator.resource.kind': 'Deployment', 'trivy-operator.resource.name': apps[0].name } }, report: { checks: [{ checkID: 'KSV011', title: 'CPU not limited', severity: 'LOW', success: false }] } },
     ]);
     add(s, 'aquasecurity.github.io', 'exposedsecretreports', []);
     add(s, 'aquasecurity.github.io', 'clustercompliancereports', [
-      { metadata: { name: 'k8s-cis-1.23' }, spec: { compliance: { id: 'k8s-cis-1.23', title: 'CIS Kubernetes Benchmarks v1.23' } }, status: { summary: { passCount: c.name === 'payments' ? 104 : 91, failCount: c.name === 'payments' ? 11 : 24 }, summaryReport: { controlCheck: [{ id: '5.2.2', name: 'Minimize the admission of privileged containers', severity: 'HIGH', totalFail: c.name === 'payments' ? 0 : 1 }] } } },
+      { metadata: { name: 'k8s-cis-1.23' }, spec: { compliance: { id: 'k8s-cis-1.23', title: 'CIS Kubernetes Benchmarks v1.23' } }, status: { summary: { passCount: baseName(c) === 'payments' ? 104 : 91, failCount: baseName(c) === 'payments' ? 11 : 24 }, summaryReport: { controlCheck: [{ id: '5.2.2', name: 'Minimize the admission of privileged containers', severity: 'HIGH', totalFail: baseName(c) === 'payments' ? 0 : 1 }] } } },
     ]);
   }
   // Kyverno results on analytics.
-  if (c.name === 'analytics') {
+  if (baseName(c) === 'analytics') {
     add(s, 'wgpolicyk8s.io', 'policyreports', [
       {
         metadata: { namespace: 'ml', name: 'pol-notebook' },
@@ -372,7 +372,7 @@ export function buildGuest(c: C, now: Date): Store {
     add(s, 'wgpolicyk8s.io', 'clusterpolicyreports', []);
   }
   // The vCenter collector's latest status, kept in payments (demo settings point at it).
-  if (c.name === 'payments') {
+  if (baseName(c) === 'payments') {
     const status = {
       collectedAt: iso(0.04),
       vcenter: 'vc-demo.example',
@@ -418,7 +418,7 @@ export function buildGuest(c: C, now: Date): Store {
     add(s, '', 'configmaps', [{ metadata: { namespace: 'vks-fleet', name: 'vks-fleet-vcenter' }, data: { 'status.json': JSON.stringify(status) } }]);
   }
   // A saved kube-bench run on payments.
-  if (c.name === 'payments') {
+  if (baseName(c) === 'payments') {
     const t = (id: string, desc: string, status: string, remediation?: string) => ({ id, desc, status, remediation });
     const runs = [
       { at: iso(20), target: 'control-plane', node: cp.name, benchmark: 'cis-1.10', tests: [t('1.1.1', 'API server pod specification file permissions are 600 or more restrictive', 'PASS'), t('1.1.12', 'etcd data directory ownership is etcd:etcd', 'PASS'), t('1.2.1', '--anonymous-auth is false', 'WARN', 'Review anonymous access')] },

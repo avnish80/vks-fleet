@@ -2,6 +2,7 @@ import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { ClusterSections, PagedTable } from './scale';
 import { AppGroup, ClusterScan, GitOpsApp, groupApps, NamespacePosture, SECURITY_KIND_LABEL, SecurityFinding, SecurityKind } from '../clusterScan';
 import { headlampWriter } from '../api/headlampClient';
 import { defaultDenyPlan, podSecurityPlan } from '../guestActions';
@@ -357,14 +358,20 @@ export function SecurityPage() {
         </SectionBox>
       )}
 
-      {scans.map(s => {
-        const c = byCluster.get(s.clusterKey);
-        const writeOk = !!c && canWrite(c.supervisorId);
-        const list = [...s.security].sort(
-          (a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity)
-        );
-        return (
-          <SectionBox key={s.clusterKey} title={s.clusterName}>
+      <SectionBox title={`By cluster (${scans.length})`}>
+        <ClusterSections
+          openFirst={scans.length <= 3}
+          sections={scans.map(s => {
+            const c = byCluster.get(s.clusterKey);
+            const writeOk = !!c && canWrite(c.supervisorId);
+            const list = [...s.security].sort(
+              (a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity)
+            );
+            const critical = list.filter(f => f.severity === 'critical' && !accepted(s, f)).length;
+            const warnings = list.filter(f => f.severity === 'warning' && !accepted(s, f)).length;
+            const unlabelled = s.namespaces.filter(n => !n.enforce && !n.warn).length;
+            const body = (limit?: number) => (
+              <>
             {s.errors.length > 0 && (
               <Alert severity="info" sx={{ mb: 1 }}>
                 Partly checked: {s.errors.slice(0, 3).join('; ')}
@@ -413,13 +420,15 @@ export function SecurityPage() {
                     },
                   },
                 ]}
-                data={list}
+                data={limit ? list.slice(0, limit) : list}
               />
             )}
             {s.namespaces.length > 0 && (
               <Box sx={{ mt: 2 }}>
                 <Typography sx={{ fontWeight: 600, mb: 1 }}>Namespaces</Typography>
-                <SimpleTable
+                <PagedTable
+                  pageSize={limit ?? 25}
+                  filterText={(n: NamespacePosture) => `${n.name} ${n.enforce ?? ''} ${n.exposed.join(' ')}`}
                   columns={[
                     { label: 'Namespace', getter: (n: NamespacePosture) => n.name },
                     {
@@ -475,9 +484,27 @@ export function SecurityPage() {
                 Best-practice checks for {c.name}
               </Button>
             )}
-          </SectionBox>
-        );
-      })}
+              </>
+            );
+            return {
+              key: s.clusterKey,
+              title: s.clusterName,
+              weight: critical * 10 + warnings,
+              count: list.length + s.namespaces.length,
+              chips: (
+                <>
+                  {critical > 0 && <StatusLabel status="error">{`${critical} critical`}</StatusLabel>}
+                  {warnings > 0 && <StatusLabel status="warning">{`${warnings} warnings`}</StatusLabel>}
+                  {unlabelled > 0 && <StatusLabel status="warning">{`${unlabelled} namespaces without Pod Security`}</StatusLabel>}
+                  {!critical && !warnings && !unlabelled && <StatusLabel status="success">clean</StatusLabel>}
+                </>
+              ),
+              renderPreview: (limit: number) => body(limit),
+              renderAll: () => body(),
+            };
+          })}
+        />
+      </SectionBox>
 
       {silencing && <SilenceDialog match={{ issueId: silencing.issueId }} label={silencing.label} onClose={() => setSilencing(null)} />}
       {posture && (
