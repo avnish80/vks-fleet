@@ -24,9 +24,33 @@ export interface VcSupervisor {
   alarms: Array<{ entity: string; name: string; status: string; time?: string; acknowledged?: boolean }>;
 }
 
+export interface VcEntity {
+  kind: 'vm' | 'host';
+  name: string;
+  supervisor: string;
+  cpuPct?: number;
+  memPct?: number;
+  diskKBps?: number;
+  netKBps?: number;
+  disks?: Array<{ path: string; capacityBytes: number; freeBytes: number }>;
+}
+
+/** One history sample: per entity [cpu %, memory %, disk KB/s, network KB/s, fullest disk %]. */
+export interface VcSample {
+  t: string;
+  v: Record<string, Array<number | null>>;
+}
+
+export interface VcMetrics {
+  sampledAt: string;
+  entities: VcEntity[];
+  history: VcSample[];
+}
+
 export interface VcenterStatus {
   collectedAt: string;
   vcenter?: string;
+  metrics?: VcMetrics;
   supervisors: VcSupervisor[];
   errors: string[];
   notes?: string[];
@@ -150,3 +174,103 @@ export function vcenterIssues(v: VcSupervisor, supervisorId: string, supervisorN
 
 export const vcHostOk = hostOk;
 export const vcServiceOk = okService;
+
+/* ---------------- Utilisation ---------------- */
+
+export const METRIC_INDEX = { cpuPct: 0, memPct: 1, diskKBps: 2, netKBps: 3, diskFullPct: 4 } as const;
+
+/** Entities (control-plane VMs, hosts) of one Supervisor. */
+export function entitiesFor(m: VcMetrics | undefined, supervisorId: string): VcEntity[] {
+  return (m?.entities ?? []).filter(e => e.supervisor === supervisorId);
+}
+
+/** Chart series from the history: one per entity, for one metric. */
+export function historySeries(m: VcMetrics | undefined, names: string[], metric: keyof typeof METRIC_INDEX): Array<{ labels: Record<string, string>; points: Array<[number, number]> }> {
+  const idx = METRIC_INDEX[metric];
+  return names
+    .map(name => ({
+      labels: { name },
+      points: (m?.history ?? [])
+        .map(h => [new Date(h.t).getTime(), h.v[name]?.[idx]] as [number, number | null | undefined])
+        .filter((p): p is [number, number] => typeof p[1] === 'number'),
+    }))
+    .filter(s => s.points.length);
+}
+
+/** The fullest disk of an entity, now. */
+export const fullestDisk = (e: VcEntity) => {
+  const disks = (e.disks ?? []).filter(d => d.capacityBytes > 0);
+  if (!disks.length) return undefined;
+  return disks.map(d => ({ path: d.path, pct: 100 * (1 - d.freeBytes / d.capacityBytes) })).sort((a, b) => b.pct - a.pct)[0];
+};
+
+/** Seconds until a disk is full, from the trend of its fullness over the history (at least an hour of it). */
+export function diskForecast(m: VcMetrics | undefined, name: string): number | undefined {
+  const pts = historySeries(m, [name], 'diskFullPct')[0]?.points ?? [];
+  if (pts.length < 4 || pts[pts.length - 1][0] - pts[0][0] < 3600e3) return undefined;
+  const n = pts.length;
+  const mx = pts.reduce((a, p) => a + p[0], 0) / n;
+  const my = pts.reduce((a, p) => a + p[1], 0) / n;
+  const slope = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / (pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0) || 1); // % per ms
+  if (slope <= 0) return undefined;
+  const last = pts[n - 1];
+  return Math.max(0, ((100 - last[1]) / slope) / 1000);
+}
+
+/** Points off the health score for hot or full control-plane VMs and hosts. */
+export function utilisationPenalty(entities: VcEntity[]): number {
+  let p = 0;
+  for (const e of entities) {
+    if (e.kind === 'vm') {
+      const d = fullestDisk(e)?.pct ?? 0;
+      if (d > 90) p += 20;
+      else if (d > 80) p += 10;
+      if ((e.memPct ?? 0) > 90) p += 10;
+    } else if ((e.cpuPct ?? 0) > 90 || (e.memPct ?? 0) > 90) p += 5;
+  }
+  return Math.min(35, p);
+}
+
+export function utilisationIssues(entities: VcEntity[], m: VcMetrics | undefined, supervisorId: string, supervisorName: string, now: Date = new Date()): Issue[] {
+  const base = {
+    supervisorId,
+    affected: { clusters: [], tenants: [], nodes: [], pods: [] },
+    links: [],
+    findingIds: [],
+    detectedAt: now.toISOString(),
+    primary: { label: 'Supervisor health', path: '/vks-fleet/supervisor-health' },
+  };
+  const out: Issue[] = [];
+  for (const e of entities.filter(x => x.kind === 'vm')) {
+    const d = fullestDisk(e);
+    const eta = diskForecast(m, e.name);
+    if (d && (d.pct > 80 || (eta !== undefined && eta < 7 * 86400))) {
+      out.push({
+        ...base,
+        id: `${supervisorId}#cpvm-disk#${e.name}`,
+        severity: d.pct > 90 || (eta !== undefined && eta < 2 * 86400) ? 'critical' : 'warning',
+        title: `${e.name} disk ${d.path} is ${d.pct.toFixed(0)}% full${eta !== undefined ? ` (full in about ${eta < 86400 ? `${Math.round(eta / 3600)} h` : `${Math.round(eta / 86400)} days`})` : ''}`,
+        cause: 'The Supervisor control-plane VM holds etcd and the API server; a full disk stops the whole Supervisor.',
+        evidence: (e.disks ?? []).map(x => `${x.path}: ${(100 * (1 - x.freeBytes / x.capacityBytes)).toFixed(0)}% of ${(x.capacityBytes / 2 ** 30).toFixed(0)} GiB`),
+        fix: 'Check for log or image growth on the control-plane VM with VMware support guidance; do not resize it by hand.',
+      });
+    }
+    if ((e.memPct ?? 0) > 90) {
+      out.push({ ...base, id: `${supervisorId}#cpvm-mem#${e.name}`, severity: 'warning', title: `${e.name} memory is ${e.memPct!.toFixed(0)}% used`, cause: 'The control-plane VM is close to its memory; the API server and controllers slow down or restart under pressure.', evidence: [], fix: 'Look at what grew (objects, namespaces, clusters); the Supervisor’s control-plane size (small, medium, large) is set in Workload Management.' });
+    }
+  }
+  const hot = entities.filter(x => x.kind === 'host' && ((x.cpuPct ?? 0) > 90 || (x.memPct ?? 0) > 90));
+  if (hot.length) {
+    out.push({
+      ...base,
+      id: `${supervisorId}#hosts-hot`,
+      severity: 'warning',
+      title: `${hot.length} ESXi host${hot.length === 1 ? '' : 's'} above 90% on ${supervisorName}: ${hot.map(h => h.name).join(', ')}`,
+      cause: 'Hosts this busy cannot absorb a failover, and VMs on them (cluster nodes among them) compete for resources.',
+      evidence: hot.map(h => `${h.name}: CPU ${h.cpuPct ?? '?'}%, memory ${h.memPct ?? '?'}%`),
+      fix: 'Spread VMs across hosts (DRS, or the Supervisor service placement), or add capacity.',
+    });
+  }
+  return out;
+}
+

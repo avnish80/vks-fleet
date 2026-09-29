@@ -8,7 +8,9 @@ import { BacklogRow, healthTone, LeaseInfo, leftoverCleanupPlan, responsiveness,
 import { SupervisorResult } from '../types';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { matchSupervisor, STALE_MINUTES, vcenterPenalty, VcenterRead, vcHostOk, VcSupervisor, vcServiceOk } from '../vcenterStatus';
+import { diskForecast, entitiesFor, fullestDisk, historySeries, matchSupervisor, STALE_MINUTES, utilisationPenalty, vcenterPenalty, VcenterRead, VcEntity, vcHostOk, VcMetrics, VcSupervisor, vcServiceOk } from '../vcenterStatus';
+import { TimeSeriesChart } from './TimeSeriesChart';
+import { humanDuration } from '../observability';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
 
@@ -42,7 +44,8 @@ export function SupervisorHealthPage() {
 }
 
 function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; vcRead?: VcenterRead | null; canClean: boolean; onClean: () => void }) {
-  const score = Math.max(0, h.score - (vc ? vcenterPenalty(vc) : 0));
+  const entities = vc ? entitiesFor(vcRead?.status?.metrics, vc.id) : [];
+  const score = Math.max(0, h.score - (vc ? vcenterPenalty(vc) + utilisationPenalty(entities) : 0));
   const cps = h.nodes.filter(n => n.role === 'control-plane');
   const hosts = h.nodes.filter(n => n.role === 'host');
   const leftovers = h.services.reduce((n, s) => n + s.leftovers.length, 0);
@@ -70,6 +73,7 @@ function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: 
       </SectionBox>
 
       <VcenterSection vc={vc} read={vcRead} />
+      {vc && entities.length > 0 && <UtilisationSection entities={entities} metrics={vcRead?.status?.metrics} />}
 
       <SectionBox title="Controllers">
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -287,6 +291,71 @@ function VcenterSection({ vc, read }: { vc?: VcSupervisor; read?: VcenterRead | 
             </Typography>
           )}
         </Box>
+      </Box>
+    </SectionBox>
+  );
+}
+
+const pct = (v?: number) => (v === undefined ? '—' : `${v.toFixed(0)}%`);
+const tone = (v?: number, warn = 80, bad = 90) => (v === undefined ? '' : v > bad ? 'error' : v > warn ? 'warning' : 'success');
+
+/** Utilisation of the control-plane VMs and hosts, from vCenter's performance counters, with the last 24 hours. */
+function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metrics?: VcMetrics }) {
+  const end = Math.floor(Date.now() / 60000) * 60000;
+  const start = end - 24 * 3600e3;
+  const vms = entities.filter(e => e.kind === 'vm');
+  const hosts = entities.filter(e => e.kind === 'host');
+  const names = entities.map(e => e.name);
+  const legend = (l: Record<string, string>) => l.name.replace(/\.site-a\.vcf\.lab$|\.[a-z0-9-]+\.[a-z]+$/, '');
+  const charts: Array<{ title: string; metric: 'cpuPct' | 'memPct' | 'diskFullPct' | 'netKBps'; unit: 'percent' | 'rate'; who: string[]; warn?: number }> = [
+    { title: 'CPU', metric: 'cpuPct', unit: 'percent', who: names, warn: 90 },
+    { title: 'Memory', metric: 'memPct', unit: 'percent', who: names, warn: 90 },
+    { title: 'Control-plane VM disk (fullest)', metric: 'diskFullPct', unit: 'percent', who: vms.map(v => v.name), warn: 80 },
+    { title: 'Network (KB/s)', metric: 'netKBps', unit: 'rate', who: names },
+  ];
+  return (
+    <SectionBox title="Utilisation (vCenter)">
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        From vCenter's performance counters, sampled every 5 minutes by the collector, with the last 24 hours kept. The control-plane
+        VM holds etcd and the API server: its disk and memory matter most.
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 1.5, mb: 2 }}>
+        {[...vms, ...hosts].map(e => {
+          const d = fullestDisk(e);
+          const eta = e.kind === 'vm' ? diskForecast(metrics, e.name) : undefined;
+          return (
+            <Box key={e.name} sx={{ p: 1.25, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {e.kind === 'vm' ? 'Control plane' : 'Host'}
+              </Typography>
+              <Typography sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{legend({ name: e.name })}</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.75 }}>
+                <StatusLabel status={tone(e.cpuPct)}>{`CPU ${pct(e.cpuPct)}`}</StatusLabel>
+                <StatusLabel status={tone(e.memPct)}>{`Mem ${pct(e.memPct)}`}</StatusLabel>
+                {d && (
+                  <span title={`${d.path}${eta !== undefined ? `; full in about ${humanDuration(eta)} at this rate` : ''}`}>
+                    <StatusLabel status={tone(d.pct, 80, 90)}>{`Disk ${pct(d.pct)}${eta !== undefined && eta < 7 * 86400 ? ` · full in ${humanDuration(eta)}` : ''}`}</StatusLabel>
+                  </span>
+                )}
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 2 }}>
+        {charts.map(c => {
+          const series = historySeries(metrics, c.who, c.metric);
+          return (
+            <Box key={c.title} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}>{c.title}</Typography>
+              {series.length ? (
+                <TimeSeriesChart series={series} legend={legend} unit={c.unit} start={start} end={end} warnAbove={c.warn} height={150} />
+              ) : (
+                <Typography variant="body2" color="text.secondary">No history yet: the collector adds a sample every 5 minutes.</Typography>
+              )}
+            </Box>
+          );
+        })}
       </Box>
     </SectionBox>
   );

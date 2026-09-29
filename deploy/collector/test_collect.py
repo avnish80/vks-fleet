@@ -87,3 +87,17 @@ class CollectorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryTest(unittest.TestCase):
+    def test_rolling_history_keeps_a_day(self):
+        now = datetime.datetime(2026, 9, 28, 12, 0, tzinfo=datetime.timezone.utc)
+        old = [{"t": "2026-09-27T11:00:00Z", "v": {}}, {"t": "2026-09-27T13:00:00Z", "v": {"cp": [10, 20, 5, 6, 40.0]}}]
+        entities = [
+            {"kind": "vm", "name": "cp", "cpuPct": 31.4, "memPct": 62.0, "diskKBps": 120, "netKBps": 80, "disks": [{"path": "/", "capacityBytes": 100, "freeBytes": 25}, {"path": "/var/lib/etcd", "capacityBytes": 100, "freeBytes": 70}]},
+            {"kind": "host", "name": "esx-05a", "cpuPct": 44.0, "memPct": 71.5},
+        ]
+        h = collect.merge_history(old, entities, now)
+        self.assertEqual([x["t"] for x in h], ["2026-09-27T13:00:00Z", "2026-09-28T12:00:00Z"], "older than 24 h dropped, newest appended")
+        self.assertEqual(h[-1]["v"]["cp"], [31.4, 62.0, 120, 80, 75.0], "worst disk fullness is the last value")
+        self.assertEqual(h[-1]["v"]["esx-05a"], [44.0, 71.5, None, None, None])

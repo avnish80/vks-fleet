@@ -11,7 +11,11 @@ connection (the browser never talks to vCenter or holds its credentials):
   - its Supervisor Services (version and state);
   - the ESXi hosts of its cluster (connection, power);
   - optionally, triggered alarms on the cluster, its hosts and the
-    control-plane VMs (needs the pyvmomi library; skipped without it).
+    control-plane VMs (needs the pyvmomi library; skipped without it);
+  - optionally (pyvmomi too), utilisation of the control-plane VMs and hosts:
+    CPU, memory, disk and network from vCenter's performance counters, and
+    the control-plane VM's guest disks (VMware Tools), with a rolling 24-hour
+    history kept in the ConfigMap itself.
 
 Standard library only for the REST part. Runs as a CronJob every few minutes
 (deploy/collector.yaml) or from a jump server's timer.
@@ -151,21 +155,25 @@ def collect(vc, now=None):
     return out
 
 
-def add_alarms(status, host, username, password, insecure):
-    """Triggered alarms via pyvmomi (not available over REST). Quietly skipped without it."""
+def add_alarms(status, host, username, password, insecure, existing_history=None, now=None):
+    """Triggered alarms and utilisation via pyvmomi (not available over REST). Quietly skipped without it."""
     if os.environ.get("ALARMS", "").lower() == "false":
         return
     try:
         from pyVim.connect import Disconnect, SmartConnect  # type: ignore
         from pyVmomi import vim  # type: ignore
     except ImportError:
-        status.setdefault("notes", []).append("Alarms not collected (pyvmomi not installed).")
+        status.setdefault("notes", []).append("Alarms and utilisation not collected (pyvmomi not installed).")
         return
     kwargs = {"host": host, "user": username, "pwd": password}
     if insecure:
         kwargs["disableSslCertValidation"] = True
     si = SmartConnect(**kwargs)
     try:
+        try:
+            add_metrics(status, si, vim, existing_history, now or datetime.datetime.now(datetime.timezone.utc))
+        except Exception as err:
+            status["errors"].append(f"metrics: {err}")
         content = si.RetrieveContent()
         for sup in status["supervisors"]:
             view = content.viewManager.CreateContainerView(content.rootFolder, [vim.ClusterComputeResource], True)
@@ -185,6 +193,96 @@ def add_alarms(status, host, username, password, insecure):
                     )
     finally:
         Disconnect(si)
+
+
+HISTORY_HOURS = 24
+METRIC_COUNTERS = {"cpuPct": "cpu.usage.average", "memPct": "mem.usage.average", "diskKBps": "disk.usage.average", "netKBps": "net.usage.average"}
+
+
+def _counter_ids(perf_manager):
+    ids = {}
+    for c in perf_manager.perfCounter:
+        name = f"{c.groupInfo.key}.{c.nameInfo.key}.{c.rollupType}"
+        for key, wanted in METRIC_COUNTERS.items():
+            if name == wanted:
+                ids[key] = c.key
+    return ids
+
+
+def _sample(perf_manager, ids, entity, vim, samples=15):
+    """The average of the latest real-time samples (20 s each) for each metric."""
+    metric_ids = [vim.PerformanceManager.MetricId(counterId=cid, instance="") for cid in ids.values()]
+    spec = vim.PerformanceManager.QuerySpec(entity=entity, metricId=metric_ids, intervalId=20, maxSample=samples)
+    out = {}
+    for result in perf_manager.QueryPerf(querySpec=[spec]) or []:
+        for series in result.value:
+            key = next((k for k, cid in ids.items() if cid == series.id.counterId), None)
+            vals = [v for v in series.value if v is not None and v >= 0]
+            if key and vals:
+                avg = sum(vals) / len(vals)
+                out[key] = round(avg / 100, 1) if key.endswith("Pct") else round(avg)
+    return out
+
+
+def _guest_disks(vm):
+    disks = []
+    for d in getattr(vm.guest, "disk", None) or []:
+        if d.capacity:
+            disks.append({"path": d.diskPath, "capacityBytes": int(d.capacity), "freeBytes": int(d.freeSpace or 0)})
+    return disks
+
+
+def merge_history(existing, entities, now, hours=HISTORY_HOURS):
+    """Append this run's sample to the rolling history and drop what's older than the window."""
+    cutoff = (now - datetime.timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    history = [h for h in (existing or []) if h.get("t", "") >= cutoff]
+    sample = {"t": iso(now), "v": {}}
+    for e in entities:
+        worst = max((100 * (1 - d["freeBytes"] / d["capacityBytes"]) for d in e.get("disks", []) if d["capacityBytes"]), default=None)
+        sample["v"][e["name"]] = [e.get("cpuPct"), e.get("memPct"), e.get("diskKBps"), e.get("netKBps"), round(worst, 1) if worst is not None else None]
+    history.append(sample)
+    return history
+
+
+def add_metrics(status, si, vim, existing_history, now):
+    """Utilisation of the control-plane VMs and hosts (pyvmomi); the previous history is carried forward."""
+    content = si.RetrieveContent()
+    pm = content.perfManager
+    ids = _counter_ids(pm)
+    entities = []
+    for sup in status["supervisors"]:
+        view = content.viewManager.CreateContainerView(content.rootFolder, [vim.ClusterComputeResource], True)
+        cluster = next((x for x in view.view if x._moId == sup["id"]), None)
+        view.Destroy()
+        if not cluster:
+            continue
+        vm_view = content.viewManager.CreateContainerView(cluster, [vim.VirtualMachine], True)
+        cp_vms = [vm for vm in vm_view.view if vm.name.startswith(CP_VM_PREFIX)]
+        vm_view.Destroy()
+        for vm in cp_vms:
+            e = {"kind": "vm", "name": vm.name, "supervisor": sup["id"], "disks": _guest_disks(vm)}
+            e.update(_sample(pm, ids, vm, vim))
+            entities.append(e)
+        for h in cluster.host:
+            e = {"kind": "host", "name": h.name, "supervisor": sup["id"]}
+            e.update(_sample(pm, ids, h, vim))
+            entities.append(e)
+    status["metrics"] = {"sampledAt": iso(now), "entities": entities, "history": merge_history(existing_history, entities, now)}
+
+
+def read_existing(namespace, name):
+    """The ConfigMap as it is now (for the rolling history); None when there isn't one."""
+    try:
+        if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            cm = in_cluster_request("GET", f"/api/v1/namespaces/{namespace}/configmaps/{name}")
+        elif os.environ.get("KUBE_CONTEXT"):
+            out = subprocess.run(["kubectl", "--context", os.environ["KUBE_CONTEXT"], "-n", namespace, "get", "configmap", name, "-o", "json"], capture_output=True, check=True)
+            cm = json.loads(out.stdout)
+        else:
+            return None
+        return json.loads(cm["data"]["status.json"])
+    except Exception:
+        return None
 
 
 def configmap(status, name):
@@ -243,11 +341,13 @@ def main():
         status = collect(vc)
     finally:
         vc.logout()
+    name = os.environ.get("OUTPUT_CONFIGMAP", "vks-fleet-vcenter")
+    existing = read_existing(namespace, name)
     try:
-        add_alarms(status, host, user, password, insecure)
+        add_alarms(status, host, user, password, insecure, (existing or {}).get("metrics", {}).get("history"))
     except Exception as err:
         status["errors"].append(f"alarms: {err}")
-    write(configmap(status, os.environ.get("OUTPUT_CONFIGMAP", "vks-fleet-vcenter")), namespace)
+    write(configmap(status, name), namespace)
     log(f"{len(status['supervisors'])} Supervisor(s), {len(status['errors'])} error(s)")
 
 

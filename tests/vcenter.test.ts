@@ -68,3 +68,37 @@ describe('on the demo fleet', () => {
     assert.match(missing.error!, /Couldn't read vks-fleet\/vks-fleet-vcenter/);
   });
 });
+
+describe('utilisation of the control-plane VM and hosts', () => {
+  test('series from the history, the fullest disk, and the forecast', async () => {
+    const { diskForecast, fullestDisk, historySeries } = await import('../src/vcenterStatus');
+    const t0 = Date.parse('2026-09-27T00:00:00Z');
+    const history = Array.from({ length: 13 }, (_, i) => ({ t: new Date(t0 + i * 3600e3).toISOString(), v: { cp: [30, 80, 100, 50, 70 + i], 'esx-05a': [40, 60, null, null, null] } }));
+    const m: any = { sampledAt: 't', entities: [], history };
+    assert.equal(historySeries(m, ['cp', 'esx-05a'], 'cpuPct').length, 2);
+    assert.equal(historySeries(m, ['esx-05a'], 'diskFullPct').length, 0, 'hosts have no guest disks');
+    const eta = diskForecast(m, 'cp')!;
+    assert.ok(Math.abs(eta - 18 * 3600) < 60, `1% per hour from 82%: about 18 h, got ${eta}`);
+    assert.equal(diskForecast(m, 'esx-05a'), undefined);
+    assert.deepEqual(fullestDisk({ kind: 'vm', name: 'cp', supervisor: 'x', disks: [{ path: '/', capacityBytes: 100, freeBytes: 60 }, { path: '/var/lib/etcd', capacityBytes: 100, freeBytes: 15 }] }), { path: '/var/lib/etcd', pct: 85 });
+  });
+  test('penalties and issues', async () => {
+    const { utilisationIssues, utilisationPenalty } = await import('../src/vcenterStatus');
+    const vm: any = { kind: 'vm', name: 'SupervisorControlPlaneVM (1)', supervisor: 'x', memPct: 92, disks: [{ path: '/var/lib/etcd', capacityBytes: 100, freeBytes: 8 }] };
+    const host: any = { kind: 'host', name: 'esx-05a', supervisor: 'x', cpuPct: 95, memPct: 50 };
+    assert.equal(utilisationPenalty([vm, host]), 20 + 10 + 5);
+    const titles = utilisationIssues([vm, host], undefined, 'wld', 'wld').map(i => `${i.severity}: ${i.title}`);
+    assert.deepEqual(titles, ['critical: SupervisorControlPlaneVM (1) disk /var/lib/etcd is 92% full', 'warning: SupervisorControlPlaneVM (1) memory is 92% used', 'warning: 1 ESXi host above 90% on wld: esx-05a']);
+    assert.equal(utilisationPenalty([{ kind: 'host', name: 'h', supervisor: 'x', cpuPct: 30, memPct: 40 }]), 0);
+  });
+  test('on the demo Supervisor: the etcd disk forecast', async () => {
+    const { diskForecast, entitiesFor } = await import('../src/vcenterStatus');
+    const NOW = new Date('2026-09-27T10:00:00Z');
+    demoStores(NOW);
+    const read = await fetchVcenterStatus(demoClient(contextName('payments'), { now: NOW, latencyMs: 0 }), 'vks-fleet', 'vks-fleet-vcenter', NOW);
+    const ents = entitiesFor(read.status!.metrics, 'domain-c10');
+    assert.equal(ents.length, 5);
+    const eta = diskForecast(read.status!.metrics, 'SupervisorControlPlaneVM (1)')!;
+    assert.ok(eta > 2 * 86400 && eta < 4 * 86400, `about three days, got ${(eta / 86400).toFixed(1)} days`);
+  });
+});

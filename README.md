@@ -494,6 +494,8 @@ On a shared, in-cluster deployment, per-user sign-in (OIDC) is the stronger end 
 
 These feed the health score and raise issues, including a notice if the collector stops writing.
 
+**Utilisation** (with `pyvmomi`): the collector also samples vCenter's performance counters for the **control-plane VMs and ESXi hosts** every 5 minutes (CPU, memory, disk and network, averaged over the last 5 minutes), and the control-plane VM's **guest disks** through VMware Tools. It keeps **a rolling 24 hours** in the ConfigMap itself, so the Supervisor health page shows current values per VM and host and **charts for the last day**, with no database. The control-plane disk gets a **forecast** ("full in about 3 days"). A control-plane VM with a disk over 80% or memory over 90%, or a host over 90%, takes points off the health score and raises an issue: etcd and the API server live on that VM, and a full disk there stops the whole Supervisor. (The Supervisor's metrics API isn't exposed to administrators, so vCenter is the only source for this.)
+
 **The account:** a vCenter SSO user with the built-in **Read-only** role at the vCenter root (propagated). If the Workload Management calls answer 403, the role also needs the Namespaces *view* privilege.
 
 **Running it in a cluster** (every 5 minutes, next to Headlamp's in-cluster deployment):

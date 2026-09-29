@@ -394,6 +394,26 @@ export function buildGuest(c: C, now: Date): Store {
         },
       ],
       errors: [],
+      // Utilisation: the control-plane VM's etcd disk filling slowly, and esx-01 running hot on memory.
+      metrics: (() => {
+        const names = ['SupervisorControlPlaneVM (1)', 'esx-01.demo.local', 'esx-02.demo.local', 'esx-03.demo.local', 'esx-04.demo.local'];
+        const at = (i: number) => (_n: string, base: number, amp: number, phase: number) => Math.round((base + amp * Math.sin((i / 288) * Math.PI * 4 + phase)) * 10) / 10;
+        const history = Array.from({ length: 288 }, (_, i) => {
+          const f = at(i);
+          const v: Record<string, Array<number | null>> = {};
+          v[names[0]] = [f('cp', 38, 8, 0), f('cp', 84, 3, 1), 120, 90, Math.round((70 + (i / 288) * 8) * 10) / 10];
+          names.slice(1).forEach((n, k) => (v[n] = [f(n, 45 + k * 8, 10, k), f(n, k === 0 ? 92 : 60 + k * 5, 3, k + 2), null, 400 + k * 50, null]));
+          return { t: new Date(now.getTime() - (288 - i) * 5 * 60000).toISOString(), v };
+        });
+        return {
+          sampledAt: iso(0.04),
+          entities: [
+            { kind: 'vm', name: names[0], supervisor: 'domain-c10', cpuPct: 41.2, memPct: 85.0, diskKBps: 120, netKBps: 90, disks: [{ path: '/', capacityBytes: 40 * 2 ** 30, freeBytes: 22 * 2 ** 30 }, { path: '/var/lib/etcd', capacityBytes: 20 * 2 ** 30, freeBytes: 4.4 * 2 ** 30 }] },
+            ...names.slice(1).map((n, k) => ({ kind: 'host', name: n, supervisor: 'domain-c10', cpuPct: 45 + k * 8, memPct: k === 0 ? 92 : 60 + k * 5, netKBps: 400 + k * 50 })),
+          ],
+          history,
+        };
+      })(),
     };
     add(s, '', 'configmaps', [{ metadata: { namespace: 'vks-fleet', name: 'vks-fleet-vcenter' }, data: { 'status.json': JSON.stringify(status) } }]);
   }

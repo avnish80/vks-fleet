@@ -29,7 +29,7 @@ import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { matchSupervisor, STALE_MINUTES, vcenterIssues } from '../vcenterStatus';
+import { entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -188,7 +188,12 @@ export function FleetView() {
                   (all ?? []).length,
                   (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name)
                 );
-                return v ? vcenterIssues(v, r.supervisor.id, r.supervisor.displayName ?? r.supervisor.id) : [];
+                return v
+                  ? [
+                      ...vcenterIssues(v, r.supervisor.id, r.supervisor.displayName ?? r.supervisor.id),
+                      ...utilisationIssues(entitiesFor(vcenter.status!.metrics, v.id), vcenter.status!.metrics, r.supervisor.id, r.supervisor.displayName ?? r.supervisor.id),
+                    ]
+                  : [];
               })
             : []),
           ...(vcenter && (vcenter.error || (vcenter.ageMinutes ?? 0) > STALE_MINUTES) && (all ?? [])[0]
