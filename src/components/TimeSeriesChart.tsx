@@ -159,6 +159,7 @@ export function TimeSeriesChart({
             <g key={i}>
               {fills && pts.length > 1 && <path d={`${line}L${pts[pts.length - 1][0].toFixed(1)},${y(0)}L${pts[0][0].toFixed(1)},${y(0)}Z`} fill={`url(#${uid}-g${i})`} />}
               <path d={line} fill="none" stroke={COLOURS[i]} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              {pts.length === 1 && <circle cx={pts[0][0]} cy={pts[0][1]} r={4} fill={COLOURS[i]} stroke={paper} strokeWidth={1.5} />}
             </g>
           );
         })}

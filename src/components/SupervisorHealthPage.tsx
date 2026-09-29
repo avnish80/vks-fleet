@@ -10,6 +10,7 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, fullestDisk, historySeries, matchSupervisor, STALE_MINUTES, utilisationPenalty, vcenterPenalty, VcenterRead, VcEntity, vcHostOk, VcMetrics, VcSupervisor, vcServiceOk } from '../vcenterStatus';
 import { TimeSeriesChart } from './TimeSeriesChart';
+import { SeriesDetailDialog } from './SeriesDetailDialog';
 import { humanDuration } from '../observability';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
@@ -114,7 +115,14 @@ function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: 
           columns={[
             { label: 'State', getter: (s: ServiceState) => <StatusLabel status={s.state === 'ok' ? 'success' : s.state === 'down' ? 'error' : 'warning'}>{s.state === 'ok' ? 'Running' : s.state === 'down' ? 'Down' : 'Degraded'}</StatusLabel> },
             { label: 'Service', getter: (s: ServiceState) => <b>{s.name}</b> },
-            { label: 'Running on', getter: (s: ServiceState) => s.running.map(p => label(p.host)).join(', ') || (s.state === 'ok' ? 'no long-running pods' : '—') },
+            {
+              label: 'Running on',
+              getter: (s: ServiceState) => {
+                const counts = new Map<string, number>();
+                for (const p of s.running) counts.set(label(p.host), (counts.get(label(p.host)) ?? 0) + 1);
+                return Array.from(counts.entries()).map(([h, n]) => (n > 1 ? `${h} ×${n}` : h)).join(', ') || (s.state === 'ok' ? 'no long-running pods' : '—');
+              },
+            },
             { label: 'Restarts', getter: (s: ServiceState) => s.running.reduce((n, p) => n + p.restarts, 0) },
             {
               label: 'Left behind',
@@ -186,12 +194,11 @@ function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: 
         </SectionBox>
       )}
 
-      <SectionBox title="Not visible from here">
-        <Typography variant="body2" color="text.secondary">
-          The Supervisor's own health checks (/readyz) and metrics (/metrics) aren't exposed through its endpoint, and even an SSO
-          administrator can't read cluster-wide leases or admission webhooks. {vc ? "vCenter's view (above) covers the Supervisor's own status." : ''}
-        </Typography>
-      </SectionBox>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pb: 2 }}>
+        Sources: the Supervisor’s API (controllers, services, placement, backlog, events)
+        {vc ? ' and vCenter through the collector (status, control-plane VMs, hosts, services, alarms, utilisation)' : ''}. The Supervisor’s own
+        /readyz and /metrics aren’t exposed through its endpoint{vc ? '' : '; vCenter’s view needs the collector (Settings)'}.
+      </Typography>
     </>
   );
 }
@@ -307,12 +314,14 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
   const hosts = entities.filter(e => e.kind === 'host');
   const names = entities.map(e => e.name);
   const legend = (l: Record<string, string>) => l.name.replace(/\.site-a\.vcf\.lab$|\.[a-z0-9-]+\.[a-z]+$/, '');
-  const charts: Array<{ title: string; metric: 'cpuPct' | 'memPct' | 'diskFullPct' | 'netKBps'; unit: 'percent' | 'rate'; who: string[]; warn?: number }> = [
-    { title: 'CPU', metric: 'cpuPct', unit: 'percent', who: names, warn: 90 },
-    { title: 'Memory', metric: 'memPct', unit: 'percent', who: names, warn: 90 },
-    { title: 'Control-plane VM disk (fullest)', metric: 'diskFullPct', unit: 'percent', who: vms.map(v => v.name), warn: 80 },
-    { title: 'Network (KB/s)', metric: 'netKBps', unit: 'rate', who: names },
+  const charts: Array<{ title: string; metric: 'cpuPct' | 'memPct' | 'diskFullPct' | 'netKBps'; unit: 'percent' | 'rate'; who: string[]; warn?: number; meaning: string }> = [
+    { title: 'CPU', metric: 'cpuPct', unit: 'percent', who: names, warn: 90, meaning: 'The control-plane VM busy for long means the API server and controllers are under load (many clusters, objects or callers). A host near 90% cannot absorb a failover of another host’s VMs.' },
+    { title: 'Memory', metric: 'memPct', unit: 'percent', who: names, warn: 90, meaning: 'Memory on the control-plane VM is mostly etcd and the API server’s caches, which grow with the number of objects. Sustained use above 90% is when the Supervisor starts to slow down; its size (small, medium, large) is set in Workload Management.' },
+    { title: 'Control-plane VM disk (fullest)', metric: 'diskFullPct', unit: 'percent', who: vms.map(v => v.name), warn: 80, meaning: 'The fullest of the control-plane VM’s volumes. etcd and the API server live on this VM, and a full disk stops the whole Supervisor. Growth is normally logs or images; the forecast says when it runs out at the current rate.' },
+    { title: 'Network (KB/s)', metric: 'netKBps', unit: 'rate', who: names, meaning: 'Traffic through the control-plane VM and the hosts. A sudden jump on the control-plane VM usually means a controller re-listing everything, or many clients (watches) reconnecting.' },
   ];
+  const [detail, setDetail] = React.useState<(typeof charts)[number] | null>(null);
+  const samples = metrics?.history.length ?? 0;
   return (
     <SectionBox title="Utilisation (vCenter)">
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
@@ -342,12 +351,22 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
           );
         })}
       </Box>
+      {samples > 0 && samples < 12 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {samples} sample{samples === 1 ? '' : 's'} so far; the collector adds one every 5 minutes, and the day’s curve builds up over 24 hours.
+        </Typography>
+      )}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 2 }}>
         {charts.map(c => {
           const series = historySeries(metrics, c.who, c.metric);
           return (
-            <Box key={c.title} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: 'divider' }}>
-              <Typography sx={{ fontWeight: 600, mb: 0.5 }}>{c.title}</Typography>
+            <Box key={c.title} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: 'divider', transition: 'box-shadow 150ms', '&:hover': { boxShadow: 3 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
+                <Typography sx={{ fontWeight: 600, flex: 1 }}>{c.title}</Typography>
+                <Button size="small" onClick={() => setDetail(c)} sx={{ minWidth: 0, py: 0 }} title={c.meaning}>
+                  Expand
+                </Button>
+              </Box>
               {series.length ? (
                 <TimeSeriesChart series={series} legend={legend} unit={c.unit} start={start} end={end} warnAbove={c.warn} height={150} />
               ) : (
@@ -357,6 +376,18 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
           );
         })}
       </Box>
+      {detail && (
+        <SeriesDetailDialog
+          title={detail.title}
+          subtitle="Supervisor, from vCenter"
+          series={historySeries(metrics, detail.who, detail.metric)}
+          legend={legend}
+          unit={detail.unit}
+          warnAbove={detail.warn}
+          meaning={detail.meaning}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </SectionBox>
   );
 }
