@@ -27,7 +27,7 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 | **Observability** | Prometheus charts with change markers, forecasts, alerts, right-sizing, comparisons |
 | **Investigate** | One cluster's timeline with a post-mortem draft, beside the walk-down through its layers |
 | **Security** | Posture · Compliance · Vulnerabilities |
-| **Lifecycle** | Packages · Upgrades |
+| **Lifecycle** | Packages · Upgrades · Pre-flight |
 | **Capacity & cost** | Capacity · Showback |
 | **Governance** | Baseline · Cleanup · Access |
 
@@ -449,6 +449,18 @@ Results link to the plugin's cluster and machine pages, or to Headlamp's own pag
 - Supervisor events for the cluster and its machines
 - the raw Cluster object
 
+## Pre-flight: change impact analysis
+
+**Lifecycle → Pre-flight** (or **Pre-flight** on an Upgrade Planner row) answers *what will this change do, and is it safe to start?* before an **upgrade**, a **node pool scale**, or a **pool's VM class change**:
+
+- **The change:** the version path VKS allows, the releases the Supervisor offers, a single control-plane node's brief API gap.
+- **Health gates:** a paused cluster, a rollout already running, a node stuck deleting (a new rollout would queue behind it), Cluster API controllers whose leases stopped renewing, the Supervisor's health.
+- **Capacity while it runs and after:** a rolling update adds one VM per node pool at a time; the namespace's memory overcommit and quota are checked for the peak, and for the new size afterwards.
+- **Blast radius, read from the cluster:** the nodes replaced or removed, the pods, workloads and namespaces that move, **single-replica workloads** with a brief outage, pods with no controller (evicted, not recreated), pinned pods, and **PodDisruptionBudgets** allowing no disruptions (drains wait on them). The control plane is counted apart; its static pods come back with it.
+- **For upgrades:** deprecated APIs still in use that the target removes (from Prometheus), and the packages you manage, to check against the target (VKS's own move with the release).
+
+A verdict (**clear to go**, **go ahead with care**, **stop**) comes with a recommendation. **Continue to the change…** opens the usual action dialog with its dry run for upgrades and scaling, and stays disabled on a stop. A VM class change gives the YAML to set in the Cluster's spec or its GitOps source.
+
 ## Investigate
 
 **Investigate** (sidebar, **Investigate** on any cluster issue, or from a cluster's charts) is one page for one cluster and one window (6 hours, 24 hours or 3 days), with two halves:
@@ -810,6 +822,7 @@ src/
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports
   components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
+  preflight.ts          Change impact analysis: checks, capacity during and after, blast radius, verdict
   explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
   incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft
   vcenterStatus.ts      vCenter's view from the collector: reading, matching, scoring, issues

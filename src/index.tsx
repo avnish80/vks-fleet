@@ -17,7 +17,7 @@ import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
 import { APPS_ROUTE, COMPLIANCE_ROUTE, INVESTIGATE_ROUTE, OBSERVABILITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
-import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
+import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, PREFLIGHT_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
 // The fleet spans clusters, so it lives in Headlamp's home sidebar and its
@@ -82,6 +82,7 @@ for (const page of [
   { path: INVESTIGATE_ROUTE, name: 'vks-fleet-investigate', component: () => (<PageFrame><InvestigatePage /></PageFrame>) },
   { path: SHOWBACK_PATH, name: 'vks-fleet-showback', item: 'vks-fleet-capacity', component: () => (<PageFrame><CapacityHub /></PageFrame>) },
   { path: UPGRADES_PATH, name: 'vks-fleet-upgrades', item: 'vks-fleet-lifecycle', component: () => (<PageFrame><LifecycleHub /></PageFrame>) },
+  { path: PREFLIGHT_PATH, name: 'vks-fleet-preflight', item: 'vks-fleet-lifecycle', component: () => (<PageFrame><LifecycleHub /></PageFrame>) },
   { path: CAPACITY_PATH, name: 'vks-fleet-capacity', component: () => (<PageFrame><CapacityHub /></PageFrame>) },
   { path: BASELINE_PATH, name: 'vks-fleet-baseline', item: 'vks-fleet-governance', component: () => (<PageFrame><GovernanceHub /></PageFrame>) },
   { path: CLEANUP_PATH, name: 'vks-fleet-cleanup', item: 'vks-fleet-governance', component: () => (<PageFrame><GovernanceHub /></PageFrame>) },

@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, COMPLIANCE_ROUTE, MACHINES_PATH, PACKAGES_PATH, SECURITY_ROUTE, SHOWBACK_PATH, UPGRADES_PATH, VM_BASE, VULNS_ROUTE } from '../routes';
+import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, COMPLIANCE_ROUTE, MACHINES_PATH, PACKAGES_PATH, PREFLIGHT_PATH, SECURITY_ROUTE, SHOWBACK_PATH, UPGRADES_PATH, VM_BASE, VULNS_ROUTE } from '../routes';
 import { AccessPage } from './AccessPanel';
 import { BaselinePage } from './BaselinePage';
 import { CapacityPage } from './CapacityPage';
@@ -10,6 +10,7 @@ import { SecurityPage, ShowbackPage } from './InsightPages';
 import { MachinesPage } from './MachinesPage';
 import { VmsPage } from './NamespacePages';
 import { PackagesPage } from './PackagesPage';
+import { PreflightPage } from './PreflightPage';
 import { UpgradePlannerPage } from './UpgradePlannerPage';
 import { VulnerabilitiesPage } from './VulnerabilitiesPage';
 
@@ -43,10 +44,11 @@ export const SecurityHub = ({ children }: { children?: ReactNode }) => (
 export const LifecycleHub = ({ children }: { children?: ReactNode }) => (
   <Hub
     title="Lifecycle"
-    blurb="Packages in every cluster, and Kubernetes upgrades planned in waves."
+    blurb="Packages in every cluster, Kubernetes upgrades planned in waves, and a pre-flight for any change before you start it."
     tabs={[
       { label: 'Packages', path: PACKAGES_PATH, render: () => <PackagesPage /> },
       { label: 'Upgrades', path: UPGRADES_PATH, render: () => <UpgradePlannerPage /> },
+      { label: 'Pre-flight', path: PREFLIGHT_PATH, render: () => <PreflightPage /> },
     ]}
   >
     {children}

@@ -291,6 +291,17 @@ export function UpgradePlannerPage() {
                   >
                     <StatusLabel status={READY[x.ready.level].status}>{`${READY[x.ready.level].text} ›`}</StatusLabel>
                   </Box>
+                  {x.entry.target && (
+                    <Button
+                      size="small"
+                      component={Link}
+                      to={`/vks-fleet/preflight?cluster=${encodeURIComponent(x.c.key)}&kind=upgrade&target=${encodeURIComponent(x.entry.target)}`}
+                      sx={{ ml: 1, py: 0 }}
+                      title="The full pre-flight: which pods move, what would block, capacity while it runs"
+                    >
+                      Pre-flight
+                    </Button>
+                  )}
                   {open === x.c.key && (
                     <Box component="ul" sx={{ m: 0, mt: 1, pl: 2 }}>
                       {x.ready.checks.map(ch => (

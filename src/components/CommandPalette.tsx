@@ -25,6 +25,7 @@ import {
   SECURITY_ROUTE,
   SHOWBACK_PATH,
   UPGRADES_PATH,
+  PREFLIGHT_PATH,
   VM_BASE,
 } from '../routes';
 
@@ -45,6 +46,7 @@ const PAGES: Array<[string, string]> = [
   ['Supervisor health', SUPERVISOR_HEALTH_ROUTE],
   ['Investigate (timeline and walk-down)', INVESTIGATE_ROUTE],
   ['Lifecycle: upgrades', UPGRADES_PATH],
+  ['Lifecycle: pre-flight (change impact)', PREFLIGHT_PATH],
   ['Capacity & cost: capacity', CAPACITY_PATH],
   ['Governance: baseline', BASELINE_PATH],
   ['Governance: cleanup', CLEANUP_PATH],
