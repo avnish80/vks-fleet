@@ -101,3 +101,13 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual([x["t"] for x in h], ["2026-09-27T13:00:00Z", "2026-09-28T12:00:00Z"], "older than 24 h dropped, newest appended")
         self.assertEqual(h[-1]["v"]["cp"], [31.4, 62.0, 120, 80, 75.0], "worst disk fullness is the last value")
         self.assertEqual(h[-1]["v"]["esx-05a"], [44.0, 71.5, None, None, None])
+
+
+class PlacementTest(unittest.TestCase):
+    def test_vm_to_host(self):
+        hosts = {"host-11": "esx-05a.site-a.vcf.lab", "host-12": "esx-06a.site-a.vcf.lab"}
+        triples = [("web-vm-3", "host-12", "poweredOn"), ("SupervisorControlPlaneVM (1)", "host-11", "poweredOn"), ("elsewhere", "host-99", "poweredOn"), ("template", None, "poweredOff")]
+        self.assertEqual(
+            collect.placement_of(triples, hosts),
+            [{"name": "SupervisorControlPlaneVM (1)", "host": "esx-05a.site-a.vcf.lab", "power": "poweredOn"}, {"name": "web-vm-3", "host": "esx-06a.site-a.vcf.lab", "power": "poweredOn"}],
+        )

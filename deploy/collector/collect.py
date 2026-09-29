@@ -15,7 +15,9 @@ connection (the browser never talks to vCenter or holds its credentials):
   - optionally (pyvmomi too), utilisation of the control-plane VMs and hosts:
     CPU, memory, disk and network from vCenter's performance counters, and
     the control-plane VM's guest disks (VMware Tools), with a rolling 24-hour
-    history kept in the ConfigMap itself.
+    history kept in the ConfigMap itself;
+  - optionally (pyvmomi too), placement: which ESXi host each VM in the
+    Supervisor's cluster runs on (VM Operator doesn't always report it).
 
 Standard library only for the REST part. Runs as a CronJob every few minutes
 (deploy/collector.yaml) or from a jump server's timer.
@@ -174,6 +176,10 @@ def add_alarms(status, host, username, password, insecure, existing_history=None
             add_metrics(status, si, vim, existing_history, now or datetime.datetime.now(datetime.timezone.utc))
         except Exception as err:
             status["errors"].append(f"metrics: {err}")
+        try:
+            add_placement(status, si, vim)
+        except Exception as err:
+            status["errors"].append(f"placement: {err}")
         content = si.RetrieveContent()
         for sup in status["supervisors"]:
             view = content.viewManager.CreateContainerView(content.rootFolder, [vim.ClusterComputeResource], True)
@@ -268,6 +274,42 @@ def add_metrics(status, si, vim, existing_history, now):
             e.update(_sample(pm, ids, h, vim))
             entities.append(e)
     status["metrics"] = {"sampledAt": iso(now), "entities": entities, "history": merge_history(existing_history, entities, now)}
+
+
+def placement_of(vms, host_names):
+    """VM name → host, from (name, host moId, power) triples; hosts outside the cluster are dropped."""
+    out = []
+    for name, host_id, power in vms:
+        host = host_names.get(host_id)
+        if host:
+            out.append({"name": name, "host": host, "power": power})
+    return sorted(out, key=lambda x: x["name"])
+
+
+def add_placement(status, si, vim):
+    """Which host each VM in each Supervisor's cluster runs on."""
+    content = si.RetrieveContent()
+    entries = []
+    for sup in status["supervisors"]:
+        view = content.viewManager.CreateContainerView(content.rootFolder, [vim.ClusterComputeResource], True)
+        cluster = next((x for x in view.view if x._moId == sup["id"]), None)
+        view.Destroy()
+        if not cluster:
+            continue
+        host_names = {h._moId: h.name for h in cluster.host}
+        vm_view = content.viewManager.CreateContainerView(cluster, [vim.VirtualMachine], True)
+        triples = []
+        for vm in vm_view.view:
+            try:
+                rt = vm.runtime
+                triples.append((vm.name, rt.host._moId if rt.host else None, str(rt.powerState)))
+            except Exception:
+                continue
+        vm_view.Destroy()
+        for e in placement_of(triples, host_names):
+            e["supervisor"] = sup["id"]
+            entries.append(e)
+    status["placement"] = {"vms": entries}
 
 
 def read_existing(namespace, name):

@@ -47,10 +47,15 @@ export interface VcMetrics {
   history: VcSample[];
 }
 
+export interface VcPlacement {
+  vms: Array<{ name: string; host: string; power?: string; supervisor: string }>;
+}
+
 export interface VcenterStatus {
   collectedAt: string;
   vcenter?: string;
   metrics?: VcMetrics;
+  placement?: VcPlacement;
   supervisors: VcSupervisor[];
   errors: string[];
   notes?: string[];
@@ -272,5 +277,10 @@ export function utilisationIssues(entities: VcEntity[], m: VcMetrics | undefined
     });
   }
   return out;
+}
+
+/** VM name → ESXi host, for one Supervisor (from the collector). */
+export function placementFor(status: VcenterStatus | undefined, supervisorId: string | undefined): Map<string, string> {
+  return new Map((status?.placement?.vms ?? []).filter(v => !supervisorId || v.supervisor === supervisorId).map(v => [v.name, v.host]));
 }
 

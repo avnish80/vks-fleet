@@ -11,6 +11,8 @@ import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, fullestDisk, historySeries, matchSupervisor, STALE_MINUTES, utilisationPenalty, vcenterPenalty, VcenterRead, VcEntity, vcHostOk, VcMetrics, VcSupervisor, vcServiceOk } from '../vcenterStatus';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { SeriesDetailDialog } from './SeriesDetailDialog';
+import { HostsSection } from './HostsSection';
+import { ServiceVm } from '../types';
 import { humanDuration } from '../observability';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
@@ -37,14 +39,14 @@ export function SupervisorHealthPage() {
       {health.map(h => {
         const r = all.find(x => x.supervisor.id === h.supervisorId)!;
         const vc = vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, all.length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
-        return <One key={h.supervisorId} h={h} r={r} vc={vc} vcRead={config.vcenter ? vcenter ?? undefined : null} canClean={canWrite(h.supervisorId)} onClean={() => setCleaning({ h, r })} />;
+        return <One key={h.supervisorId} h={h} r={r} vc={vc} vcRead={config.vcenter ? vcenter ?? undefined : null} vms={inventoryAll?.get(h.supervisorId)?.vms ?? []} canClean={canWrite(h.supervisorId)} onClean={() => setCleaning({ h, r })} />;
       })}
       {cleaning && <ActionDialog plan={leftoverCleanupPlan(cleaning.h)} writer={supervisorWriter(cleaning.r.supervisor)} onClose={() => setCleaning(null)} onApplied={() => refresh()} />}
     </>
   );
 }
 
-function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; vcRead?: VcenterRead | null; canClean: boolean; onClean: () => void }) {
+function One({ h, r, vc, vcRead, vms, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; vcRead?: VcenterRead | null; vms: ServiceVm[]; canClean: boolean; onClean: () => void }) {
   const entities = vc ? entitiesFor(vcRead?.status?.metrics, vc.id) : [];
   const score = Math.max(0, h.score - (vc ? vcenterPenalty(vc) + utilisationPenalty(entities) : 0));
   const cps = h.nodes.filter(n => n.role === 'control-plane');
@@ -73,6 +75,7 @@ function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: 
         )}
       </SectionBox>
 
+      <HostsSection h={h} r={r} vc={vc} status={vcRead?.status} vms={vms} entities={entities} label={label} />
       <VcenterSection vc={vc} read={vcRead} />
       {vc && entities.length > 0 && <UtilisationSection entities={entities} metrics={vcRead?.status?.metrics} />}
 
@@ -140,34 +143,6 @@ function One({ h, r, vc, vcRead, canClean, onClean }: { h: SupervisorHealth; r: 
           ]}
           data={h.services}
         />
-      </SectionBox>
-
-      <SectionBox title="Placement on ESXi hosts">
-        {h.placement.concentrated && (
-          <Alert severity="warning" sx={{ mb: 1.5 }}>
-            Every Supervisor service pod runs on <b>{h.placement.concentrated}</b>, while {h.placement.readyHosts} hosts are Ready: if that
-            host fails, all services stop together. Pods rescheduled after a host problem stay where they landed; restarting one
-            service's pod at a time spreads them.
-          </Alert>
-        )}
-        {hosts.map(n => {
-          const pods = h.placement.byHost.find(x => x.host === n.name)?.pods ?? 0;
-          const max = Math.max(1, ...h.placement.byHost.map(x => x.pods));
-          return (
-            <Box key={n.name} sx={{ display: 'grid', gridTemplateColumns: '220px 1fr 120px', gap: 1, alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="body2">{n.name}</Typography>
-              <Box sx={{ height: 10, bgcolor: 'action.hover', borderRadius: 1, overflow: 'hidden' }}>
-                <Box sx={{ width: `${(pods / max) * 100}%`, height: '100%', bgcolor: n.ready ? 'primary.main' : 'error.main' }} />
-              </Box>
-              <Typography variant="body2" color={n.ready ? 'text.secondary' : 'error'}>
-                {n.ready ? `${pods} service pod${pods === 1 ? '' : 's'}` : 'Not Ready'}
-              </Typography>
-            </Box>
-          );
-        })}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-          Control plane: {cps.map(n => `${n.name} (${n.ready ? 'Ready' : 'NOT Ready'}${n.version ? `, ${n.version}` : ''})`).join(', ') || '—'}
-        </Typography>
       </SectionBox>
 
       <SectionBox title="Reconcile backlog">
@@ -393,4 +368,3 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
     </SectionBox>
   );
 }
-

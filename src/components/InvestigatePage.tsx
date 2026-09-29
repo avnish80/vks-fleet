@@ -12,6 +12,8 @@ import { fleetTimeline } from '../timeline';
 import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useWorkloadHealth } from '../useWorkload';
+import { useVcenterStatus } from '../useVcenterStatus';
+import { matchSupervisor, placementFor } from '../vcenterStatus';
 
 const DOT: Record<IncidentEvent['tone'], string> = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#3b82f6', neutral: '#94a3b8' };
 const SOURCE: Record<IncidentEvent['source'], string> = { change: 'Change', condition: 'Condition', alert: 'Alert', event: 'Event', anomaly: 'Unusual', forecast: 'Forecast', issue: 'Open issue' };
@@ -23,7 +25,8 @@ const STATE_COLOUR: Record<Layer['state'], string> = { ok: '#10b981', warn: '#f5
  * layer under a node is in trouble), with problem nodes picked out.
  */
 export function InvestigatePage() {
-  const { results, all, inventoryAll, limitsAll, persona } = useFleetData();
+  const { results, all, inventoryAll, limitsAll, persona, config } = useFleetData();
+  const vcenter = useVcenterStatus(config);
   const location = useLocation();
   const history = useHistory();
   const q = new URLSearchParams(location.search);
@@ -83,7 +86,10 @@ export function InvestigatePage() {
     issues,
   });
   const md = postMortemMarkdown(inc, { affected: issues.flatMap(i => i.affected.pods.slice(0, 3).map(p => `pod ${p}`)).slice(0, 8) });
-  const patterns = hostPatterns(cluster, wl, inv);
+  const vcSup = vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, (all ?? []).length, h?.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
+  const placed = placementFor(vcenter?.status, vcSup?.id);
+  const hostOf = (name: string) => placed.get(name);
+  const patterns = hostPatterns(cluster, wl, inv, hostOf);
   const nodes = cluster.machines.map(m => m.nodeName ?? m.name);
   const problemNodes = Array.from(new Set([...patterns.flatMap(p => p.problemNodes), ...issues.flatMap(i => i.affected.nodes), ...(wl?.podIssues ?? []).map(p => p.node).filter((n): n is string => !!n), ...cluster.machines.filter(m => m.deletingSince || !m.ready).map(m => m.nodeName ?? m.name)]));
   const node = q.get('node') ?? problemNodes[0];
@@ -100,6 +106,7 @@ export function InvestigatePage() {
         limits: limitsAll.get(cluster.namespace),
         configured: configuredByNamespace(all ?? [], inventoryAll).get(cluster.namespace),
         supervisorScore: h?.score,
+        hostOf,
       })
     : undefined;
   const nodeIn = (text: string) => nodes.find(n => text.includes(n));

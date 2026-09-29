@@ -35,6 +35,8 @@ export interface WalkInput {
   limits?: NamespaceLimits;
   configured?: { memoryBytes: number; vcpu: number };
   supervisorScore?: number;
+  /** VM name → ESXi host, when VM Operator doesn't report it (the vCenter collector's placement). */
+  hostOf?: (vmName: string) => string | undefined;
 }
 
 export function walkDown(i: WalkInput): WalkDown {
@@ -67,12 +69,14 @@ export function walkDown(i: WalkInput): WalkDown {
     layers.push({ layer: 'VM', name: vm.name, state: vm.power && vm.power !== 'PoweredOn' ? 'bad' : vm.ready === false ? 'warn' : 'ok', facts });
   }
   // ESXi host.
-  if (vm?.host) {
-    const h = i.hosts?.find(x => x.name === vm.host);
-    const neighbours = (i.inventory?.vms ?? []).filter(v => v.host === vm.host && v.name !== vm.name);
+  const hostName = vm?.host ?? i.hostOf?.(vm?.name ?? m?.name ?? i.node);
+  if (hostName) {
+    const h = i.hosts?.find(x => x.name === hostName);
+    const where = (v: { name: string; host?: string }) => v.host ?? i.hostOf?.(v.name);
+    const neighbours = (i.inventory?.vms ?? []).filter(v => where(v) === hostName && v.name !== (vm?.name ?? m?.name));
     layers.push({
       layer: 'Host',
-      name: vm.host,
+      name: hostName,
       state: h ? (h.ready ? 'ok' : 'bad') : 'unknown',
       facts: [h ? (h.ready ? 'Ready' : 'NOT Ready (as the Supervisor sees it)') : 'Not in the Supervisor\u2019s node list', `${neighbours.length} other VM${neighbours.length === 1 ? '' : 's'} on this host`],
     });
@@ -104,12 +108,13 @@ export interface HostPattern {
 }
 
 /** Problem nodes concentrated on one ESXi host (two or more, and most of them). */
-export function hostPatterns(cluster: FleetCluster, workload: WorkloadHealth | undefined, inventory: Inventory | undefined): HostPattern[] {
+export function hostPatterns(cluster: FleetCluster, workload: WorkloadHealth | undefined, inventory: Inventory | undefined, hostOfVm?: (vmName: string) => string | undefined): HostPattern[] {
   const problemNodes = new Set<string>([...(workload?.podIssues ?? []).map(p => p.node).filter((n): n is string => !!n), ...(workload?.sandboxFailures ?? []).map(s => s.node)]);
   for (const m of cluster.machines) if (m.deletingSince || !m.ready) problemNodes.add(m.nodeName ?? m.name);
   const hostOf = (node: string) => {
     const m = cluster.machines.find(x => x.nodeName === node || x.name === node);
-    return (inventory?.vms ?? []).find(v => v.name === (m?.name ?? node) && v.namespace === cluster.namespace)?.host;
+    const name = m?.name ?? node;
+    return (inventory?.vms ?? []).find(v => v.name === name && v.namespace === cluster.namespace)?.host ?? hostOfVm?.(name);
   };
   const byHost = new Map<string, string[]>();
   for (const n of problemNodes) {

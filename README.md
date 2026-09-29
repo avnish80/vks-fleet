@@ -495,7 +495,7 @@ On a shared, in-cluster deployment, per-user sign-in (OIDC) is the stronger end 
 - **A health score** (0–100) and headline tiles: control-plane nodes, ESXi hosts, controllers, services, stuck objects, and the API response time the plugin measures itself.
 - **Controllers alive:** the leader-election leases of Cluster API, the vSphere provider, kubeadm bootstrap and control plane, the runtime extension and the VKS controller (in the `svc-tkg-…` namespace), plus VM Operator, NSX and CSI where readable. A controller that **stops renewing its lease is stuck or gone even if its pod shows Running**: that's a critical issue, as is a lease with no leader.
 - **Supervisor services** (vSphere Pods): running pods and their hosts, restarts, and pods failing with no replacement. **`ProviderFailed` pods** (the ESXi host couldn't run the vSphere Pod) left behind next to a running replacement are shown as leftovers, with **Clean up…** (dry run first; only the failed pods are deleted).
-- **Placement:** service pods per ESXi host. When **every service pod runs on one host while others are Ready**, that's a resilience warning: pods rescheduled after a host problem stay where they landed.
+- **Hosts:** one compact card per ESXi host with its CPU and memory, alarms, and **what runs there**: the Supervisor's control-plane VM, Supervisor service pods, each cluster's nodes (its control-plane node marked), and VM Service VMs. **Clicking a host shows what its failure would take down** until vSphere HA restarts its VMs: the Supervisor API if its control plane is there, services with every pod on it (down) or some (degraded), clusters losing nodes or their whole control plane, and VMs. When **every service pod runs on one host while others are Ready**, that's flagged: pods rescheduled after a host problem stay where they landed. Where VM Operator doesn't report a VM's host (VCF 9.1 doesn't), the vCenter collector's **placement** fills it in, which also feeds Investigate's walk-down and host patterns.
 - **The control plane** and hosts, the **reconcile backlog** by kind (clusters, machines, VMs, load balancers, NSX objects, subnets, volumes, with the one stuck longest), and **warning events by reason**.
 
 **From vCenter** (with the vCenter collector): the Supervisor's own status lives in vCenter. The collector ([`deploy/collector`](deploy/collector)) signs in with a **read-only vCenter account** and writes it into a ConfigMap the plugin reads through the normal Kubernetes connection, so the browser never talks to vCenter or holds its credentials. It adds:
@@ -823,6 +823,7 @@ src/
   scannerIssues.ts      Issues from scanner reports
   components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
   preflight.ts          Change impact analysis: checks, capacity during and after, blast radius, verdict
+  hostmap.ts            The Supervisor by host, and what a host failure takes down
   explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
   incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft
   vcenterStatus.ts      vCenter's view from the collector: reading, matching, scoring, issues

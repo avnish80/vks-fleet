@@ -394,6 +394,8 @@ export function buildGuest(c: C, now: Date): Store {
         },
       ],
       errors: [],
+      // Placement from vCenter (the cluster nodes' hosts come from VM Operator in the demo).
+      placement: { vms: [{ name: 'SupervisorControlPlaneVM (1)', host: 'esx-01.demo.local', power: 'poweredOn', supervisor: 'domain-c10' }] },
       // Utilisation: the control-plane VM's etcd disk filling slowly, and esx-01 running hot on memory.
       metrics: (() => {
         const names = ['SupervisorControlPlaneVM (1)', 'esx-01.demo.local', 'esx-02.demo.local', 'esx-03.demo.local', 'esx-04.demo.local'];
