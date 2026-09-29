@@ -1,0 +1,116 @@
+{{- if .Values.collector.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "vks-fleet.name" . }}-collector
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "vks-fleet.name" . }}-collector
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .Values.collector.configMapName | quote }}]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "vks-fleet.name" . }}-collector
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "vks-fleet.name" . }}-collector
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vks-fleet.name" . }}-collector
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vks-fleet.name" . }}-collector
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+data:
+  collect.py: |
+{{ .Files.Get "files/collect.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "vks-fleet.name" . }}-collector
+  labels:
+    {{- include "vks-fleet.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vks-fleet-collector
+spec:
+  schedule: {{ .Values.collector.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vks-fleet-collector
+            app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+          serviceAccountName: {{ include "vks-fleet.name" . }}-collector
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: collect
+              image: {{ .Values.collector.image }}
+              command: ["python", "/app/collect.py"]
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: VCENTER
+                  value: {{ required "collector.vcenter is required when the collector is enabled" .Values.collector.vcenter | quote }}
+                - name: VCENTER_INSECURE
+                  value: {{ .Values.collector.insecure | toString | quote }}
+                - name: OUTPUT_CONFIGMAP
+                  value: {{ .Values.collector.configMapName | quote }}
+                - name: VCENTER_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.collector.credentialsSecret }}
+                      key: username
+                - name: VCENTER_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.collector.credentialsSecret }}
+                      key: password
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: 20m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: {{ include "vks-fleet.name" . }}-collector
+          {{- with .Values.nodeSelector }}
+          nodeSelector: {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

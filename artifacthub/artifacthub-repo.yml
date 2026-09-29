@@ -1,0 +1,7 @@
+# Artifact Hub repository metadata. After adding the repository on
+# artifacthub.io (kind: Headlamp plugins, URL: this repository's artifacthub/
+# folder), put the repository ID Artifact Hub gives you here to verify ownership.
+# repositoryID: <from artifacthub.io>
+owners:
+  - name: Avnish Tripathi
+    email: noreply@github.com

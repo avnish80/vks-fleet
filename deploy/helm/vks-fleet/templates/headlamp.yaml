@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "vks-fleet.headlamp" . }}
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vks-fleet.name" . }}-settings
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+data:
+  config.json: {{ .Values.settings | toJson | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vks-fleet.headlamp" . }}
+  labels:
+    {{- include "vks-fleet.labels" . | nindent 4 }}
+    app.kubernetes.io/name: headlamp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: headlamp
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: headlamp
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/settings: {{ .Values.settings | toJson | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "vks-fleet.headlamp" . }}
+      # Headlamp talks to Supervisors and VKS clusters through the kubeconfig the
+      # refresher maintains, not through this cluster's API.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if eq .Values.plugin.source "download" }}
+      initContainers:
+        - name: plugin
+          image: {{ .Values.plugin.downloadImage }}
+          command: ["sh", "-c", "curl -fsSL \"$URL\" | tar -xz -C /plugins"]
+          env:
+            - name: URL
+              value: {{ include "vks-fleet.pluginUrl" . | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: plugins
+              mountPath: /plugins
+      {{- end }}
+      containers:
+        - name: headlamp
+          image: "{{ .Values.headlamp.image.repository }}:{{ .Values.headlamp.image.tag }}"
+          imagePullPolicy: {{ .Values.headlamp.image.pullPolicy }}
+          args:
+            - -kubeconfig=/kube/config
+            - -plugins-dir=/headlamp/plugins
+          ports:
+            - name: http
+              containerPort: 4466
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources: {{- toYaml .Values.headlamp.resources | nindent 12 }}
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /kube
+              readOnly: true
+            {{- if eq .Values.plugin.source "download" }}
+            - name: plugins
+              mountPath: /headlamp/plugins
+            - name: settings
+              mountPath: /headlamp/plugins/vks-fleet/config.json
+              subPath: config.json
+              readOnly: true
+            {{- else }}
+            - name: plugin
+              mountPath: /headlamp/plugins/vks-fleet
+              readOnly: true
+            {{- end }}
+      volumes:
+        # Written by the refresher. The pod waits until it exists.
+        - name: kubeconfig
+          secret:
+            secretName: {{ include "vks-fleet.kubeconfig" . }}
+            defaultMode: 0444
+        {{- if eq .Values.plugin.source "download" }}
+        - name: plugins
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: {{ include "vks-fleet.name" . }}-settings
+        {{- else }}
+        # The plugin (from the release ConfigMap) plus the preset settings, in one folder.
+        - name: plugin
+          projected:
+            sources:
+              - configMap:
+                  name: {{ .Values.plugin.configMapName }}
+              - configMap:
+                  name: {{ include "vks-fleet.name" . }}-settings
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vks-fleet.headlamp" . }}
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: headlamp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "vks-fleet.headlamp" . }}
+  labels: {{- include "vks-fleet.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "ingress.host is required when the ingress is enabled" .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vks-fleet.headlamp" . }}
+                port:
+                  name: http
+{{- end }}

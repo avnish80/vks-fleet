@@ -37,7 +37,7 @@ export function identityPlan(settings: PluginConfig, discovered: SupervisorConfi
   return { identities, canSwitch, active, supervisors };
 }
 
-/** "administrator@wld.sso (10.150.4.2)" or "org-admin (VCFA org2)". */
+/** "administrator@vsphere.local (10.0.0.2)" or "org-admin (VCFA org2)". */
 export function identityLabel(i: SupervisorConfig, user?: string): string {
   const where = i.mode === 'vcfa' ? `VCFA ${i.org ?? i.displayName ?? ''}`.trim() : i.displayName && i.displayName !== i.headlampCluster ? `${i.displayName}, ${i.headlampCluster}` : i.headlampCluster;
   return user ? `${user} (${where})` : where;

@@ -99,7 +99,7 @@ function SupervisorForm({
         label="Tenant names"
         multiline
         minRows={2}
-        placeholder={'81bc9f2a-8e16-46e0-b7e2-3e94bf215fc1 = org1\n6b9e01e4-8214-4c8a-9378-eae07e9e5dde = org2'}
+        placeholder={'66666666-7777-4888-8999-000000000000 = org1\n11111111-2222-4333-8444-555555555555 = org2'}
         helperText="One per line: tenant ID = name. Unnamed tenants show their ID on the fleet page so you can copy it here."
         value={namesText}
         onChange={e => {
@@ -259,7 +259,7 @@ export function SettingsPanel() {
           ConfigMap's namespace and name. Leave the context empty if you don't run it.
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <TextField size="small" label="Context" placeholder="kubernetes-cluster-9yfw" value={raw.vcenter?.context ?? ''} onChange={e => settingsStore.update({ vcenter: { namespace: 'vks-fleet', configMap: 'vks-fleet-vcenter', ...(raw.vcenter ?? {}), context: e.target.value } })} />
+          <TextField size="small" label="Context" placeholder="kubernetes-cluster-a1b2" value={raw.vcenter?.context ?? ''} onChange={e => settingsStore.update({ vcenter: { namespace: 'vks-fleet', configMap: 'vks-fleet-vcenter', ...(raw.vcenter ?? {}), context: e.target.value } })} />
           <TextField size="small" label="Namespace" value={raw.vcenter?.namespace ?? 'vks-fleet'} onChange={e => settingsStore.update({ vcenter: { context: '', configMap: 'vks-fleet-vcenter', ...(raw.vcenter ?? {}), namespace: e.target.value } })} />
           <TextField size="small" label="ConfigMap" value={raw.vcenter?.configMap ?? 'vks-fleet-vcenter'} onChange={e => settingsStore.update({ vcenter: { context: '', namespace: 'vks-fleet', ...(raw.vcenter ?? {}), configMap: e.target.value } })} />
         </Box>
@@ -278,8 +278,8 @@ export function SettingsPanel() {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 1, ml: 4 }}>
             <Typography variant="body2" color="text.secondary">
               The admin sign-ins are separate kubeconfig contexts. For each cluster the change context is its read context plus a suffix
-              (kubernetes-cluster-mnet → kubernetes-cluster-mnet{raw.elevation?.suffix || '-admin'}); for a Supervisor it can be named
-              here. The refresh script in the README signs in both accounts and names the contexts this way.
+              (kubernetes-cluster-c3d4 → kubernetes-cluster-c3d4{raw.elevation?.suffix || '-admin'}); for a Supervisor it can be named
+              here. The refresh script (deploy/jump-server/vks-refresh.sh; see docs/making-changes.md) signs in both accounts and names the contexts this way.
             </Typography>
             <TextField
               size="small"

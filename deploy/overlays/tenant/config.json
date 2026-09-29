@@ -5,14 +5,14 @@
     {
       "id": "org2",
       "displayName": "org2",
-      "headlampCluster": "org2:org2-ns1-mrrtd:default-project",
+      "headlampCluster": "org2:team-a-ns1:default-project",
       "mode": "vcfa",
       "org": "org2",
       "namespaces": [
-        "org2-ns1-mrrtd"
+        "team-a-ns1"
       ],
       "namespaceContexts": {
-        "org2-ns1-mrrtd": "org2:org2-ns1-mrrtd:default-project"
+        "team-a-ns1": "org2:team-a-ns1:default-project"
       },
       "tenantLabelKey": "",
       "tenantNames": {}

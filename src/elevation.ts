@@ -12,9 +12,9 @@ import { WriteRequest } from './api/client';
 
 export interface ElevationConfig {
   enabled: boolean;
-  /** Read context → change context, for Supervisors (e.g. "10.150.4.2" → "10.150.4.2-admin"). */
+  /** Read context → change context, for Supervisors (e.g. "10.0.0.2" → "10.0.0.2-admin"). */
   supervisorAdmin: Record<string, string>;
-  /** Suffix of the change context for everything else (clusters): "kubernetes-cluster-mnet" → "kubernetes-cluster-mnet-admin". */
+  /** Suffix of the change context for everything else (clusters): "kubernetes-cluster-c3d4" → "kubernetes-cluster-c3d4-admin". */
   suffix: string;
 }
 

@@ -61,7 +61,7 @@ export function SignInHelper({
       </Button>
       <Typography variant="caption" display="block" color="text.secondary">
         Cluster sign-ins last about 10 hours. To stop this recurring, refresh them on a timer: the deployment's refresher does it for
-        shared instances; on a jump server, a small script run by a systemd timer (see the README).
+        shared instances; on a jump server, a small script run by a systemd timer (see docs/getting-started.md in the project).
       </Typography>
     </Alert>
   );

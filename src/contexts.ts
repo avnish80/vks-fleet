@@ -27,7 +27,7 @@ export function endpointKey(host: string, port: number): string {
   return `${host.toLowerCase()}:${port}`;
 }
 
-/** "https://40.60.0.1:6443" → "40.60.0.1:6443" (default port 443 for https). */
+/** "https://10.0.1.1:6443" → "10.0.1.1:6443" (default port 443 for https). */
 export function serverKey(server: string | undefined): string | undefined {
   if (!server) return undefined;
   try {

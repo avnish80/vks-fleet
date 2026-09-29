@@ -1,6 +1,6 @@
 /**
  * Shorter display names. VKS names are long and share prefixes
- * ("kubernetes-cluster-9yfw", nodes "kubernetes-cluster-mnet-kubernetes-cluster-mnet-np-1-7d8jrql2vq"),
+ * ("kubernetes-cluster-a1b2", nodes "kubernetes-cluster-c3d4-kubernetes-cluster-c3d4-np-1-7d8jrql2vq"),
  * which truncate to the same "kubernetes-clus…" everywhere. The full name
  * stays available (tooltips, links); only the label is shortened.
  */

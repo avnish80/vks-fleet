@@ -32,6 +32,7 @@ import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
 import { glance, horizon, needsYouNow } from '../fleetHero';
 import { FleetHero } from './FleetHero';
+import { settingsStore } from '../settings/store';
 import { FleetDetails } from './FleetDetails';
 import { shortener } from '../names';
 import { useScannerReports } from '../useScannerReports';
@@ -296,11 +297,39 @@ export function FleetView() {
 
   if (config.supervisors.length === 0) {
     return (
-      <SectionBox title="VKS fleet">
-        <Typography>
-          Connect a Supervisor to see its VKS clusters. Open Settings, then Plugins, then vks-fleet,
-          and enter the Headlamp cluster name that points at your Supervisor.
+      <SectionBox title="Welcome to VKS fleet">
+        <Typography sx={{ mb: 2, maxWidth: 820 }}>
+          One view of every vSphere Kubernetes Service cluster across your Supervisors: what needs you now, what runs out in the
+          next 30 days, the Supervisor itself, and a pre-flight before every change.
         </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, maxWidth: 980 }}>
+          <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Try it with a demo fleet</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Two orgs, a Supervisor and clusters with realistic problems. Nothing is changed anywhere, and dry runs work. Turn it off in
+              Settings whenever you like.
+            </Typography>
+            <Button variant="contained" onClick={() => settingsStore.update({ demo: true })}>
+              Try the demo
+            </Button>
+          </Box>
+          <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Connect your Supervisor</Typography>
+            <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 0.5 } }}>
+              <li>
+                <Typography variant="body2">
+                  Sign in to the Supervisor with <code>kubectl vsphere login</code>, so Headlamp has a cluster (context) for it.
+                </Typography>
+              </li>
+              <li>
+                <Typography variant="body2">Open Settings → Plugins → vks-fleet.</Typography>
+              </li>
+              <li>
+                <Typography variant="body2">Add the Supervisor: pick that Headlamp cluster, and give it a short name.</Typography>
+              </li>
+            </Box>
+          </Box>
+        </Box>
       </SectionBox>
     );
   }

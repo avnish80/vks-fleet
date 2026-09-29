@@ -1,0 +1,24 @@
+vks-fleet is installed as {{ include "vks-fleet.headlamp" . }}.
+
+{{- if .Values.refresher.enabled }}
+Headlamp starts once the refresher has written its kubeconfig. To run it now
+instead of waiting for the schedule:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "vks-fleet.name" . }}-refresher first-sign-in
+{{- end }}
+{{- if eq .Values.plugin.source "configMap" }}
+
+The plugin comes from the ConfigMap "{{ .Values.plugin.configMapName }}". Apply the release's copy if you haven't:
+  kubectl -n {{ .Release.Namespace }} apply --server-side -f https://github.com/avnish80/vks-fleet/releases/download/v{{ .Chart.AppVersion }}/vks-fleet-plugin-configmap.yaml
+{{- end }}
+
+Open it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "vks-fleet.headlamp" . }} 4466:{{ .Values.service.port }}
+  then http://localhost:4466
+
+Everyone who can reach Headlamp acts as the refresher's vSphere account:
+expose it only to operators.
+{{- if .Values.collector.enabled }}
+
+vCenter collector: in the plugin's settings, set "vCenter collector" to this
+cluster's context, namespace {{ .Release.Namespace }}, ConfigMap {{ .Values.collector.configMapName }}.
+{{- end }}

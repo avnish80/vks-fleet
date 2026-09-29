@@ -1,0 +1,19 @@
+apiVersion: v2
+name: vks-fleet
+description: Headlamp with the vks-fleet plugin, a multi-cluster view for vSphere Kubernetes Service (VKS) fleets, with sign-in refresh and an optional vCenter collector.
+type: application
+# Set from the git tag when CI packages the chart.
+version: 1.30.0
+appVersion: "1.30.0"
+home: https://github.com/avnish80/vks-fleet
+sources:
+  - https://github.com/avnish80/vks-fleet
+keywords: [headlamp, vks, vsphere, kubernetes, fleet, cluster-api, vcf]
+maintainers:
+  - name: Avnish Tripathi
+    url: https://github.com/avnish80
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Source
+      url: https://github.com/avnish80/vks-fleet

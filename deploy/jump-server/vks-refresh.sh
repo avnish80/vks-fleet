@@ -2,9 +2,9 @@
 # Keeps the jump server's sign-ins fresh for vks-fleet with "read by default,
 # elevate to change":
 #   - the read-only account signs in under the plain context names
-#     (10.150.4.2, kubernetes-cluster-mnet, …): everything is read with it;
+#     (10.0.0.2, kubernetes-cluster-c3d4, …): everything is read with it;
 #   - the admin account signs in under the same names plus a suffix
-#     (10.150.4.2-admin, kubernetes-cluster-mnet-admin, …): only used for
+#     (10.0.0.2-admin, kubernetes-cluster-c3d4-admin, …): only used for
 #     changes, and only while someone has elevated in the plugin.
 # kubectl vsphere login names contexts after the server or cluster, so the
 # admin signs in first and its contexts are renamed; then the read-only
@@ -13,14 +13,14 @@
 # Run it from a systemd timer every 45 minutes (see the README).
 set -euo pipefail
 
-S=10.150.4.2                                   # Supervisor
-READ_USER=fleet-viewer@wld.sso                 # "Can view" on the vSphere namespaces
-ADMIN_USER=administrator@wld.sso
+S=10.0.0.2                                   # Supervisor
+READ_USER=fleet-viewer@vsphere.local                 # "Can view" on the vSphere namespaces
+ADMIN_USER=administrator@vsphere.local
 READ_PASS_FILE=/root/.vsphere-pass-read        # chmod 600
 ADMIN_PASS_FILE=/root/.vsphere-pass-admin      # chmod 600
 SUFFIX=-admin                                  # must match the plugin's setting
 # namespace/cluster pairs to sign in to
-CLUSTERS="org2-ns1-mrrtd/kubernetes-cluster-mnet org2-ns1-mrrtd/kubernetes-cluster-9yfw"
+CLUSTERS="team-a-ns1/kubernetes-cluster-c3d4 team-a-ns1/kubernetes-cluster-a1b2"
 
 login() { # user password-file [namespace cluster]
   export KUBECTL_VSPHERE_PASSWORD="$(cat "$2")"

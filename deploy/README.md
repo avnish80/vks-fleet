@@ -18,7 +18,7 @@ This runs Headlamp with the vks-fleet plugin inside a Kubernetes cluster, typica
 
 ## Before you start
 
-- **A cluster to run it in.** From its pods, that cluster must reach each Supervisor's API address (for example `10.150.4.2:443`) and each VKS cluster's API endpoint (for example `40.60.0.5:6443`). It must also be able to pull `ghcr.io/headlamp-k8s/headlamp` and `python:3.12-slim`; if it can't, mirror them into your registry and change `images:` in `kustomization.yaml`.
+- **A cluster to run it in.** From its pods, that cluster must reach each Supervisor's API address (for example `10.0.0.2:443`) and each VKS cluster's API endpoint (for example `10.0.1.5:6443`). It must also be able to pull `ghcr.io/headlamp-k8s/headlamp` and `python:3.12-slim`; if it can't, mirror them into your registry and change `images:` in `kustomization.yaml`.
 - **A dedicated vSphere SSO account for the refresher.** Headlamp acts as this account for **everyone** who opens it, so give it only what operators need:
   - read access is enough for every view
   - the actions (upgrade, scale, pause, replace, timeouts) need edit rights on the Supervisor namespaces
@@ -37,7 +37,7 @@ kubectl -n vks-fleet apply --server-side -f \
 
 # 2. The refresher's vSphere account (not stored in git)
 kubectl -n vks-fleet create secret generic vks-fleet-vsphere \
-  --from-literal=username='svc-vks-fleet@wld.sso' --from-literal=password='…'
+  --from-literal=username='svc-vks-fleet@vsphere.local' --from-literal=password='…'
 
 # 3. Your Supervisors and tenant names
 #    settings/config.json      what the plugin shows (same fields as the plugin settings page)

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something shows wrong, breaks, or behaves unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Please remove anything sensitive (addresses, names, tokens) from screenshots and logs.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the plugin, and how to reproduce
+      placeholder: "Page, cluster or object type, steps. A screenshot helps."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: vks-fleet version
+      placeholder: "v1.29.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: VCF / vSphere and VKS versions
+      placeholder: "VCF 9.1, VKS 3.7"
+  - type: dropdown
+    id: headlamp
+    attributes:
+      label: How you run Headlamp
+      options: [Desktop app, Docker / jump server, In-cluster (kustomize), In-cluster (Helm), Other]
+  - type: checkboxes
+    id: demo
+    attributes:
+      label: Demo mode
+      options:
+        - label: It also happens in demo mode (Settings → Demo mode)

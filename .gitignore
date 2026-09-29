@@ -3,3 +3,5 @@ dist/
 *.tar.gz
 .DS_Store
 build/
+__pycache__/
+*.pyc

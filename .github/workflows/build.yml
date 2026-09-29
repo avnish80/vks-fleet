@@ -81,6 +81,28 @@ jobs:
             --dry-run=client -o yaml > "$GITHUB_WORKSPACE/vks-fleet-plugin-configmap.yaml"
           ls -l "$GITHUB_WORKSPACE/vks-fleet-plugin-configmap.yaml"
 
+      # The Helm chart: its script copies must match the originals, and it must
+      # lint and render (defaults, and download mode with the collector).
+      - name: Helm chart
+        run: |
+          diff -q deploy/refresher/refresh.py deploy/helm/vks-fleet/files/refresh.py
+          diff -q deploy/collector/collect.py deploy/helm/vks-fleet/files/collect.py
+          helm lint deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2
+          helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 > /tmp/default.yaml
+          helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 \
+            --set plugin.source=download --set collector.enabled=true --set collector.vcenter=vcenter.example.com \
+            --set ingress.enabled=true --set ingress.host=fleet.example.com > /tmp/full.yaml
+          python3 -c "import yaml; [print(f, sum(1 for d in yaml.safe_load_all(open(f)) if d), 'objects') for f in ('/tmp/default.yaml', '/tmp/full.yaml')]"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            v="${GITHUB_REF_NAME#v}"
+            helm package deploy/helm/vks-fleet --version "$v" --app-version "$v"
+          fi
+
+      # Artifact Hub package metadata for this release (checksum of the tarball).
+      - name: Artifact Hub metadata
+        if: github.ref_type == 'tag'
+        run: scripts/artifacthub-pkg.sh "${GITHUB_REF_NAME#v}" vks-fleet.tar.gz > artifacthub-pkg.yml
+
       - uses: actions/upload-artifact@v4
         with:
           name: vks-fleet
@@ -94,5 +116,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" vks-fleet.tar.gz vks-fleet-plugin-configmap.yaml \
+            "vks-fleet-${GITHUB_REF_NAME#v}.tgz" artifacthub-pkg.yml \
             --title "vks-fleet $GITHUB_REF_NAME" \
-            --notes "Extract into the Headlamp plugins folder: tar -xzf vks-fleet.tar.gz -C <plugins-dir>"
+            --notes "Plugin: extract vks-fleet.tar.gz into the Headlamp plugins folder. In-cluster: the Helm chart (vks-fleet-${GITHUB_REF_NAME#v}.tgz) or vks-fleet-plugin-configmap.yaml with deploy/. Changes: see CHANGELOG.md."

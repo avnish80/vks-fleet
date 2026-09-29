@@ -10,7 +10,7 @@ export interface SupervisorConfig {
    * and must not change once links have been shared.
    */
   id: string;
-  /** With elevation on: the context used for changes (an admin sign-in), e.g. "10.150.4.2-admin". */
+  /** With elevation on: the context used for changes (an admin sign-in), e.g. "10.0.0.2-admin". */
   adminContext?: string;
   /** Name of the Headlamp cluster (kubeconfig context) that points at this Supervisor. */
   headlampCluster: string;

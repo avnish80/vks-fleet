@@ -1,0 +1,83 @@
+# vks-fleet: Headlamp with the vks-fleet plugin.
+# Everyone who can open this Headlamp acts as the refresher's vSphere account:
+# expose it only to operators (service.loadBalancerSourceRanges, or an
+# authenticating proxy) and give the account only the rights they need.
+
+headlamp:
+  image:
+    repository: ghcr.io/headlamp-k8s/headlamp
+    # Pin to the Headlamp version you've tested.
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+plugin:
+  # configMap: from the release's vks-fleet-plugin-configmap.yaml, applied
+  #   beforehand (works without internet access from the cluster).
+  # download: fetched from the GitHub release when the pod starts.
+  source: configMap
+  configMapName: vks-fleet-plugin
+  # Default: this chart's version from the GitHub releases.
+  downloadUrl: ""
+  downloadImage: curlimages/curl:8.10.1
+
+# Preset plugin settings (the same as deploy/settings/config.json): Supervisors,
+# tenant label, org names, baseline… Every browser starts with them and can
+# still override them. Empty: configure in the browser (Settings → vks-fleet).
+settings: {}
+#  supervisors:
+#    - id: primary
+#      headlampCluster: "10.0.0.2"
+#      displayName: primary
+#      tenantLabelKey: vmware-system-vcf/organization-id
+#      tenantNames:
+#        "11111111-2222-4333-8444-555555555555": team-a
+
+service:
+  type: ClusterIP
+  port: 80
+  # For type LoadBalancer: only these networks can reach Headlamp.
+  loadBalancerSourceRanges: []
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls: []
+
+# Keeps Headlamp's sign-ins fresh: signs in to each Supervisor (and the VKS
+# clusters it can see) with a dedicated vSphere account, stores the kubeconfig
+# as a Secret, and restarts Headlamp.
+refresher:
+  enabled: true
+  schedule: "0 */6 * * *"
+  image: python:3.12-slim
+  # Supervisor API addresses, space or comma separated (required).
+  supervisors: ""
+  # all | none | a list such as team-a-ns1/kubernetes-cluster-a1b2
+  clusters: all
+  # A Secret with keys username and password, created beforehand:
+  #   kubectl create secret generic vks-fleet-vsphere --from-literal=username=… --from-literal=password=…
+  credentialsSecret: vks-fleet-vsphere
+  # Further refresher settings, for example the VCF Automation mode used by
+  # tenant deployments (MODE: vcfa, VCFA_ENDPOINT, VCFA_TENANT…; see deploy/README.md).
+  env: {}
+
+# Reads the Supervisor's status, control-plane VMs, hosts, alarms, utilisation
+# and VM placement from vCenter (read-only account) into a ConfigMap the plugin
+# reads. Set Settings → vCenter collector to this cluster's context.
+collector:
+  enabled: false
+  schedule: "*/5 * * * *"
+  image: python:3.12-slim
+  vcenter: ""
+  # Skip TLS verification (lab certificates only).
+  insecure: false
+  credentialsSecret: vks-fleet-vcenter
+  configMapName: vks-fleet-vcenter
+
+nodeSelector: {}
+tolerations: []
