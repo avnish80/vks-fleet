@@ -73,6 +73,8 @@ export interface PluginConfig {
   demoScale?: number;
   /** Where the vCenter collector writes its ConfigMap (a context the plugin can read). */
   vcenter?: { context: string; namespace: string; configMap: string };
+  /** Baseline profiles (e.g. prod, dev): the first whose match fits a cluster applies; the rest use the default baseline. */
+  baselineProfiles?: BaselineProfile[];
   /** Read by default, elevate to change (time-boxed, with a reason). */
   elevation?: { enabled: boolean; suffix?: string };
 }
@@ -85,6 +87,21 @@ export interface Silence {
   reason: string;
   createdAt: string;
   until: string;
+}
+
+/** A named standard for a subset of clusters. Empty match fields don't restrict; all given fields must match. */
+export interface BaselineProfile {
+  name: string;
+  match: {
+    /** Org (tenant) names. */
+    orgs?: string[];
+    namespaces?: string[];
+    /** Cluster-name patterns with * wildcards, e.g. "*-prod". */
+    clusters?: string[];
+    /** Cluster labels as key=value. */
+    labels?: string[];
+  };
+  baseline: Baseline;
 }
 
 /** The fleet's standard: what every cluster should look like. */
@@ -104,6 +121,12 @@ export interface Baseline {
   storageClasses: string[];
   /** A successful backup within this many hours (0 = don't check). */
   backupWithinHours: number;
+  /** Exact Kubernetes minor every cluster should run, e.g. "1.36" (empty = not checked). */
+  targetMinor: string;
+  /** Packages every cluster must have, optionally with a minimum: "cert-manager", "fluent-bit>=3.2" (empty = not checked). */
+  requiredPackages: string[];
+  /** Cluster-wide Pod Security default at least this strict (empty = not checked). */
+  podSecurity: '' | 'baseline' | 'restricted';
   /** Registries images may come from inside clusters; empty = not checked. */
   allowedRegistries: string[];
 }
@@ -253,6 +276,8 @@ export interface FleetCluster {
   variableNames?: string[];
   /** Kubernetes UID of the Cluster object. */
   uid?: string;
+  /** The Cluster object's labels (e.g. env=prod), for matching baseline profiles. */
+  labels?: Record<string, string>;
   healthCheck?: HealthCheckSummary;
   capacity?: Capacity;
   /** ResourceQuota usage for the cluster's namespace. */

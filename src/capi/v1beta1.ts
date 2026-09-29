@@ -436,6 +436,7 @@ export function toFleetClusters(
       healthCheck: healthCheckSummary(clusterMhcs),
       variableNames: Array.isArray(topology?.variables) ? topology.variables.map((v: any) => String(v?.name ?? '')) : undefined,
       uid: str((c.metadata as any).uid),
+      labels: (c.metadata as any).labels ?? undefined,
       lastAction: parseLastAction(c.metadata.annotations?.[LAST_ACTION_ANNOTATION]),
       controlPlane: cp,
       workers,

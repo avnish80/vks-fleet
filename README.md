@@ -18,7 +18,7 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 | Entry | What's in it |
 |---|---|
-| **VKS fleet** | The fleet page: org cards, overview, clusters, issues |
+| **VKS fleet** | The fleet page: at a glance, needs you now, the next 30 days; org cards, overview, clusters, issues |
 | **Supervisor health** | The platform itself: controllers, services, placement, hosts, vCenter's view |
 | **Namespaces** | Per-org namespaces, quotas, VMs, networks; New VM… and New cluster… |
 | **Compute** | Nodes (machines) · VMs |
@@ -32,6 +32,8 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 | **Governance** | Baseline · Cleanup · Access |
 
 Search is one keystroke away everywhere: **Ctrl+K**.
+
+**The fleet page opens with three things:** **fleet health** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health), **Needs you now** (the top three issues, critical first and then by how much they touch, each with Investigate), and **the next 30 days** (a timeline of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
 
 **Built for fleets.** Pages that cover every cluster show a **fleet roll-up first** (for example, the compliance controls failing across the fleet: one failing in 17 of 20 clusters is one problem to fix once), then **one compact row per cluster** with its counts, clusters needing attention first. Expanding a row shows its first rows, most important first; **Show all** opens the full table in a dialog. Long lists (nodes, namespaces, repositories, issues) have a **filter box and paging**. To see every page at scale, turn on demo mode and set **Demo fleet size** to 20 or 50 clusters.
 
@@ -210,7 +212,7 @@ The vSphere cluster's own free capacity isn't visible through the Supervisor API
 
 **Utilisation** (cluster page, from metrics-server when installed): CPU and memory against allocatable per node, the busiest pods, and user pods that request no CPU or memory. Nodes above 90% become issues with a runbook; the overview shows the busiest nodes across the fleet.
 
-**Fleet baseline** (sidebar: Baseline): the standard every cluster should meet, edited on the page and kept with the plugin settings (an administrator can preset it in `config.json`):
+**Fleet baseline** (Governance → Baseline): the standard clusters should meet, edited on the page and kept with the plugin settings (an administrator can preset it in `config.json`). **Profiles** give different parts of the fleet different standards, for example `prod` and `dev`: each profile matches clusters by **label** (`env=prod`), **cluster name** (`*-prod`), **namespace** or **org**, and the first matching profile applies; the rest use the default. Each standard covers:
 
 - control plane of 3
 - minimum nodes per pool
@@ -221,8 +223,11 @@ The vSphere cluster's own free capacity isn't visible through the Supervisor API
 - zone spread
 - allowed VM and storage classes
 - a successful backup within N hours
+- an exact **target Kubernetes minor** (for example 1.36)
+- **required packages**, with optional minimum versions (`cert-manager, fluent-bit>=3.2`)
+- a **Pod Security** cluster default at least as strict as baseline or restricted (probed with dry runs)
 
-A compliance matrix shows every cluster against every rule. Safe fixes are applied from the matrix with the usual checks and dry run: grow the control plane to 3, or turn on certificate rotation through the cluster's `kubernetes` variable. Other drift links to the right dialog (Scale for a pool, Upgrade for the version or class).
+A compliance matrix shows every cluster, with its profile, against every rule; clicking a cluster shows its **desired vs actual** table, drift first, with the fix for each. Safe fixes are applied from the matrix with the usual checks and dry run: grow the control plane to 3, or turn on certificate rotation through the cluster's `kubernetes` variable. Other drift links to the right dialog (Scale for a pool, Upgrade for the version or class).
 
 **Cleanup** (sidebar: Cleanup): leftovers on the Supervisor, each with inspect and delete commands to review. The plugin deletes nothing itself.
 
@@ -823,6 +828,7 @@ src/
   scannerIssues.ts      Issues from scanner reports
   components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
   preflight.ts          Change impact analysis: checks, capacity during and after, blast radius, verdict
+  fleetHero.ts          The fleet page's hero band: at a glance, needs you now, the next 30 days
   hostmap.ts            The Supervisor by host, and what a host failure takes down
   explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
   incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft

@@ -4,7 +4,8 @@
  * plugin can apply (with the usual dry run), or the dialog that handles it.
  */
 import { clusterDeepLink, DeepLink } from './routes';
-import { Baseline, BackupStatus, FleetCluster } from './types';
+import { compareVersions, PackageInstallInfo } from './packages';
+import { Baseline, BackupStatus, BaselineProfile, FleetCluster } from './types';
 
 export const DEFAULT_BASELINE: Baseline = {
   controlPlaneReplicas: 3,
@@ -18,6 +19,9 @@ export const DEFAULT_BASELINE: Baseline = {
   storageClasses: [],
   backupWithinHours: 26,
   allowedRegistries: [],
+  targetMinor: '',
+  requiredPackages: [],
+  podSecurity: '',
 };
 
 export function normalizeBaseline(raw: Partial<Baseline> | undefined): Baseline {
@@ -36,7 +40,56 @@ export function normalizeBaseline(raw: Partial<Baseline> | undefined): Baseline 
     storageClasses: list(b.storageClasses),
     backupWithinHours: num(b.backupWithinHours, 26),
     allowedRegistries: list(b.allowedRegistries),
+    targetMinor: typeof b.targetMinor === 'string' ? b.targetMinor.trim().replace(/^v/, '') : '',
+    requiredPackages: list(b.requiredPackages),
+    podSecurity: b.podSecurity === 'baseline' || b.podSecurity === 'restricted' ? b.podSecurity : '',
   };
+}
+
+/* ---------------- Profiles ---------------- */
+
+const escapeRe = (x: string) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+const glob = (pattern: string, s: string) => new RegExp(`^${pattern.split('*').map(escapeRe).join('.*')}$`, 'i').test(s);
+
+export function normalizeProfiles(raw: unknown): BaselineProfile[] {
+  if (!Array.isArray(raw)) return [];
+  const list = (v: unknown) => (Array.isArray(v) ? v.map(x => String(x).trim()).filter(Boolean) : undefined);
+  return raw
+    .filter(p => p && typeof p.name === 'string' && p.name.trim())
+    .map(p => ({
+      name: String(p.name).trim(),
+      match: { orgs: list(p.match?.orgs), namespaces: list(p.match?.namespaces), clusters: list(p.match?.clusters), labels: list(p.match?.labels) },
+      baseline: normalizeBaseline(p.baseline),
+    }));
+}
+
+/** Does a profile's match fit this cluster? Empty fields don't restrict; given fields must all match. */
+export function profileMatches(p: BaselineProfile, c: FleetCluster): boolean {
+  const m = p.match;
+  const any = (xs: string[] | undefined, test: (x: string) => boolean) => !xs?.length || xs.some(test);
+  const hasCriteria = !!(m.orgs?.length || m.namespaces?.length || m.clusters?.length || m.labels?.length);
+  return (
+    hasCriteria &&
+    any(m.orgs, o => o.toLowerCase() === c.tenantName.toLowerCase() || o === c.tenantId) &&
+    any(m.namespaces, n => glob(n, c.namespace)) &&
+    any(m.clusters, n => glob(n, c.name)) &&
+    any(m.labels, kv => {
+      const [k, v] = kv.split('=');
+      return c.labels?.[k.trim()] !== undefined && (v === undefined || c.labels[k.trim()] === v.trim());
+    })
+  );
+}
+
+/** The standard that applies to a cluster: the first matching profile, else the default. */
+export function profileFor(c: FleetCluster, profiles: BaselineProfile[] | undefined, fallback: Baseline): { name: string; baseline: Baseline } {
+  const p = (profiles ?? []).find(x => profileMatches(x, c));
+  return p ? { name: p.name, baseline: p.baseline } : { name: 'default', baseline: fallback };
+}
+
+/** "fluent-bit>=3.2" → name and minimum. */
+export function parseRequirement(r: string): { name: string; min?: string } {
+  const [name, min] = r.split('>=').map(x => x.trim());
+  return { name, min: min || undefined };
 }
 
 export type RuleStatus = 'ok' | 'drift' | 'unknown' | 'off';
@@ -55,12 +108,20 @@ export interface RuleResult {
   fix?: BaselineFix;
 }
 
+export interface BaselineExtras {
+  /** Installed packages, for required packages. */
+  packages?: PackageInstallInfo[];
+  /** The cluster-wide Pod Security default, when probed. */
+  psaDefault?: string;
+}
+
 export function evaluateBaseline(
   c: FleetCluster,
   b: Baseline,
   fleetZones: number,
   backup?: BackupStatus,
-  now: Date = new Date()
+  now: Date = new Date(),
+  extras: BaselineExtras = {}
 ): RuleResult[] {
   const out: RuleResult[] = [];
   const cp = c.controlPlane?.desired;
@@ -164,6 +225,47 @@ export function evaluateBaseline(
       : `${Math.round(hours)}h ago`,
     expected: b.backupWithinHours ? `within ${b.backupWithinHours}h` : 'not checked',
     fix: backup && !backup.error && (hours === undefined || hours > b.backupWithinHours) ? { kind: 'link', label: 'Backups', link: { hash: 'backups' } } : undefined,
+  });
+
+  const minor = (v?: string) => v?.replace(/^v/, '').match(/^(\d+\.\d+)/)?.[1];
+  const cur = minor(c.kubernetesVersion);
+  const behind = !!(cur && b.targetMinor && cur.localeCompare(b.targetMinor, undefined, { numeric: true }) < 0);
+  out.push({
+    id: 'target',
+    title: 'Target version',
+    status: !b.targetMinor ? 'off' : !cur ? 'unknown' : cur === b.targetMinor ? 'ok' : 'drift',
+    current: c.kubernetesVersion ?? 'unknown',
+    expected: b.targetMinor ? `v${b.targetMinor}.x` : 'not checked',
+    fix: behind ? { kind: 'link', label: 'Upgrade', link: { hash: 'summary', action: 'upgrade' } } : undefined,
+  });
+
+  const reqs = b.requiredPackages.map(parseRequirement);
+  const installed = extras.packages;
+  const short = (ref: string) => ref.replace(/\.(tanzu\.vmware\.com|vmware\.com|vsphere\.vmware\.com)$/, '');
+  const missing: string[] = [];
+  if (installed) {
+    for (const r of reqs) {
+      const p = installed.find(x => short(x.refName) === r.name || x.refName === r.name || x.name === r.name);
+      if (!p) missing.push(`${r.name} missing`);
+      else if (r.min && p.version && compareVersions(p.version, r.min) < 0) missing.push(`${r.name} ${p.version.split('+')[0]} < ${r.min}`);
+    }
+  }
+  out.push({
+    id: 'packages',
+    title: 'Required packages',
+    status: !reqs.length ? 'off' : !installed ? 'unknown' : missing.length ? 'drift' : 'ok',
+    current: !reqs.length ? '—' : !installed ? 'sign in to check' : missing.length ? missing.join(', ') : 'all present',
+    expected: reqs.length ? b.requiredPackages.join(', ') : 'not checked',
+    fix: missing.length ? { kind: 'link', label: 'Packages', link: { hash: 'packages' } } : undefined,
+  });
+
+  const rank: Record<string, number> = { privileged: 0, baseline: 1, restricted: 2 };
+  out.push({
+    id: 'psa',
+    title: 'Pod Security default',
+    status: !b.podSecurity ? 'off' : !extras.psaDefault ? 'unknown' : (rank[extras.psaDefault] ?? 0) >= rank[b.podSecurity] ? 'ok' : 'drift',
+    current: extras.psaDefault ?? (b.podSecurity ? 'not probed yet' : '—'),
+    expected: b.podSecurity ? `${b.podSecurity} or stricter` : 'not checked',
   });
   return out;
 }

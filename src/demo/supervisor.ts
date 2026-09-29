@@ -125,7 +125,7 @@ export function buildSupervisor(now: Date): Store {
     add(s, 'cluster.x-k8s.io', 'clusters', [
       {
         apiVersion: 'cluster.x-k8s.io/v1beta1',
-        metadata: { namespace: c.ns, name: c.name, creationTimestamp: iso(24 * 40) },
+        metadata: { namespace: c.ns, name: c.name, creationTimestamp: iso(24 * 40), labels: { env: ({ payments: 'prod', checkout: 'prod', sandbox: 'dev', analytics: 'ml' } as Record<string, string>)[baseName(c)] ?? 'dev' } },
         spec: {
           controlPlaneRef: { name: `${c.name}-cp` },
           controlPlaneEndpoint: { host: c.host, port: 6443 },

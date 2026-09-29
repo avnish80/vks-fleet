@@ -29,7 +29,9 @@ import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
+import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
+import { glance, horizon, needsYouNow } from '../fleetHero';
+import { FleetHero } from './FleetHero';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -45,7 +47,7 @@ import { useBackups } from '../useBackups';
 import { useClusterScans } from '../useClusterScans';
 import { configuredByNamespace } from '../limits';
 import { limitIssues } from '../limitIssues';
-import { compliance, evaluateBaseline } from '../baseline';
+import { compliance, evaluateBaseline, profileFor } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
 import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
 import { useWorkloadHealth } from '../useWorkload';
@@ -253,7 +255,15 @@ export function FleetView() {
     card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key), backups?.get(c.key)),
   }));
   const baselineRows = config.baseline
-    ? tenantClusters.map(c => ({ cluster: c, pct: compliance(evaluateBaseline(c, config.baseline!, fleetZones, backups?.get(c.key))).pct }))
+    ? tenantClusters.map(c => ({
+        cluster: c,
+        pct: compliance(
+          evaluateBaseline(c, profileFor(c, config.baselineProfiles, config.baseline!).baseline, fleetZones, backups?.get(c.key), new Date(), {
+            packages: packages?.get(c.key)?.items,
+            psaDefault: (scans ?? []).find(s => s.clusterKey === c.key)?.psaDefault,
+          })
+        ).pct,
+      }))
     : [];
   const backupRows = tenantClusters
     .map(c => ({ cluster: c, status: backups?.get(c.key) }))
@@ -391,6 +401,32 @@ export function FleetView() {
           />
         </Box>
       </SectionBox>
+
+      {allClusters.length > 0 && (
+        <Guard name="Fleet at a glance">
+          <FleetHero
+            glance={glance(tenantClusters, scores.map(x => x.card.score), tenantIssues, (supervisorHealth ?? []).map(h => h.score))}
+            top={needsYouNow(tenantIssues)}
+            horizon={horizon({
+              now: new Date(),
+              clusters: tenantClusters,
+              forecasts: (observability ?? []).filter(o => tenantClusters.some(c => c.key === o.clusterKey)).map(o => ({ clusterName: o.clusterName, clusterKey: o.clusterKey, forecasts: o.forecasts })),
+              supervisorDisks: vcenter?.status
+                ? (all ?? []).flatMap(r => {
+                    const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length, (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name));
+                    return v
+                      ? entitiesFor(vcenter.status!.metrics, v.id)
+                          .filter(e => e.kind === 'vm')
+                          .map(e => ({ supervisor: r.supervisor.displayName ?? r.supervisor.id, vm: e.name, seconds: diskForecast(vcenter.status!.metrics, e.name) ?? Infinity }))
+                          .filter(d => Number.isFinite(d.seconds))
+                      : [];
+                  })
+                : [],
+              silences,
+            })}
+          />
+        </Guard>
+      )}
 
       <Guard name="Org cards">
         <OrgCards />
