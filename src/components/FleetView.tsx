@@ -1,4 +1,4 @@
-import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { Loader, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
   Box,
   Button,
@@ -32,6 +32,8 @@ import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
 import { glance, horizon, needsYouNow } from '../fleetHero';
 import { FleetHero } from './FleetHero';
+import { FleetDetails } from './FleetDetails';
+import { shortener } from '../names';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -39,8 +41,7 @@ import { Guard } from './Guard';
 import { ALL_ORGS } from '../scope';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
-import { clusterPath, FLEET_PATH, headlampClusterPath, headlampPodsPath, SEARCH_ROUTE } from '../routes';
-import { formatBytes } from '../quantity';
+import { clusterPath, FLEET_PATH, headlampClusterPath, SEARCH_ROUTE } from '../routes';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
@@ -49,7 +50,7 @@ import { configuredByNamespace } from '../limits';
 import { limitIssues } from '../limitIssues';
 import { compliance, evaluateBaseline, profileFor } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
-import { FleetCluster, Health, ServiceHealth, SupervisorConfig, supervisorLabel } from '../types';
+import { FleetCluster, Health, supervisorLabel } from '../types';
 import { useWorkloadHealth } from '../useWorkload';
 import {
   capacityText,
@@ -61,11 +62,9 @@ import {
   WorkloadCell,
 } from './common';
 import { IssuesList } from './IssuesList';
-import { FleetFilter, Overview } from './Overview';
 
 const ALL = '__all__';
 
-type ServiceRow = ServiceHealth & { supervisor: SupervisorConfig };
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -113,15 +112,6 @@ export function FleetView() {
   const setAttentionOnly = (b: boolean) => setParams({ attention: b ? '1' : undefined });
   const jump = (id: string) =>
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
-  const applyFilter = (f: FleetFilter) => {
-    setParams({
-      health: f.health,
-      version: f.version,
-      attention: f.attention ? '1' : undefined,
-      upgradable: f.upgradable ? '1' : undefined,
-    });
-    jump('clusters');
-  };
   const [exportOpen, setExportOpen] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
@@ -248,7 +238,7 @@ export function FleetView() {
   const { active: tenantIssues, silenced } = partitionIssues(tenantIssuesAll, silences);
   const findingCounts = countIssues(tenantIssues);
   // Collapsed by default; open by default only when something is critical.
-  const findingsOpen = findingsToggled ?? findingCounts.critical > 0;
+  const findingsOpen = findingsToggled ?? findingCounts.critical + findingCounts.warning > 0;
   const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
   const scores = tenantClusters.map(c => ({
     cluster: c,
@@ -265,9 +255,6 @@ export function FleetView() {
         ).pct,
       }))
     : [];
-  const backupRows = tenantClusters
-    .map(c => ({ cluster: c, status: backups?.get(c.key) }))
-    .filter(x => x.status && !x.status.error);
   const tenantPackages = packages ? tenantClusters.map(c => packages.get(c.key)).filter((p): p is NonNullable<typeof p> => !!p) : [];
   const packageStats = tenantPackages.length
     ? {
@@ -277,9 +264,6 @@ export function FleetView() {
       }
     : undefined;
   const clusterByKey = new Map(allClusters.map(c => [c.key, c]));
-  const services: ServiceRow[] = (results ?? []).flatMap(r =>
-    (r.services ?? []).map(s => ({ ...s, supervisor: r.supervisor }))
-  );
 
   const visible = allClusters.filter(c => {
     if (tenant !== ALL && c.tenantId !== tenant) return false;
@@ -358,17 +342,35 @@ export function FleetView() {
   const multiTenant = rollups.length > 1;
   const tenantById = new Map(rollups.map(r => [r.tenantId, r]));
 
+  const shortCluster = shortener(tenantClusters.map(c => c.name));
+  const coming = horizon({
+              now: new Date(),
+              clusters: tenantClusters,
+              forecasts: (observability ?? []).filter(o => tenantClusters.some(c => c.key === o.clusterKey)).map(o => ({ clusterName: o.clusterName, clusterKey: o.clusterKey, forecasts: o.forecasts })),
+              supervisorDisks: vcenter?.status
+                ? (all ?? []).flatMap(r => {
+                    const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length, (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name));
+                    return v
+                      ? entitiesFor(vcenter.status!.metrics, v.id)
+                          .filter(e => e.kind === 'vm')
+                          .map(e => ({ supervisor: r.supervisor.displayName ?? r.supervisor.id, vm: e.name, seconds: diskForecast(vcenter.status!.metrics, e.name) ?? Infinity }))
+                          .filter(d => Number.isFinite(d.seconds))
+                      : [];
+                  })
+                : [],
+              silences,
+              short: shortCluster,
+              certificates: (scans ?? []).flatMap(sc =>
+                sc.security.filter(f => f.kind === 'cert' && f.expires).map(f => ({ clusterName: sc.clusterName, clusterKey: sc.clusterKey, name: f.objects[0], expires: f.expires! }))
+              ),
+            });
+
   return (
     <>
       <SectionBox title="VKS fleet" headerProps={{ actions }}>
         <SupervisorBanners results={results} />
         <Typography sx={{ mb: 2 }}>
           {summarySentence(allClusters)}
-          {findingCounts.critical + findingCounts.warning > 0
-            ? ` Issues below: ${findingCounts.critical} critical, ${findingCounts.warning} ${
-                findingCounts.warning === 1 ? 'warning' : 'warnings'
-              }.`
-            : ''}
         </Typography>
 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
@@ -406,24 +408,9 @@ export function FleetView() {
         <Guard name="Fleet at a glance">
           <FleetHero
             glance={glance(tenantClusters, scores.map(x => x.card.score), tenantIssues, (supervisorHealth ?? []).map(h => h.score))}
-            top={needsYouNow(tenantIssues)}
-            horizon={horizon({
-              now: new Date(),
-              clusters: tenantClusters,
-              forecasts: (observability ?? []).filter(o => tenantClusters.some(c => c.key === o.clusterKey)).map(o => ({ clusterName: o.clusterName, clusterKey: o.clusterKey, forecasts: o.forecasts })),
-              supervisorDisks: vcenter?.status
-                ? (all ?? []).flatMap(r => {
-                    const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length, (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name));
-                    return v
-                      ? entitiesFor(vcenter.status!.metrics, v.id)
-                          .filter(e => e.kind === 'vm')
-                          .map(e => ({ supervisor: r.supervisor.displayName ?? r.supervisor.id, vm: e.name, seconds: diskForecast(vcenter.status!.metrics, e.name) ?? Infinity }))
-                          .filter(d => Number.isFinite(d.seconds))
-                      : [];
-                  })
-                : [],
-              silences,
-            })}
+            top={needsYouNow(tenantIssues, coming)}
+            horizon={coming}
+            onScore={() => jump('scorecard')}
           />
         </Guard>
       )}
@@ -442,36 +429,21 @@ export function FleetView() {
       )}
       {allClusters.length > 0 && (
         <Guard name="Overview">
-        <Overview
-          clusters={tenantClusters}
-          findings={tenantIssues}
-          scores={scores}
-          packageStats={packageStats}
-          title={tenant === ALL ? 'Overview' : `Overview: ${tenantById.get(tenant)?.tenantName ?? tenant}`}
-          onTenant={multiTenant ? setTenant : undefined}
-          supervisors={
-            multiSupervisor && supervisorFilter === ALL
-              ? results.map(r => ({
-                  id: r.supervisor.id,
-                  name: supervisorLabel(r.supervisor),
-                  error: r.error,
-                  clusters: r.clusters,
-                }))
-              : undefined
-          }
-          onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
-          onFilter={applyFilter}
-          onJump={jump}
-          onOpenIssues={() => {
-            setFindingsOpen(true);
-            jump('issues');
-          }}
-          subnets={inventory ? Array.from(inventory.values()).flatMap(i => i.subnets).filter(s => s.capacity > 0) : undefined}
-          baseline={baselineRows}
-          backups={backupRows}
+        <FleetDetails
+          rows={tenantClusters.map(c => ({
+            cluster: c,
+            score: scores.find(x => x.cluster.key === c.key)?.card.score,
+            baseline: baselineRows.find(x => x.cluster.key === c.key)?.pct,
+            backup: backups?.get(c.key),
+            issues: tenantIssues.filter(i => i.clusterKey === c.key),
+          }))}
           busiest={tenantClusters
             .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, cpuPct: n.cpuPct, memPct: n.memPct })))
             .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct))}
+          subnets={inventory ? Array.from(inventory.values()).flatMap(i => i.subnets).filter(s => s.capacity > 0) : undefined}
+          packageDrift={packageStats?.drift}
+          supervisors={multiSupervisor && supervisorFilter === ALL ? results.map(r => ({ id: r.supervisor.id, name: supervisorLabel(r.supervisor), clusters: r.clusters })) : undefined}
+          onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
         />
         </Guard>
       )}
@@ -584,34 +556,6 @@ export function FleetView() {
         setOpen={setFindingsOpen}
       />
 
-      <Box id="capacity" sx={{ scrollMarginTop: 72 }} />
-      {tenantClusters.length > 0 && (
-        <SectionBox title="Capacity">
-          <SimpleTable
-            columns={[
-              { label: 'Cluster', getter: (c: FleetCluster) => <Link to={clusterPath(c)}>{c.name}</Link> },
-              { label: 'Tenant', getter: (c: FleetCluster) => c.tenantName },
-              { label: 'Nodes', getter: (c: FleetCluster) => c.machines.filter(m => !m.deletingSince).length },
-              { label: 'vCPU', getter: (c: FleetCluster) => c.capacity?.cpus ?? '—' },
-              { label: 'Memory', getter: (c: FleetCluster) => (c.capacity ? formatBytes(c.capacity.memoryBytes) : '—') },
-              {
-                label: 'In use',
-                getter: (c: FleetCluster) => {
-                  const u = workload.byKey.get(c.key)?.utilisation;
-                  return u ? `CPU ${u.cpuPct}%, memory ${u.memPct}%` : '—';
-                },
-              },
-              {
-                label: 'VM classes',
-                getter: (c: FleetCluster) =>
-                  Array.from(new Set(c.machines.map(m => m.vm?.className).filter(Boolean))).join(', ') || '—',
-              },
-            ]}
-            data={[...tenantClusters].sort((a, b) => (b.capacity?.cpus ?? 0) - (a.capacity?.cpus ?? 0))}
-          />
-        </SectionBox>
-      )}
-
       {exportOpen && (
         <ExportDialog
           onClose={() => setExportOpen(false)}
@@ -625,39 +569,10 @@ export function FleetView() {
         />
       )}
 
-      {services.length > 0 && tenant === ALL && (
-        <SectionBox title="Supervisor services">
-          <SimpleTable
-            columns={[
-              { label: 'Service', getter: (s: ServiceRow) => s.name },
-              ...(multiSupervisor ? [{ label: 'Supervisor', getter: (s: ServiceRow) => supervisorLabel(s.supervisor) }] : []),
-              { label: 'Namespace', getter: (s: ServiceRow) => s.namespace },
-              {
-                label: 'Pods',
-                getter: (s: ServiceRow) =>
-                  <Box>
-                    {s.problems.length ? (
-                      <StatusLabel status="warning">{`${s.problems.length} with problems`}</StatusLabel>
-                    ) : (
-                      <StatusLabel status="success">OK</StatusLabel>
-                    )}
-                    <Typography variant="body2" sx={{ mt: 0.5 }}>
-                      {`${s.pods - s.leftovers} running`}
-                      {s.leftovers ? `, ${s.leftovers} old failed ${s.leftovers === 1 ? 'pod' : 'pods'} to clean up` : ''}
-                    </Typography>
-                  </Box>,
-              },
-              {
-                label: 'Logs',
-                getter: (s: ServiceRow) => (
-                  <Link to={headlampPodsPath(s.supervisor.headlampCluster, s.namespace)}>Open pods</Link>
-                ),
-              },
-            ]}
-            data={services}
-          />
-        </SectionBox>
-      )}
+      <Typography variant="body2" color="text.secondary" sx={{ px: 2, mb: 2 }}>
+        Capacity per cluster is on <Link to="/vks-fleet/capacity">Capacity &amp; cost</Link>; Supervisor services on{' '}
+        <Link to="/vks-fleet/supervisor-health">Supervisor health</Link>.
+      </Typography>
     </>
   );
 }
@@ -710,7 +625,7 @@ function IssuesSection({
       </Box>
       {open && shown.length > 0 && (
         <Guard name="Issues">
-          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} />
+          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={5} />
         </Guard>
       )}
       {silences.length > 0 && (

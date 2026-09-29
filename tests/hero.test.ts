@@ -25,11 +25,24 @@ describe('hero band', () => {
       [18, 'certificate', 'warning'],
       [20, 'certificate', 'info'],
     ]);
-    assert.match(items[5].text, /rotation is on/);
+    assert.match(items[5].text, /rotation renews them first/);
   });
   test('needs you now: critical first, then reach, then the original order; no info', () => {
     const top = needsYouNow([issue('w1', 'warning'), issue('i1', 'info'), issue('c1', 'critical'), issue('w2', 'warning', 3), issue('w3', 'warning')]);
     assert.deepEqual(top.map(i => i.id), ['c1', 'w2', 'w1']);
+  });
+  test('needs you now: something running out within a week comes first, grouped per cluster', () => {
+    const coming = horizon({
+      now: NOW,
+      clusters: [],
+      short: n => n.replace('kubernetes-cluster-', ''),
+      forecasts: [{ clusterName: 'kubernetes-cluster-mnet', clusterKey: 'k-mnet', forecasts: [{ what: 'node memory', subject: 'kubernetes-cluster-mnet-kubernetes-cluster-mnet-np-1-7d8jrql2vq', seconds: 6 * 86400 }, { what: 'node memory', subject: 'kubernetes-cluster-mnet-qmdg9-zqwqq', seconds: 12 * 86400 }, { what: 'node memory', subject: 'kubernetes-cluster-mnet-np-1-b', seconds: 6.5 * 86400 }] }],
+    });
+    const forecastIssue = { ...issue('k-mnet#forecast#node memory#x', 'warning', 1), clusterKey: 'k-mnet' };
+    const top = needsYouNow([issue('posture', 'warning', 9), forecastIssue], coming, NOW.getTime());
+    assert.equal(top[0].title, 'mnet: node memory runs out on 2 nodes');
+    assert.equal(top[0].sub, 'first in 6 days');
+    assert.deepEqual(top.map(t => t.id), ['soon|k-mnet|node memory', 'posture'], 'the matching forecast issue is not repeated');
   });
   test('at a glance', () => {
     const g = glance([cluster('a'), cluster('b', { health: 'degraded' })], [90, 70], [issue('c', 'critical'), issue('w', 'warning')], [86, 95]);
@@ -38,5 +51,15 @@ describe('hero band', () => {
   test('in words', () => {
     assert.equal(inWords(NOW.getTime() + 3 * 86400e3, NOW.getTime()), 'in 3 days');
     assert.equal(inWords(NOW.getTime() - 1, NOW.getTime()), 'now');
+  });
+  test('the timeline merges duplicates, shortens names, and includes certificates inside clusters', () => {
+    const items = horizon({
+      now: NOW,
+      clusters: [],
+      short: n => n.replace('kubernetes-cluster-', ''),
+      forecasts: [{ clusterName: 'kubernetes-cluster-mnet', clusterKey: 'k', forecasts: [{ what: 'node memory', subject: 'kubernetes-cluster-mnet-kubernetes-cluster-mnet-np-1-7d8jrql2vq', seconds: 6 * 86400 }, { what: 'node memory', subject: 'kubernetes-cluster-mnet-kubernetes-cluster-mnet-np-1-7d8jrql2vq', seconds: 6.1 * 86400 }] }],
+      certificates: [{ clusterName: 'kubernetes-cluster-9yfw', clusterKey: 'k2', name: 'vks-system-ingress/contour-cert', expires: days(17) }],
+    });
+    assert.deepEqual(items.map(i => i.text), ['mnet: node memory full on np-1-7d8jrql2vq', '9yfw: certificate vks-system-ingress/contour-cert expires']);
   });
 });

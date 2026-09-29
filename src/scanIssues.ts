@@ -7,7 +7,8 @@ export const APPS_PATH = '/vks-fleet/apps';
 export const SECURITY_PATH = '/vks-fleet/security';
 
 /** The issue id a security finding becomes (silences match on it). */
-export const securityIssueId = (clusterKey: string, f: Pick<SecurityFinding, 'kind' | 'title'>) => `${clusterKey}#scan#sec-${f.kind}-${f.title}`;
+/** A finding's identity: its stable key when it has one (a certificate's days left change daily), else its title. */
+export const securityIssueId = (clusterKey: string, f: Pick<SecurityFinding, 'kind' | 'title' | 'key'>) => `${clusterKey}#scan#sec-${f.kind}-${f.key ?? f.title}`;
 
 function base(c: FleetCluster | undefined, supervisorId: string, id: string, severity: Issue['severity'], now: Date): Issue {
   return {

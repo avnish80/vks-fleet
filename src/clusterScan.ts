@@ -67,6 +67,10 @@ export interface SecurityFinding {
   title: string;
   detail: string;
   objects: string[];
+  /** Stable identity when the title changes over time (a certificate's days left). */
+  key?: string;
+  /** When it expires, for time-bound findings. */
+  expires?: string;
 }
 
 export interface GitOpsApp {
@@ -198,8 +202,8 @@ export function securityFindings(
   psaDefault?: PsaLevel
 ): SecurityFinding[] {
   const out: SecurityFinding[] = [];
-  const f = (kind: SecurityKind, severity: SecurityFinding['severity'], title: string, detail: string, objects: string[]) =>
-    objects.length && out.push({ clusterKey, clusterName, kind, severity, title, detail, objects });
+  const f = (kind: SecurityKind, severity: SecurityFinding['severity'], title: string, detail: string, objects: string[], extra: { key?: string; expires?: string } = {}) =>
+    objects.length && out.push({ clusterKey, clusterName, kind, severity, title, detail, objects, ...extra });
 
   const userNs = input.namespaces.filter(n => !isPlatformNamespace(n?.metadata?.name ?? '') && n?.metadata?.name !== 'default');
   const level = (n: any) => n?.metadata?.labels?.['pod-security.kubernetes.io/enforce'];
@@ -286,10 +290,10 @@ export function securityFindings(
     const ready = parseConditions(c?.status?.conditions).find(x => x.type === 'Ready');
     const days = notAfter ? Math.floor((new Date(notAfter).getTime() - now.getTime()) / 86400000) : undefined;
     if (ready?.status === 'False') {
-      f('cert', 'warning', `Certificate ${name} is not ready`, ready.message ?? 'cert-manager could not issue or renew it.', [name]);
+      f('cert', 'warning', `Certificate ${name} is not ready`, ready.message ?? 'cert-manager could not issue or renew it.', [name], { key: `not-ready:${name}` });
     } else if (days !== undefined && days <= 21) {
       f('cert', days <= 7 ? 'critical' : 'warning', `Certificate ${name} expires in ${days} day${days === 1 ? '' : 's'}`,
-        'cert-manager normally renews well before this; check why it has not.', [name]);
+        'cert-manager normally renews well before this; check why it has not.', [name], { key: `expiry:${name}`, expires: notAfter });
     }
   }
   return out;

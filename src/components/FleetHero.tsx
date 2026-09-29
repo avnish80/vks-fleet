@@ -1,8 +1,7 @@
 import { Box, Button, Paper, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Glance, HORIZON_DAYS, HorizonItem, inWords } from '../fleetHero';
-import { Issue } from '../types';
+import { Glance, HORIZON_DAYS, HorizonItem, inWords, NowItem } from '../fleetHero';
 
 const TONE = { error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
 const SEV = { critical: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
@@ -20,7 +19,7 @@ function Ring({ score }: { score?: number }) {
         {score ?? '—'}
       </text>
       <text x={60} y={86} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.6}>
-        fleet health
+        fleet score
       </text>
     </svg>
   );
@@ -28,7 +27,7 @@ function Ring({ score }: { score?: number }) {
 
 const card = { p: 2, borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column' as const };
 
-export function FleetHero({ glance, top, horizon, now = Date.now() }: { glance: Glance; top: Issue[]; horizon: HorizonItem[]; now?: number }) {
+export function FleetHero({ glance, top, horizon, now = Date.now(), onScore }: { glance: Glance; top: NowItem[]; horizon: HorizonItem[]; now?: number; onScore?: () => void }) {
   const days = HORIZON_DAYS;
   const x = (t: number) => 14 + Math.max(0, Math.min(1, (t - now) / (days * 86400e3))) * 572;
   // Stagger dots that would overlap.
@@ -42,7 +41,9 @@ export function FleetHero({ glance, top, horizon, now = Date.now() }: { glance: 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr', xl: '0.9fr 1.3fr 1.6fr' }, gap: 2, px: 2, mb: 2 }}>
       <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-        <Ring score={glance.score} />
+        <Box role="button" onClick={onScore} title="The average best-practice score of the clusters: click for each cluster's" sx={{ cursor: onScore ? 'pointer' : 'default' }}>
+          <Ring score={glance.score} />
+        </Box>
         <Box sx={{ display: 'grid', gap: 0.5 }}>
           <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1 }}>{glance.clusters}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: -0.25 }}>
@@ -76,19 +77,18 @@ export function FleetHero({ glance, top, horizon, now = Date.now() }: { glance: 
                   <Typography variant="body2" sx={{ fontWeight: 700, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {i.title}
                   </Typography>
-                  {i.clusterName && (
+                  {i.sub && (
                     <Typography variant="caption" color="text.secondary">
-                      {i.clusterName}
-                      {i.tenantName ? ` · ${i.tenantName}` : ''}
+                      {i.sub}
                     </Typography>
                   )}
                 </Box>
-                {i.clusterKey ? (
-                  <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.clusterKey)}${i.affected.nodes[0] ? `&node=${encodeURIComponent(i.affected.nodes[0])}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
+                {i.investigate ? (
+                  <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
                     Investigate
                   </Button>
-                ) : i.primary ? (
-                  <Button size="small" component={Link} to={i.primary.path} sx={{ py: 0, flexShrink: 0 }}>
+                ) : i.path ? (
+                  <Button size="small" component={Link} to={i.path} sx={{ py: 0, flexShrink: 0 }}>
                     Open
                   </Button>
                 ) : null}
