@@ -558,8 +558,8 @@ export function FleetView() {
             <SectionBox key={tid} title={multiTenant ? name : `Clusters in ${name}`}>
               {info && !info.tenantNamed && (
                 <Typography variant="body2" sx={{ mb: 1 }}>
-                  This tenant has no name yet. To name it, add a line for ID {tid} under Settings, then
-                  Plugins, then vks-fleet, in Tenant names.
+                  This org has no name yet. Name it under Settings → Plugins → vks-fleet, where each Supervisor lists its org
+                  IDs ({tid}).
                 </Typography>
               )}
               {info?.unmapped && (

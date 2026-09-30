@@ -412,7 +412,7 @@ The plugin matches that context to the fleet row by the cluster's API endpoint, 
 
 The admin kubeconfig secrets on the Supervisor are deliberately not used. They would give every viewer cluster-admin and bypass tenant isolation.
 
-**Tenant names:** VCFA labels namespaces with organization IDs only, so the fleet shows a shortened ID until you name it. Add names under Settings → Plugins → vks-fleet → Tenant names, one per line as `<ID> = <name>`. Grouping always uses the ID, so adding or changing a name never regroups clusters.
+**Tenant names:** VCFA labels namespaces with organization IDs only, so the fleet shows a shortened ID until you name it. Name them under Settings → Plugins → vks-fleet: each Supervisor lists the org IDs it finds, with a name field for each (or *Advanced → Org names as text* for orgs it can't list). Grouping always uses the ID, so adding or changing a name never regroups clusters.
 
 ## At scale
 

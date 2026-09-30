@@ -4,6 +4,8 @@ Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (th
 
 ## Unreleased
 
+- Settings rebuilt for first-time setup: a **setup status** at the top (each Supervisor's clusters and namespaces or why not, VCF Automation sign-ins, the vCenter collector, elevation's admin contexts); context pickers instead of free text; org names found automatically, each with a name field; rarely needed fields under Advanced; changes as one choice (allow, elevate to change, read-only); display settings together; diagnostics collapsed.
+
 - Launch readiness: Apache 2.0 licence, NOTICE, security note, contributing guide, issue templates, Helm chart, Artifact Hub metadata, neutral example configuration, and a first-run offer of demo mode.
 - A short README telling the story (observe, detect, explain, predict, remediate, audit); the reference material moved into guides under `docs/`.
 

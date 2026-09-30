@@ -55,10 +55,14 @@ In Headlamp, add the Supervisor as a cluster (the kubeconfig context your VCF CL
 
 | Setting | Meaning |
 |---|---|
-| Headlamp cluster for the Supervisor | The cluster name exactly as Headlamp shows it. |
-| Supervisor ID | Stable, lowercase ID used in cluster links. Set once. |
-| Namespaces | Read when the account can't list cluster-wide (tenant users). |
-| Tenant label key | Namespace label whose value names the tenant. Empty means each namespace is its own tenant. |
+| Headlamp cluster for the Supervisor | Picked from Headlamp's clusters (kubeconfig contexts). |
+| Display name | How it's shown. |
+| Org names | A name for each org ID found on the Supervisor's namespaces. |
+| Supervisor ID (Advanced) | Stable, lowercase ID used in cluster links. Set once. |
+| Namespaces (Advanced) | Read when the account can't list cluster-wide (tenant users). |
+| Tenant label key (Advanced) | Namespace label whose value identifies the org. Empty means each namespace is its own org. |
+
+The settings page opens with a **setup status**: each Supervisor (clusters and namespaces found, or why not: no such context, sign-in expired, no rights, not reachable), VCF Automation org contexts, the vCenter collector (when it last wrote), and, with elevation, which admin contexts exist.
 
 **Tenant label:** check which labels VCFA puts on the Supervisor namespaces it creates, and use a stable one. If nothing reliable exists, label the namespaces yourself. Namespaces without the label appear under their own name, with a note in the UI.
 
