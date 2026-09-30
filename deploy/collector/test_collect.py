@@ -111,3 +111,25 @@ class PlacementTest(unittest.TestCase):
             collect.placement_of(triples, hosts),
             [{"name": "SupervisorControlPlaneVM (1)", "host": "esx-05a.site-a.vcf.lab", "power": "poweredOn"}, {"name": "web-vm-3", "host": "esx-06a.site-a.vcf.lab", "power": "poweredOn"}],
         )
+
+
+class WriteErrorTest(unittest.TestCase):
+    def test_missing_namespace_says_so(self):
+        m = collect.write_error("platform-ops", "10.0.0.2", 'Error from server (NotFound): namespaces "platform-ops" not found\n')
+        self.assertIn('namespaces "platform-ops" not found', m)
+        self.assertIn("create it (for a Supervisor, a vSphere Namespace)", m)
+
+    def test_forbidden_and_expired(self):
+        self.assertIn("edit rights", collect.write_error("ns", "ctx", "Error from server (Forbidden): configmaps is forbidden: User x cannot create"))
+        self.assertIn("sign-in has expired", collect.write_error("ns", "ctx", "error: You must be logged in to the server (Unauthorized)"))
+
+    def test_a_failed_kubectl_apply_exits_with_one_line(self):
+        import os
+        import subprocess as sp
+        from unittest import mock
+        failed = sp.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b'Error from server (NotFound): namespaces "platform-ops" not found\n')
+        with mock.patch.dict(os.environ, {"KUBE_CONTEXT": "10.0.0.2"}, clear=False), mock.patch.object(collect.subprocess, "run", return_value=failed):
+            os.environ.pop("KUBERNETES_SERVICE_HOST", None)
+            with self.assertRaises(SystemExit) as e:
+                collect.write(collect.configmap({"supervisors": []}, "vks-fleet-vcenter"), "platform-ops")
+        self.assertTrue(str(e.exception).startswith("Couldn't write the ConfigMap to platform-ops via 10.0.0.2"))

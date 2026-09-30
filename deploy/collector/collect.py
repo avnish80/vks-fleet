@@ -349,24 +349,47 @@ def in_cluster_request(method, path, body=None, content_type="application/json")
         return json.loads(resp.read() or b"null")
 
 
+def write_error(namespace, where, detail):
+    """One plain line for a failed write, with what to do about the usual causes."""
+    d = (detail or "").strip().splitlines()[-1] if detail and detail.strip() else "no details"
+    hint = ""
+    low = d.lower()
+    if "not found" in low and "namespace" in low:
+        hint = f" The namespace {namespace} doesn't exist: create it (for a Supervisor, a vSphere Namespace) or choose another."
+    elif "forbidden" in low:
+        hint = (
+            f" The account can't write ConfigMaps in {namespace}: give it edit rights there, or choose a namespace it can write"
+            " (a missing namespace can also show as forbidden)."
+        )
+    elif "unauthorized" in low or "expired" in low:
+        hint = " The sign-in has expired: refresh it (kubectl vsphere login, or the refresh timer)."
+    return f"Couldn't write the ConfigMap to {namespace} via {where}: {d}.{hint}"
+
+
 def write(cm, namespace):
+    name = cm["metadata"]["name"]
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
         base = f"/api/v1/namespaces/{namespace}/configmaps"
         try:
-            in_cluster_request("PUT", f"{base}/{cm['metadata']['name']}", cm)
+            try:
+                in_cluster_request("PUT", f"{base}/{name}", cm)
+            except urllib.error.HTTPError as err:
+                if err.code != 404:
+                    raise
+                in_cluster_request("POST", base, cm)
         except urllib.error.HTTPError as err:
-            if err.code != 404:
-                raise
-            in_cluster_request("POST", base, cm)
-        log(f"wrote {namespace}/{cm['metadata']['name']}")
+            raise SystemExit(write_error(namespace, "this cluster's API", f"HTTP {err.code} {err.reason}"))
+        log(f"wrote {namespace}/{name}")
     elif os.environ.get("KUBE_CONTEXT"):
-        subprocess.run(
-            ["kubectl", "--context", os.environ["KUBE_CONTEXT"], "-n", namespace, "apply", "-f", "-"],
+        ctx = os.environ["KUBE_CONTEXT"]
+        done = subprocess.run(
+            ["kubectl", "--context", ctx, "-n", namespace, "apply", "-f", "-"],
             input=json.dumps(cm).encode(),
-            check=True,
-            stdout=subprocess.DEVNULL,
+            capture_output=True,
         )
-        log(f"wrote {namespace}/{cm['metadata']['name']} via {os.environ['KUBE_CONTEXT']}")
+        if done.returncode != 0:
+            raise SystemExit(write_error(namespace, ctx, done.stderr.decode(errors="replace")))
+        log(f"wrote {namespace}/{name} via {ctx}")
     else:
         print(json.dumps(cm, indent=2))
 

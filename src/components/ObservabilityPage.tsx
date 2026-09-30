@@ -4,7 +4,7 @@ import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
 import { useFleetData } from '../fleetContext';
-import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual } from '../observability';
+import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual, mergeByNode, NEEDS_HELP, nodeResolver } from '../observability';
 import { AppComparison, compareApps, fetchAppUsage, fetchRightSizing, RightSizing, WorkloadSizing } from '../compare';
 import { configuredByNamespace } from '../limits';
 import { compareVersions } from '../packages';
@@ -19,6 +19,7 @@ import { ChartStyles, KpiTile } from './charts';
 import { NoClusters } from './EmptyState';
 import { PackageInstallDialog } from './PackageInstallDialog';
 import { PanelDetailDialog } from './PanelDetailDialog';
+import { shortNode } from '../names';
 import { SignInHelper } from './SignInHelper';
 import { formatValue, Marker, TimeSeriesChart } from './TimeSeriesChart';
 
@@ -313,6 +314,11 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
   const start = end - RANGES[rng] * 1000;
   const markers: Marker[] = (fleetTimeline(clusters, new Date(end), 31).get(cluster.key) ?? []).map(e => ({ time: new Date(e.time).getTime(), text: e.text, tone: e.tone }));
   const [detail, setDetail] = React.useState<Panel | null>(null);
+  const [states, setStates] = React.useState<Record<string, PanelState>>({});
+  const onState = React.useCallback((id: string, st: PanelState) => setStates(prev => (prev[id] === st ? prev : { ...prev, [id]: st })), []);
+  const resolve = React.useMemo(() => nodeResolver(cluster.name, cluster.machines, shortNode), [cluster]);
+  const settled = PANELS.filter(p => states[p.id] && states[p.id] !== 'loading');
+  const missing = PANELS.filter(p => states[p.id] === 'empty' || states[p.id] === 'error');
   return (
     <SectionBox
       title={`${cluster.name}: metrics`}
@@ -336,13 +342,39 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
         Hover a chart for values at that moment; click one for a larger view with statistics, more ranges and the changes in the window.
         Markers are the fleet's own changes in this cluster. {markers.filter(m => m.time >= start).length ? '' : 'No changes in this window.'}
       </Typography>
+      {settled.length === PANELS.length && (
+        <Alert severity={missing.length ? 'warning' : 'success'} sx={{ mb: 1.5 }}>
+          <b>
+            {PANELS.length - missing.length} of {PANELS.length} panels collected
+          </b>
+          {missing.length > 0 && (
+            <>
+              {' · Not collected: '}
+              {missing.map((p, i) => (
+                <React.Fragment key={p.id}>
+                  {i > 0 && ', '}
+                  <Box
+                    component="span"
+                    role="button"
+                    sx={{ textDecoration: 'underline', cursor: 'pointer' }}
+                    onClick={() => document.getElementById(`panel-${p.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    {p.title}
+                  </Box>
+                </React.Fragment>
+              ))}
+              {' '}(each card says why, and how to fix it).
+            </>
+          )}
+        </Alert>
+      )}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 2 }}>
         {PANELS.map(p => (
-          <PanelCard key={p.id} panel={p} summary={summary} rng={rng} start={start} end={end} markers={markers} onOpen={() => setDetail(p)} />
+          <PanelCard key={p.id} panel={p} summary={summary} rng={rng} start={start} end={end} markers={markers} onOpen={() => setDetail(p)} resolve={resolve} onState={onState} />
         ))}
       </Box>
       <RightSizingSection summary={summary} cluster={cluster} />
-      {detail && <PanelDetailDialog panel={detail} summary={summary} markers={markers} initialRange={rng} onClose={() => setDetail(null)} />}
+      {detail && <PanelDetailDialog panel={detail} summary={summary} markers={markers} initialRange={rng} resolve={resolve} onClose={() => setDetail(null)} />}
     </SectionBox>
   );
 }
@@ -395,7 +427,9 @@ function RightSizingSection({ summary, cluster }: { summary: ObservabilitySummar
   );
 }
 
-function PanelCard({ panel, summary, rng, start, end, markers, onOpen }: { panel: Panel; summary: ObservabilitySummary; rng: Range; start: number; end: number; markers: Marker[]; onOpen: () => void }) {
+type PanelState = 'loading' | 'ok' | 'empty' | 'error';
+
+function PanelCard({ panel, summary, rng, start, end, markers, onOpen, resolve, onState }: { panel: Panel; summary: ObservabilitySummary; rng: Range; start: number; end: number; markers: Marker[]; onOpen: () => void; resolve: (l: Record<string, string>) => string; onState: (id: string, s: PanelState) => void }) {
   const prom = summary.stack.prometheus!;
   const data = usePolling<{ series: Series[]; error?: string }>(
     `${summary.contextName}|${panel.id}|${rng}`,
@@ -409,8 +443,12 @@ function PanelCard({ panel, summary, rng, start, end, markers, onOpen }: { panel
     },
     120
   );
+  const state: PanelState = !data ? 'loading' : data.error ? 'error' : data.series.length ? 'ok' : 'empty';
+  React.useEffect(() => onState(panel.id, state), [state]);
+  const series = data && panel.perNode ? mergeByNode(data.series, resolve) : data?.series ?? [];
+  const legend = panel.perNode ? (l: Record<string, string>) => l.name : panel.legend;
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, transition: 'box-shadow 150ms', '&:hover': { boxShadow: 3 } }}>
+    <Paper id={`panel-${panel.id}`} variant="outlined" sx={{ p: 1.5, borderRadius: 2, scrollMarginTop: 80, transition: 'box-shadow 150ms', '&:hover': { boxShadow: 3 } }}>
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
         <Typography sx={{ fontWeight: 600, flex: 1 }}>{panel.title}</Typography>
         <Button size="small" onClick={onOpen} sx={{ minWidth: 0, py: 0 }} title={panel.meaning}>
@@ -421,10 +459,17 @@ function PanelCard({ panel, summary, rng, start, end, markers, onOpen }: { panel
         <Typography variant="body2" color="text.secondary">Loading…</Typography>
       ) : data.error ? (
         <Typography variant="body2" color="error">{data.error}</Typography>
-      ) : !data.series.length ? (
-        <Typography variant="body2" color="text.secondary">Not collected here (needs {panel.needs}).</Typography>
+      ) : !series.length ? (
+        <Box sx={{ borderLeft: 3, borderColor: 'warning.main', pl: 1.25, py: 0.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            Not collected here (needs {panel.needs})
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {NEEDS_HELP[panel.needs] ?? 'Check that Prometheus collects it.'}
+          </Typography>
+        </Box>
       ) : (
-        <TimeSeriesChart series={data.series} legend={panel.legend} unit={panel.unit} start={start} end={end} markers={markers} warnAbove={panel.warnAbove} />
+        <TimeSeriesChart series={series} legend={legend} unit={panel.unit} start={start} end={end} markers={markers} warnAbove={panel.warnAbove} />
       )}
     </Paper>
   );

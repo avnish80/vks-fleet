@@ -2,12 +2,12 @@ import { StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
 import React from 'react';
 import { headlampClient } from '../api/headlampClient';
-import { firstWith, ObservabilitySummary, Panel, range, Range, RANGES, Series, seriesStats } from '../observability';
+import { firstWith, mergeByNode, NEEDS_HELP, ObservabilitySummary, Panel, range, Range, RANGES, Series, seriesStats } from '../observability';
 import { usePolling } from '../usePolling';
 import { formatValue, Marker, TimeSeriesChart } from './TimeSeriesChart';
 
 /** A chart, large, with more ranges, per-series statistics, the changes in the window, what it means, and the query. */
-export function PanelDetailDialog({ panel, summary, markers, initialRange, onClose }: { panel: Panel; summary: ObservabilitySummary; markers: Marker[]; initialRange: Range; onClose: () => void }) {
+export function PanelDetailDialog({ panel, summary, markers, initialRange, onClose, resolve }: { panel: Panel; summary: ObservabilitySummary; markers: Marker[]; initialRange: Range; onClose: () => void; resolve?: (l: Record<string, string>) => string }) {
   const [rng, setRng] = React.useState<Range>(initialRange);
   const [copied, setCopied] = React.useState(false);
   const end = Math.floor(Date.now() / 60000) * 60000;
@@ -18,7 +18,8 @@ export function PanelDetailDialog({ panel, summary, markers, initialRange, onClo
     async () => {
       try {
         const r = await firstWith(panel.queries, q => range(headlampClient(summary.contextName), prom, q, rng));
-        return { series: r.data as Series[], query: r.query };
+        const raw = r.data as Series[];
+        return { series: panel.perNode && resolve ? mergeByNode(raw, resolve) : raw, query: r.query };
       } catch (err) {
         return { series: [], error: String((err as Error)?.message ?? err) };
       }
@@ -26,7 +27,7 @@ export function PanelDetailDialog({ panel, summary, markers, initialRange, onClo
     120
   );
   const inWindow = markers.filter(m => m.time >= start && m.time <= end).sort((a, b) => b.time - a.time);
-  const rows = (data?.series ?? []).map(s => ({ name: panel.legend(s.labels), st: seriesStats(s.points) })).filter(r => r.st).sort((a, b) => b.st!.max - a.st!.max);
+  const rows = (data?.series ?? []).map(s => ({ name: (panel.perNode && resolve ? (l: Record<string, string>) => l.name : panel.legend)(s.labels), st: seriesStats(s.points) })).filter(r => r.st).sort((a, b) => b.st!.max - a.st!.max);
   return (
     <Dialog open onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -46,9 +47,9 @@ export function PanelDetailDialog({ panel, summary, markers, initialRange, onClo
         ) : data.error ? (
           <Typography color="error">{data.error}</Typography>
         ) : !data.series.length ? (
-          <Typography color="text.secondary">Not collected here (needs {panel.needs}).</Typography>
+          <Typography color="text.secondary">Not collected here (needs {panel.needs}). {NEEDS_HELP[panel.needs] ?? ''}</Typography>
         ) : (
-          <TimeSeriesChart series={data.series} legend={panel.legend} unit={panel.unit} start={start} end={end} markers={markers} warnAbove={panel.warnAbove} height={320} />
+          <TimeSeriesChart series={data.series} legend={panel.perNode && resolve ? (l: Record<string, string>) => l.name : panel.legend} unit={panel.unit} start={start} end={end} markers={markers} warnAbove={panel.warnAbove} height={320} />
         )}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 3, mt: 2 }}>
           <Box>

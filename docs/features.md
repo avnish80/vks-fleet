@@ -192,7 +192,7 @@ A compliance matrix shows every cluster, with its profile, against every rule; c
 
 **Namespaces** (sidebar: Namespaces): everything in each org's Supervisor namespaces, not just clusters, grouped by org. For operators it opens with a **Supervisor** panel: control-plane nodes (a single one is flagged as not highly available), ESXi hosts, versions. Each namespace page has:
 
-- **A network map:** the VPC (private ranges, outbound NAT), each subnet with its range, usage and what's attached, and the public addresses in use.
+- **A network map:** the VPC (private ranges, outbound NAT), each subnet with its range and usage, and what's attached, grouped per cluster (*mnet · cluster + 4 nodes*; a cluster's nodes on another of its networks are marked *secondary*, the multi-NIC case), with the public addresses in use. Cluster networks come first, then subnets in use, then public ones; unused subnets are listed on one line.
 - **The namespace's clusters, VMs and load balancers.**
 - **Subnets and subnet sets** with address usage, counted from what's actually using addresses in that namespace (private ranges repeat across VPCs, so usage never mixes namespaces).
 - **Security policies, static routes, NAT bindings and IP allocations,** and whether each applied.

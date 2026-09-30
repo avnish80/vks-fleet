@@ -184,7 +184,7 @@ export function NamespaceDetail() {
         {inv?.networking === 'none' ? (
           <Typography color="text.secondary">This Supervisor doesn't use VPC networking, which is the only kind shown so far.</Typography>
         ) : subnets.length ? (
-          <SubnetTable subnets={subnets} showNamespace={false} />
+          <SubnetTable subnets={subnets} showNamespace={false} vms={vms} />
         ) : (
           <Typography color="text.secondary">None readable.</Typography>
         )}
@@ -396,7 +396,7 @@ export function NetworkPage() {
         {invs.every(i => i.networking === 'none') ? (
           <Typography color="text.secondary">This Supervisor doesn't use VPC networking, which is the only kind shown so far.</Typography>
         ) : (
-          <SubnetTable subnets={subnets} />
+          <SubnetTable subnets={subnets} vms={invs.flatMap(i => i.vms)} />
         )}
       </SectionBox>
       {vpcs.length > 0 && (

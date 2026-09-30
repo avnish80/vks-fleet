@@ -29,6 +29,8 @@
 
 Queries are cached for a minute per cluster, the panels only load for the cluster you open, and the summary refreshes every 5 minutes. They also go through the request limiter, like everything else. Querying through the proxy needs the `services/proxy` permission in the monitoring namespace: operators normally have it; tenants may not.
 
+**When a panel is empty,** it says why and how to fix it (node-exporter, kube-state-metrics, the API server or the kubelets not being scraped), and a coverage line above the charts lists what isn't collected. etcd's database size comes from etcd's own metrics when Prometheus can reach them, and otherwise from the API server, which reports it too (Kubernetes 1.28 and later). Node charts show one series per node, by its short name, even when Prometheus scrapes a node twice.
+
 ## Investigate
 
 **Investigate** (sidebar, **Investigate** on any cluster issue, or from a cluster's charts) is one page for one cluster and one window (6 hours, 24 hours or 3 days), with two halves:

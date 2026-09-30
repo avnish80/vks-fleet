@@ -439,7 +439,10 @@ export function SettingsPanel() {
         )}
       </Section>
 
-      <Section title="vCenter collector (optional)" blurb="The collector (deploy/collector) writes vCenter's view of the Supervisors (status, hosts, alarms, utilisation, VM placement) into a ConfigMap. Pick the context where it writes; leave it empty if you don't run it.">
+      <Section
+        title="vCenter collector (optional)"
+        blurb="The collector reads vCenter (status, hosts, alarms, utilisation, VM placement) and saves it as a ConfigMap. Choose where it saves: a platform-owned Supervisor namespace needs no extra cluster; a management cluster, or the cluster Headlamp runs in, also work. Not a tenant's namespace: its users could read it. Leave the context empty if you don't run the collector."
+      >
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' }, gap: 1.5 }}>
           <ContextField
             label="Context"

@@ -150,15 +150,17 @@ export interface Panel {
   warnAbove?: number;
   /** What an operator should read into it. */
   meaning: string;
+  /** One series per node: merged per node (Prometheus may scrape a node twice) and shown by short node name. */
+  perNode?: boolean;
 }
 
 const ROOT_FS = 'mountpoint="/",fstype!~"tmpfs|overlay|squashfs"';
 const nodeName = (l: Record<string, string>) => (l.node ?? l.instance ?? '').replace(/:\d+$/, '');
 
 export const PANELS: Panel[] = [
-  { id: 'node-cpu', title: 'Node CPU', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Sustained use above 85% on a node means its pods are competing for CPU; look at Busiest pods for who, and at right-sizing.', legend: nodeName, queries: ['100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))'] },
-  { id: 'node-mem', title: 'Node memory', unit: 'percent', needs: 'node-exporter', warnAbove: 90, meaning: 'Above 90% the kubelet starts evicting pods. A steady climb is a leak; the forecast says when it runs out.', legend: nodeName, queries: ['100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'] },
-  { id: 'node-disk', title: 'Node disk (/)', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Images, logs and emptyDir volumes fill the root disk; the kubelet evicts pods when it runs low. Replacing the node clears it.', legend: nodeName, queries: [`100 * (1 - node_filesystem_avail_bytes{${ROOT_FS}} / node_filesystem_size_bytes{${ROOT_FS}})`] },
+  { id: 'node-cpu', title: 'Node CPU', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Sustained use above 85% on a node means its pods are competing for CPU; look at Busiest pods for who, and at right-sizing.', legend: nodeName, perNode: true, queries: ['100 * (1 - avg by (instance, node) (rate(node_cpu_seconds_total{mode="idle"}[5m])))'] },
+  { id: 'node-mem', title: 'Node memory', unit: 'percent', needs: 'node-exporter', warnAbove: 90, meaning: 'Above 90% the kubelet starts evicting pods. A steady climb is a leak; the forecast says when it runs out.', legend: nodeName, perNode: true, queries: ['100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'] },
+  { id: 'node-disk', title: 'Node disk (/)', unit: 'percent', needs: 'node-exporter', warnAbove: 85, meaning: 'Images, logs and emptyDir volumes fill the root disk; the kubelet evicts pods when it runs low. Replacing the node clears it.', legend: nodeName, perNode: true, queries: [`100 * (1 - node_filesystem_avail_bytes{${ROOT_FS}} / node_filesystem_size_bytes{${ROOT_FS}})`] },
   {
     id: 'api-latency',
     title: 'API server latency (p99)',
@@ -170,11 +172,17 @@ export const PANELS: Panel[] = [
     queries: ['histogram_quantile(0.99, sum by (le) (rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|CONNECT"}[5m])))'],
   },
   { id: 'api-errors', title: 'API server errors (5xx)', unit: 'rate', needs: 'API server metrics', warnAbove: 0.5, meaning: 'Requests the API server itself failed. A burst usually means etcd trouble or an admission webhook that is down.', legend: () => '5xx/s', queries: ['sum(rate(apiserver_request_total{code=~"5.."}[5m]))'] },
-  { id: 'etcd-size', title: 'etcd database size', unit: 'bytes', needs: 'etcd metrics', meaning: 'etcd stops accepting writes at its quota (2 GiB by default). Growth comes from events, secrets or custom resources piling up; compaction and defragmentation keep it in check.', legend: l => nodeName(l) || 'etcd', queries: ['max by (instance) (etcd_mvcc_db_total_size_in_bytes)', 'max by (instance) (etcd_debugging_mvcc_db_total_size_in_bytes)'] },
+  { id: 'etcd-size', title: 'etcd database size', unit: 'bytes', needs: 'etcd metrics', meaning: 'etcd stops accepting writes at its quota (2 GiB by default). Growth comes from events, secrets or custom resources piling up; compaction and defragmentation keep it in check.', legend: l => nodeName(l) || 'etcd', queries: [
+      'max by (instance) (etcd_mvcc_db_total_size_in_bytes)',
+      'max by (instance) (etcd_debugging_mvcc_db_total_size_in_bytes)',
+      // etcd serves its own metrics only on the control-plane node; the API server reports the size too.
+      'max(apiserver_storage_size_bytes)',
+      'max(apiserver_storage_db_total_size_in_bytes)',
+    ] },
   { id: 'restarts', title: 'Container restarts (per hour)', unit: 'count', needs: 'kube-state-metrics', warnAbove: 3, meaning: 'Repeated restarts are crash loops or OOM kills. Walk down from the pod: the cause may be the node, its VM or the namespace’s memory.', legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[1h]))) > 0'] },
   { id: 'top-cpu', title: 'Busiest pods (CPU cores)', unit: 'rate', needs: 'cAdvisor (kubelet)', meaning: 'Who is using the CPU. Compare with what they request (right-sizing) and with the same app in other clusters.', legend: l => `${l.namespace}/${l.pod}`, queries: ['topk(6, sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])))'] },
   { id: 'pvc-fill', title: 'Volume fill', unit: 'percent', needs: 'kubelet volume stats', warnAbove: 85, meaning: 'A full volume stops the application writing. Expand it if its storage class allows, or clean up; the forecast says how long there is.', legend: l => `${l.namespace}/${l.persistentvolumeclaim}`, queries: ['topk(8, 100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)'] },
-  { id: 'net-errors', title: 'Network errors', unit: 'rate', needs: 'node-exporter', warnAbove: 1, meaning: 'Receive and transmit errors on the node’s interfaces: usually the virtual network (MTU, the overlay, a host NIC), not the application.', legend: nodeName, queries: ['sum by (instance) (rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]))'] },
+  { id: 'net-errors', title: 'Network errors', unit: 'rate', needs: 'node-exporter', warnAbove: 1, meaning: 'Receive and transmit errors on the node’s interfaces: usually the virtual network (MTU, the overlay, a host NIC), not the application.', legend: nodeName, perNode: true, queries: ['sum by (instance, node) (rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]))'] },
 ];
 
 /* ---------------- Forecasts ---------------- */
@@ -527,5 +535,41 @@ export function seriesStats(points: Array<[number, number]>) {
   if (!v.length) return undefined;
   const p95 = v[Math.min(v.length - 1, Math.floor(v.length * 0.95))];
   return { min: v[0], max: v[v.length - 1], avg: v.reduce((n, x) => n + x, 0) / v.length, p95, latest: points[points.length - 1][1] };
+}
+
+/** Why a panel may be empty, and what to do (by what it needs). */
+export const NEEDS_HELP: Record<string, string> = {
+  'node-exporter':
+    "Prometheus isn't collecting node-exporter. VKS's Prometheus package includes it (tanzu-system-monitoring); if you run your own Prometheus, scrape those exporters or enable its own node-exporter.",
+  'kube-state-metrics': "Prometheus isn't collecting kube-state-metrics. VKS's Prometheus package includes it; otherwise scrape it, or enable it in your Prometheus chart.",
+  'API server metrics': "Prometheus isn't scraping the API server. Most setups do it with a job named kubernetes-apiservers; add it to the scrape configuration.",
+  'etcd metrics':
+    "etcd serves its metrics only on the control-plane node itself, so it's read through the API server instead (Kubernetes 1.28 and later). If this stays empty, Prometheus isn't scraping the API server (a kubernetes-apiservers job).",
+  'cAdvisor (kubelet)': "Prometheus isn't scraping the kubelets' cAdvisor endpoint (usually a job named kubernetes-nodes-cadvisor).",
+  'kubelet volume stats': "Prometheus isn't scraping the kubelets (usually a job named kubernetes-nodes), or no volume is mounted yet.",
+};
+
+/** Node label → short node name: the node label if there is one, else the instance address mapped to its node. */
+export function nodeResolver(clusterName: string, machines: Array<{ name: string; nodeName?: string; internalIP?: string }>, short: (cluster: string, node: string) => string) {
+  const byIp = new Map(machines.filter(m => m.internalIP).map(m => [m.internalIP!, m.nodeName ?? m.name]));
+  return (l: Record<string, string>) => {
+    const inst = (l.instance ?? '').replace(/:\d+$/, '');
+    const node = l.node || l.nodename || byIp.get(inst) || inst;
+    return short(clusterName, node);
+  };
+}
+
+/** One series per node: series that resolve to the same node (a node scraped by two jobs) merge, keeping the higher value. */
+export function mergeByNode(series: Series[], resolve: (l: Record<string, string>) => string): Series[] {
+  const byNode = new Map<string, Map<number, number>>();
+  for (const s of series) {
+    const name = resolve(s.labels);
+    const pts = byNode.get(name) ?? new Map<number, number>();
+    for (const [t, v] of s.points) pts.set(t, Math.max(v, pts.get(t) ?? -Infinity));
+    byNode.set(name, pts);
+  }
+  return Array.from(byNode.entries())
+    .map(([name, pts]) => ({ labels: { name }, points: Array.from(pts.entries()).sort((a, b) => a[0] - b[0]) as Array<[number, number]> }))
+    .sort((a, b) => a.labels.name.localeCompare(b.labels.name));
 }
 

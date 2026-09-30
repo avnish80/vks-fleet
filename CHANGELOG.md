@@ -2,9 +2,21 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
-## Unreleased
+## 1.33.0
+
+- **Observability:** etcd database size read through the API server when etcd's own metrics aren't reachable (they rarely are on VKS); a panel that isn't collected explains why and how to fix it; a coverage line above the charts ("9 of 10 panels collected", linking to the rest); node charts merge a node scraped twice into one series, and all node charts show the same short node names (IP addresses mapped to nodes).
+- **Networks:** attachments grouped per cluster (*mnet · cluster + 4 nodes*), a cluster's nodes on another network marked as *secondary* (multi-NIC, as with Multus), subnets ordered (cluster networks, in use, public), unused subnets on one line, and short names throughout.
+
+## 1.32.0
+
+- The vCenter collector can save into a platform-owned Supervisor namespace, so no extra cluster is needed; the docs set out the options (Supervisor namespace, an existing cluster, in-cluster), and the settings say so.
+- The collector reports a failed write in one plain line (a missing namespace, missing rights, an expired sign-in) instead of a traceback.
+
+## 1.31.0
 
 - Settings rebuilt for first-time setup: a **setup status** at the top (each Supervisor's clusters and namespaces or why not, VCF Automation sign-ins, the vCenter collector, elevation's admin contexts); context pickers instead of free text; org names found automatically, each with a name field; rarely needed fields under Advanced; changes as one choice (allow, elevate to change, read-only); display settings together; diagnostics collapsed.
+
+## 1.30.0
 
 - Launch readiness: Apache 2.0 licence, NOTICE, security note, contributing guide, issue templates, Helm chart, Artifact Hub metadata, neutral example configuration, and a first-run offer of demo mode.
 - A short README telling the story (observe, detect, explain, predict, remediate, audit); the reference material moved into guides under `docs/`.

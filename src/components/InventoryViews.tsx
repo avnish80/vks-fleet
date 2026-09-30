@@ -1,5 +1,6 @@
 import { SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Typography } from '@mui/material';
+import { Attachment, groupAttachments, orderSubnets, subnetGroup } from '../networkView';
 import React, { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
@@ -112,7 +113,7 @@ export function LbTable({ lbs, clusters, showNamespace = true }: { lbs: LbInfo[]
   );
 }
 
-export function SubnetTable({ subnets, showNamespace = true }: { subnets: SubnetInfo[]; showNamespace?: boolean }) {
+export function SubnetTable({ subnets, showNamespace = true, vms = [] }: { subnets: SubnetInfo[]; showNamespace?: boolean; vms?: ServiceVm[] }) {
   return (
     <SimpleTable
       columns={[
@@ -124,14 +125,28 @@ export function SubnetTable({ subnets, showNamespace = true }: { subnets: Subnet
         { label: 'Access', getter: (s: SubnetInfo) => s.accessMode ?? '—' },
         { label: 'CIDR', getter: (s: SubnetInfo) => s.cidrs.join(', ') || 'none yet' },
         { label: 'Used', getter: (s: SubnetInfo) => (s.capacity ? <UsageBar used={s.used} total={s.capacity} /> : '—') },
-        { label: 'Attached', getter: (s: SubnetInfo) => s.members.join(', ') || '—' },
+        {
+          label: 'Attached',
+          getter: (s: SubnetInfo) => {
+            const a = groupAttachments(s, vms);
+            return a.length ? (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {a.map(x => (
+                  <AttachmentChip key={x.label} a={x} />
+                ))}
+              </Box>
+            ) : (
+              '—'
+            );
+          },
+        },
         {
           label: 'State',
           getter: (s: SubnetInfo) =>
             s.ready === false ? <StatusLabel status="error">{s.message ?? 'Not ready'}</StatusLabel> : s.ready ? <StatusLabel status="success">Ready</StatusLabel> : '—',
         },
       ]}
-      data={[...subnets].sort((a, b) => (b.capacity ? b.used / b.capacity : 0) - (a.capacity ? a.used / a.capacity : 0))}
+      data={orderSubnets(subnets)}
     />
   );
 }
@@ -228,7 +243,9 @@ export function NetworkMap({
           'primary'
         )}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 1.5 }}>
-        {subnets.map(s =>
+        {orderSubnets(subnets)
+          .filter(s => subnetGroup(s) !== 'unused')
+          .map(s =>
           box(
             <>
               <Typography sx={{ fontWeight: 600 }} noWrap title={s.name}>
@@ -239,10 +256,8 @@ export function NetworkMap({
               </Typography>
               {s.capacity > 0 && <UsageBar used={s.used} total={s.capacity} />}
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
-                {s.members.map(m => (
-                  <Box key={m} sx={{ px: 0.75, py: 0.25, borderRadius: 1, bgcolor: 'action.hover', fontSize: '0.75rem' }}>
-                    {m}
-                  </Box>
+                {groupAttachments(s, vms).map(a => (
+                  <AttachmentChip key={a.label} a={a} />
                 ))}
               </Box>
             </>,
@@ -251,6 +266,19 @@ export function NetworkMap({
           )
         )}
       </Box>
+      {subnets.some(s => subnetGroup(s) === 'unused') && (
+        <Typography variant="body2" color="text.secondary">
+          <b>Unused:</b>{' '}
+          {orderSubnets(subnets)
+            .filter(s => subnetGroup(s) === 'unused')
+            .map((s, i) => (
+              <span key={`${s.kind}/${s.name}`} title={`${s.accessMode ?? s.kind} · ${s.cidrs.join(', ') || 'no range yet'}${s.capacity ? ` · 0 of ${s.capacity} addresses` : ''}`}>
+                {i > 0 && ', '}
+                {s.name}
+              </span>
+            ))}
+        </Typography>
+      )}
       {lbs.length > 0 &&
         box(
           <>
@@ -313,5 +341,27 @@ export function SupervisorPanel({ nodes }: { nodes?: SupervisorNodes }) {
         </Box>
       </Box>
     </SectionBox>
+  );
+}
+
+/** One attachment: a cluster (its nodes on hover) or a VM. Secondary networks are marked. */
+function AttachmentChip({ a }: { a: Attachment }) {
+  return (
+    <Box
+      title={a.title}
+      sx={{
+        px: 0.75,
+        py: 0.25,
+        borderRadius: 1,
+        bgcolor: 'action.hover',
+        fontSize: '0.75rem',
+        maxWidth: '100%',
+        overflowWrap: 'anywhere',
+        fontWeight: a.kind === 'cluster' ? 700 : 400,
+        ...(a.secondary ? { border: 1, borderColor: 'info.main', borderStyle: 'dashed' } : {}),
+      }}
+    >
+      {a.label}
+    </Box>
   );
 }
