@@ -11,7 +11,8 @@ import {
   Typography,
 } from '@mui/material';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { leadsSomewhere } from '../links';
 import { diagnosisMarkdown } from '../issues';
 import { FleetCluster, Issue, RunbookStep } from '../types';
 import { SilenceDialog } from './SilenceDialog';
@@ -107,7 +108,11 @@ function IssueCard({
   const [showRunbook, setShowRunbook] = React.useState(false);
   const [silencing, setSilencing] = React.useState(false);
   const text = React.useMemo(() => diagnosisMarkdown(issue, cluster, supervisorName), [issue, cluster, supervisorName]);
-  const primary = issue.primary ?? issue.links[0];
+  const here = useLocation().pathname;
+  const candidate = issue.primary ?? issue.links[0];
+  // A link to this very page (with no section to jump to) would do nothing: leave it out.
+  const primary = candidate && leadsSomewhere(candidate.path, here) ? candidate : undefined;
+  const others = issue.links.filter(l => l.path !== candidate?.path && leadsSomewhere(l.path, here));
   const edge = issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
 
   async function copy() {
@@ -207,9 +212,9 @@ function IssueCard({
             {showRunbook && <Runbook steps={issue.runbook} />}
           </Box>
         )}
-        {issue.links.filter(l => l.path !== primary?.path).length > 0 && (
+        {others.length > 0 && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {issue.links.filter(l => l.path !== primary?.path).map(l => (
+            {others.map(l => (
               <Link key={l.path} to={l.path}>
                 {l.label}
               </Link>

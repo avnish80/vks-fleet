@@ -106,7 +106,7 @@ export function scanIssues(scans: ClusterScan[], clusters: FleetCluster[], now: 
           : `Several classes are marked default (${sc.defaults.join(', ')}); which one a claim gets is unpredictable.`,
         evidence: [`Storage classes: ${sc.names.join(', ')}`],
         fix: none ? 'Mark one class as the default (usually the vSAN default policy).' : 'Keep one default and remove the annotation from the others.',
-        primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+        primary: { label: 'workloads', path: clusterDeepLink(c, { hash: 'inside' }) },
         runbook: [
           {
             title: none ? 'Mark a default' : 'Remove the extra default marks',
@@ -128,7 +128,7 @@ export function scanIssues(scans: ClusterScan[], clusters: FleetCluster[], now: 
         cause: `${n.terminating.length} pod${n.terminating.length === 1 ? '' : 's'} stuck terminating and ${n.creating.length} stuck creating for over 3 minutes on this node. That usually means its pod networking (the CNI chain: Multus, then Calico or Antrea) has stalled.`,
         evidence: [...n.terminating.map(p => `terminating: ${p}`), ...n.creating.map(p => `creating: ${p}`)].slice(0, 8),
         fix: "Restart the node's Multus pod (its DaemonSet recreates it). If pods still hang, replace the node.",
-        primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+        primary: { label: 'workloads', path: clusterDeepLink(c, { hash: 'inside' }) },
         runbook: [
           { title: 'CNI pods on the node', commands: [`${k} get pods -A -o wide --field-selector spec.nodeName=${n.node} | grep -i -E 'multus|calico|antrea'`] },
           { title: 'What the stuck pods report', commands: [`${k} describe pod -n ${(n.terminating[0] ?? n.creating[0]).split('/')[0]} ${(n.terminating[0] ?? n.creating[0]).split('/')[1]} | sed -n '/Events:/,$p' | tail -6`] },

@@ -2,6 +2,12 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.33.1
+
+- Fix: *Go to …* buttons on a cluster's page did nothing when clicked a second time (or when the address already pointed at that section); every click now scrolls to the section and highlights it.
+- Issue cards no longer show links to the page they're on (such as *Open kubernetes-cluster-c3d4* on that cluster's own page).
+- *Go to workloads* instead of *Go to inside the cluster*; the section is titled *Workloads inside the cluster*.
+
 ## 1.33.0
 
 - **Observability:** etcd database size read through the API server when etcd's own metrics aren't reachable (they rarely are on VKS); a panel that isn't collected explains why and how to fix it; a coverage line above the charts ("9 of 10 panels collected", linking to the rest); node charts merge a node scraped twice into one series, and all node charts show the same short node names (IP addresses mapped to nodes).

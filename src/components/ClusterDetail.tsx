@@ -290,8 +290,11 @@ export function ClusterDetail() {
   const focus = new URLSearchParams(location.search).get('focus') ?? undefined;
   React.useEffect(() => {
     if (!cluster) return;
-    const key = `${location.search}${location.hash}`;
-    if (!key || handled.current === key) return;
+    if (!location.search && !location.hash) return;
+    // Each navigation has its own key: a second click on the same section link scrolls again,
+    // while this page's own refreshes (same navigation) don't.
+    const key = `${(location as { key?: string }).key ?? ''}${location.search}${location.hash}`;
+    if (handled.current === key) return;
     handled.current = key;
     const q = new URLSearchParams(location.search);
     const act = writeOk ? q.get('action') : null;
@@ -315,7 +318,7 @@ export function ClusterDetail() {
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [cluster?.key, location.search, location.hash]);
+  }, [cluster?.key, location.search, location.hash, (location as { key?: string }).key]);
 
   const back = (
     <Box sx={{ mb: 2 }}>
@@ -548,7 +551,7 @@ export function ClusterDetail() {
       </Box>
 
       <Box id="inside" sx={{ scrollMarginTop: 72 }} />
-      <SectionBox title="Inside the cluster">
+      <SectionBox title="Workloads inside the cluster">
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
       </SectionBox>
 

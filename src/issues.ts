@@ -99,7 +99,7 @@ function clusterIssues(
     if (machine) issue.links.push({ label: `Machine ${machine.nodeName ?? machine.name}`, path: machinePath(c, machine.name) });
     issue.primary = machine
       ? { label: `Machine ${machine.nodeName ?? machine.name}`, path: machinePath(c, machine.name) }
-      : { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) };
+      : { label: 'workloads', path: clusterDeepLink(c, { hash: 'inside' }) };
     if (wl?.contextName) issue.links.push({ label: 'Node in Headlamp', path: headlampNodePath(wl.contextName, s.node) });
     issue.runbook = networkRunbook(rb, s.node, machine);
     out.push(issue);
@@ -235,7 +235,7 @@ function clusterIssues(
       title: `${claims.length} volume claim${claims.length === 1 ? '' : 's'} stuck pending in ${c.name}`,
       cause: 'The cluster could not provision the volumes: usually a storage class the namespace has no quota or policy for, or storage quota exhausted.',
       fix: "Check the claim's events and the Supervisor namespace's storage quota and policies.",
-      primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+      primary: { label: 'workloads', path: clusterDeepLink(c, { hash: 'inside' }) },
       runbook: pvcRunbook(rb, claims),
     };
     issue.evidence = claims.slice(0, 5).map(p => `${p.namespace}/${p.name} (${p.detail ?? ''})`);
@@ -250,7 +250,7 @@ function clusterIssues(
       title: `${svcs.length} LoadBalancer service${svcs.length === 1 ? '' : 's'} without an external IP in ${c.name}`,
       cause: 'The Supervisor has not assigned a load balancer IP: often the namespace network has run out of external IPs, or the load balancer service failed.',
       fix: "Check the service's events, and the Supervisor's warnings about IPs for this namespace.",
-      primary: { label: 'Inside the cluster', path: clusterDeepLink(c, { hash: 'inside' }) },
+      primary: { label: 'workloads', path: clusterDeepLink(c, { hash: 'inside' }) },
       runbook: loadBalancerRunbook(rb, svcs),
     };
     issue.evidence = svcs.slice(0, 5).map(x => `${x.namespace}/${x.name}`);
