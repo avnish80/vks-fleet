@@ -1,7 +1,9 @@
 # VKS fleet
 
-**One view of every vSphere Kubernetes Service (VKS) cluster across your Supervisors**: what needs you now, what runs out in the next 30 days, the Supervisor itself, and a pre-flight before every change. A [Headlamp](https://headlamp.dev) plugin.
+**Operations and reliability for vSphere Kubernetes Service (VKS) fleets.** A [Headlamp](https://headlamp.dev) plugin that brings health, investigation, capacity forecasting and change planning together across your Supervisors and their VKS clusters: understand what needs attention, trace a problem from a workload down to the ESXi host, and see what a change will do before you start it. Built for VCF platform operators, with a demo that needs no VMware lab.
 
+> **Release candidate.** Tested on a real VCF 9.1 lab and in demo mode; some write paths aren't yet confirmed on a live system (see [Validation status](#validation-status)).
+>
 > **A personal open-source project.** Not affiliated with, endorsed by, or supported by Broadcom or VMware. Product names are used only to describe what it works with (see [NOTICE](NOTICE)). [Apache 2.0](LICENSE).
 
 ![The fleet page: fleet score, what needs you now, the next 30 days, and the orgs](docs/images/fleet.png)
@@ -32,7 +34,9 @@ Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, 
 
 ## Who it's for
 
-The same plugin serves everyone; what each person sees and can do comes from their own RBAC, not a mode in the UI. **Operators** see every org, with fleet-wide actions. **Read-only admins** see everything and change nothing. **Tenants** (directly or through VCF Automation) see only their own org's namespaces and clusters.
+The same plugin serves everyone; what it shows and allows follows the RBAC of the account Headlamp signs in with, not a mode in the UI. **Operators** see every org, with fleet-wide actions. **Read-only admins** see everything and change nothing. **Tenants** (directly or through VCF Automation) see only their own org's namespaces and clusters.
+
+**Personal or shared?** With Headlamp desktop, or a Headlamp each person runs with their own sign-in, every user acts with their own rights. A **shared in-cluster Headlamp** signs in with one dedicated account, so **everyone who can open it acts as that account**: put it behind authentication (see [SECURITY.md](SECURITY.md#shared-installations)), and give that account read-only rights, with changes going through elevation.
 
 ## Quick start
 
@@ -40,29 +44,37 @@ The same plugin serves everyone; what each person sees and can do comes from the
 - **In a cluster, with Helm:** the chart attached to each release, with a job that keeps sign-ins fresh and the optional vCenter collector:
 
   ```bash
-  helm install vks-fleet https://github.com/avnish80/vks-fleet/releases/latest/download/vks-fleet-<version>.tgz \
-    -n vks-fleet --create-namespace --set plugin.source=download --set refresher.supervisors=<supervisor address>
+  VERSION=1.34.0                 # the release to install
+  SUPERVISOR=10.0.0.2            # your Supervisor's address
+  helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \
+    -n vks-fleet --create-namespace --set plugin.source=download --set refresher.supervisors="$SUPERVISOR"
   ```
 
-  See [the chart](deploy/helm/vks-fleet/README.md) for the credentials Secret and exposure, or [deploy/](deploy/README.md) for kustomize.
+  It needs a Secret with the sign-in account first, and usually vCenter's CA (TLS is verified): see [the chart](deploy/helm/vks-fleet/README.md), or [deploy/](deploy/README.md) for kustomize.
 
-Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, tenants and what to verify first.
+Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, orgs and demo mode.
 
 ## Security in brief
 
-The plugin runs in your browser with Headlamp's sign-ins: no server, no credentials and no telemetry of its own. It changes nothing unless you run an action, and every action shows its checks and runs a dry run first. The vCenter collector uses a read-only account. Details, and how to report a problem privately: [SECURITY.md](SECURITY.md).
+The plugin runs in your browser with Headlamp's sign-ins: no server, no credentials and no telemetry of its own. It changes nothing unless you run an action, and every action shows its checks and runs a dry run first (a dry run catches what the API would refuse; it isn't a guarantee that a multi-step change completes, and if one fails partway the plugin says which steps took effect). The sign-in refresher and the vCenter collector verify TLS certificates by default, and the collector uses a read-only account. Details, and how to report a problem privately: [SECURITY.md](SECURITY.md).
 
 ## Compatibility
 
-Developed and tested against VMware Cloud Foundation 9.1 with vSphere Kubernetes Service 3.7 (Cluster API v1beta1), on a recent Headlamp. Other versions may work; issues with version details are welcome.
+Developed and tested against VMware Cloud Foundation 9.1 with vSphere Kubernetes Service 3.7 (Cluster API v1beta1), on Headlamp 0.45. Other versions may work; issues with version details are welcome.
+
+### Validation status
+
+- **On a real VCF 9.1 lab** (one Supervisor, two VKS clusters, VCF Automation tenants): every read and view, the vCenter collector, and patch-type changes with their dry runs.
+- **Not yet confirmed on a live system:** pausing and scaling through the VKS admission webhooks, deletes, drain timeouts reaching machines already deleting, and some links into Headlamp's own pages. The [development guide](docs/development.md#confirmed-on-a-live-system-and-still-open) keeps the full list.
+- **Scale:** demo mode exercises the pages at up to 50 clusters; a real fleet has been tested at 2. Checks run from the browser, which suits tens of clusters (see [known limits](docs/development.md#known-limits)).
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md): running it, sign-ins, multiple Supervisors, demo mode, what to verify first
+- [Getting started](docs/getting-started.md): running it, sign-ins, multiple Supervisors, demo mode
 - [Features](docs/features.md): every page and what it shows
 - [The Supervisor](docs/supervisor.md): Supervisor health, hosts, the vCenter collector
 - [Observability and investigation](docs/observability.md)
 - [Making changes safely](docs/making-changes.md): pre-flight, elevation, actions, provisioning
 - [Deployment](deploy/README.md) and the [Helm chart](deploy/helm/vks-fleet/README.md)
-- [Development and reference](docs/development.md): building, tests, code layout, what it reads, known limits
+- [Development and reference](docs/development.md): building, tests, code layout, what it reads, what's confirmed on a live system, known limits
 - [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)

@@ -6,8 +6,8 @@
 headlamp:
   image:
     repository: ghcr.io/headlamp-k8s/headlamp
-    # Pin to the Headlamp version you've tested.
-    tag: latest
+    # The Headlamp release this plugin is tested with.
+    tag: v0.45.0
     pullPolicy: IfNotPresent
   resources:
     requests: { cpu: 100m, memory: 128Mi }
@@ -48,6 +48,13 @@ ingress:
   annotations: {}
   tls: []
 
+# TLS: certificates are verified. Most Supervisors and vCenters use vCenter's own CA:
+# put it in a Secret under the key ca.crt and name the Secret here (used by the
+# refresher and the collector).
+#   kubectl -n vks-fleet create secret generic vks-fleet-ca --from-file=ca.crt=vcenter-ca.pem
+# (vCenter's CA: https://<vcenter>/certs/download.zip)
+caSecret: ""
+
 # Keeps Headlamp's sign-ins fresh: signs in to each Supervisor (and the VKS
 # clusters it can see) with a dedicated vSphere account, stores the kubeconfig
 # as a Secret, and restarts Headlamp.
@@ -62,6 +69,8 @@ refresher:
   # A Secret with keys username and password, created beforehand:
   #   kubectl create secret generic vks-fleet-vsphere --from-literal=username=… --from-literal=password=…
   credentialsSecret: vks-fleet-vsphere
+  # Skip TLS verification for the Supervisor: lab certificates only. Prefer caSecret.
+  insecure: false
   # Further refresher settings, for example the VCF Automation mode used by
   # tenant deployments (MODE: vcfa, VCFA_ENDPOINT, VCFA_TENANT…; see deploy/README.md).
   env: {}

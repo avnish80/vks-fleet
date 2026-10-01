@@ -35,6 +35,8 @@ On a shared, in-cluster deployment, per-user sign-in (OIDC) is the stronger end 
 
 ## Actions
 
+**What a dry run guarantees, and what it doesn't.** Each write is sent with `?dryRun=All` first, so anything the API (and the VKS admission webhooks) would refuse is caught before anything changes. It reserves nothing: conditions can change before you apply. A change made of several writes isn't a transaction either: if a later write fails, the earlier ones have already taken effect, and the dialog says exactly that (*"Step 2 of 3 failed (…). Already applied, and not undone: … 1 later step was not sent."*), so you can check the object before trying again.
+
 The cluster page can make changes on the Supervisor:
 
 - **Upgrade:** pick a target from the releases the Supervisor actually offers, one minor version at a time, and optionally move to the newer ClusterClass. The preflight checks:

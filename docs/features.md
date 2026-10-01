@@ -8,7 +8,7 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 | Entry | What's in it |
 |---|---|
-| **VKS fleet** | The fleet page: at a glance, needs you now, the next 30 days; org cards, overview, clusters, issues |
+| **VKS fleet** | The fleet page: fleet score, needs you now, the next 30 days; org cards, clusters at a glance, activity, clusters, issues |
 | **Supervisor health** | The platform itself: controllers, services, placement, hosts, vCenter's view |
 | **Namespaces** | Per-org namespaces, quotas, VMs, networks; New VM… and New cluster… |
 | **Compute** | Nodes (machines) · VMs |
@@ -23,9 +23,9 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 Search is one keystroke away everywhere: **Ctrl+K**.
 
-**The fleet page** is built so that every number appears once. It opens with three things: **fleet health** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health), **Needs you now** (the top three issues, critical first and then by how much they touch, each with Investigate), and **the next 30 days** (a timeline of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back). *Needs you now* puts time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings.
+**The fleet page** is built so that every number appears once. It opens with three things: **the fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health), **Needs you now** (the top three issues, critical first and then by how much they touch, each with Investigate), and **the next 30 days** (a timeline of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back). *Needs you now* puts time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings.
 
-Below it: the org cards; **Clusters at a glance**, one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured (clicking the fleet score opens it); cards only where there's something to show (busiest nodes, subnet usage, and version or package drift when there is some); the activity heatmap; and the issues. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `9yfw`, nodes without their cluster's prefix), with the full name on hover.
+Below it: the org cards; **Clusters at a glance**, one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured (clicking the fleet score opens it); cards only where there's something to show (busiest nodes, subnet usage, and version or package drift when there is some); the activity heatmap; and the issues. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
 
 **Built for fleets.** Pages that cover every cluster show a **fleet roll-up first** (for example, the compliance controls failing across the fleet: one failing in 17 of 20 clusters is one problem to fix once), then **one compact row per cluster** with its counts, clusters needing attention first. Expanding a row shows its first rows, most important first; **Show all** opens the full table in a dialog. Long lists (nodes, namespaces, repositories, issues) have a **filter box and paging**. To see every page at scale, turn on demo mode and set **Demo fleet size** to 20 or 50 clusters.
 
@@ -33,26 +33,9 @@ The plugin follows Headlamp's theme, light or dark: every colour comes from the 
 
 ## What it shows
 
-**Everything on the overview is clickable** and leads to the data behind it:
+**Everything leads to the data behind it:** the fleet score opens *Clusters at a glance*; each item in *Needs you now* opens Investigate (or Supervisor health); the dots on the 30-day timeline name what they are; a cluster's name opens its page; busiest nodes open the node, and subnets the namespace's network; a cell in the activity heatmap opens that cluster's timeline for that day.
 
-- the Clusters tile opens the clusters that need attention
-- Nodes ready opens the fleet-wide Machines page (problems first)
-- Capacity scrolls to the capacity table; Tenants to the tenant rollup
-- Issues opens the issues; Upgrades lists the clusters that can be upgraded
-- a health slice or a version bar filters the cluster list
-- certificate, score and package bars open their source
-- heatmap cells open that cluster's timeline for that day
-
-Filters live in the URL (`?health=degraded`, `?version=v1.36.2+vmware.2`, `?upgradable=1`, `?tenant=…`), so a filtered view can be shared.
-
-**Overview** (top of the fleet page, follows the tenant filter):
-
-- headline tiles: clusters, nodes ready, node capacity, tenants, findings, upgrades
-- cluster health (donut) and clusters by tenant (stacked bars; click a tenant to filter)
-- Kubernetes versions in use and node capacity by tenant
-- days left on control-plane certificates
-- recent changes made through the plugin, from the `vks-fleet/last-action` stamps
-- an activity heatmap: clusters × the last 7 days, each cell counting that day's changes and coloured by the most serious one
+Filters live in the URL (the search box, *only clusters with problems*, the org), so a filtered view can be shared.
 
 The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
 
@@ -90,7 +73,7 @@ Cluster page links take `?focus=<row>&action=<dialog>&pool=<pool>#<section>`, so
 - Operations: not paused, no leftover timeouts, backup (Velero) installed
 - Security: no privileged pods, resource limits set, no `:latest` images (user namespaces only)
 
-The overview shows the lowest scores; the cluster page shows every check with how to fix it.
+*Clusters at a glance* shows each cluster's score; the cluster page shows every check with how to fix it.
 
 **Findings:** things an operator should know or do, each with what to do about it. They're computed from everything below, fleet-wide and per cluster:
 
@@ -190,7 +173,7 @@ A compliance matrix shows every cluster, with its profile, against every rule; c
 
 **Access** (sidebar: Access, and a section on each cluster page): who can reach each Supervisor namespace, from its role bindings, with system accounts hidden by default. Each cluster has ready-to-send **connection instructions** for developers.
 
-**Backups** (cluster page, and an overview card): Velero schedules, recent backups, and the last success and failure per signed-in cluster. A failed latest backup, or no success within the baseline's window while backups are scheduled, becomes an issue with a runbook. The scorecard's backup check now uses this.
+**Backups** (cluster page, and the Backup column of *Clusters at a glance*): Velero schedules, recent backups, and the last success and failure per signed-in cluster. A failed latest backup, or no success within the baseline's window while backups are scheduled, becomes an issue with a runbook. The scorecard's backup check now uses this.
 
 **Namespaces** (sidebar: Namespaces): everything in each org's Supervisor namespaces, not just clusters, grouped by org. For operators it opens with a **Supervisor** panel: control-plane nodes (a single one is flagged as not highly available), ESXi hosts, versions. Each namespace page has:
 
@@ -214,7 +197,7 @@ New issues, each with a runbook:
 - storage quotas over 85%
 - Supervisor nodes not ready
 
-**Search** covers VMs (name, IP, image) and VIPs. For an IP it also names the subnet containing it, and whose VPC that is. The overview adds a **Subnet usage** card.
+**Search** covers VMs (name, IP, image) and VIPs. For an IP it also names the subnet containing it, and whose VPC that is. The fleet page adds a **Subnet usage** card.
 
 VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other networking, the rest still works and the network sections say so. Everything reads through the same routing as the clusters, so VCF Automation tenants see their org's namespaces.
 
@@ -437,4 +420,4 @@ What one open browser tab costs:
 - **Remembered lookups:** a resource type that isn't installed (answering "not found") isn't asked for again for 10 minutes, and the API version that answered is tried first. Named objects are always fetched, and newly installed tools show up within 10 minutes. On repeat refreshes this cut the Supervisor inventory from about 61 requests to 8.
 - **Hidden tabs don't poll.** Refreshes pause and catch up when the tab is shown again. A failed refresh keeps the last good data.
 - **Diagnostics** (bottom of Settings) shows requests, errors, average and slowest times and the last error, per cluster, since the tab was opened. Use it to judge load, or to spot a slow or failing cluster.
-- **A failing section doesn't blank the page.** Each page, and the fleet page's org cards, overview and issues, show what failed with **Try again** and **Copy details** (for a bug report); the rest keeps working.
+- **A failing section doesn't blank the page.** Each page, and the fleet page's org cards, *Clusters at a glance* and issues, show what failed with **Try again** and **Copy details** (for a bug report); the rest keeps working.

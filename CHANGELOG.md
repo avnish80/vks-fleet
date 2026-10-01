@@ -2,6 +2,18 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.34.0 (release candidate)
+
+Hardening for publication, from an external review:
+
+- **TLS verified by default:** the sign-in refresher no longer skips certificate checks for the Supervisor (when downloading its CLI tools and signing in), and neither does the jump-server script. `CA_FILE` (the chart's `caSecret`, or an optional `vks-fleet-ca` Secret with kustomize) trusts vCenter's CA; the collector accepts it too. Skipping verification takes an explicit lab-only switch.
+- **Shared installations:** the README no longer implies per-person rights for a shared in-cluster Headlamp (everyone acts as its one account). SECURITY.md has a *Shared installations* section with an authenticating-proxy example and a read-only default, plus *TLS* and *Changes and their guarantees*.
+- **Changes made of several writes** report a failure partway exactly: which steps took effect (and weren't undone), which failed, which weren't sent. The docs state what a dry run does and doesn't guarantee.
+- **Builds:** type-checking against the real Headlamp types now blocks a release; the plugin tooling is pinned (`@kinvolk/headlamp-plugin` 0.14) and Headlamp to v0.45.0 in the chart and manifests.
+- **README:** a new description, a release-candidate note with a validation status (what's confirmed on a live system, what isn't, and the scale tested), and a copy-pasteable Helm command.
+- **Docs:** screenshots from demo mode in the README and guides; the fleet-page description matches the page since 1.29 (no tiles, overview charts, capacity or tenants tables); the early "verify first" checklist replaced by what's confirmed on VCF 9.1 and what's still open (in the development guide); the Helm chart's install commands take a version instead of a pinned one.
+- **Code:** the unused Overview component and its helpers removed.
+
 ## 1.33.4
 
 - **One Supervisor score everywhere:** the fleet page, Supervisor health and Investigate all show the score with vCenter's findings when the collector has data (the fleet page showed the API-only score: 84 where Supervisor health said 64).

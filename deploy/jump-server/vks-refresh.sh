@@ -19,16 +19,23 @@ ADMIN_USER=administrator@vsphere.local
 READ_PASS_FILE=/root/.vsphere-pass-read        # chmod 600
 ADMIN_PASS_FILE=/root/.vsphere-pass-admin      # chmod 600
 SUFFIX=-admin                                  # must match the plugin's setting
+# TLS: certificates are verified. If the Supervisor's certificate is signed by vCenter's own CA
+# (the usual case), point CA_FILE at that CA (https://<vcenter>/certs/download.zip).
+CA_FILE=                                       # e.g. /root/vcenter-ca.pem
+INSECURE=false                                 # true skips verification: lab certificates only
+TLS_FLAG=""
+[ "$INSECURE" = true ] && TLS_FLAG=--insecure-skip-tls-verify
+[ -n "$CA_FILE" ] && export SSL_CERT_FILE="$CA_FILE"   # kubectl-vsphere trusts this bundle
 # namespace/cluster pairs to sign in to
 CLUSTERS="team-a-ns1/kubernetes-cluster-c3d4 team-a-ns1/kubernetes-cluster-a1b2"
 
 login() { # user password-file [namespace cluster]
   export KUBECTL_VSPHERE_PASSWORD="$(cat "$2")"
   if [ $# -ge 4 ]; then
-    kubectl vsphere login --server="$S" --vsphere-username "$1" --insecure-skip-tls-verify \
+    kubectl vsphere login --server="$S" --vsphere-username "$1" $TLS_FLAG \
       --tanzu-kubernetes-cluster-namespace "$3" --tanzu-kubernetes-cluster-name "$4" >/dev/null
   else
-    kubectl vsphere login --server="$S" --vsphere-username "$1" --insecure-skip-tls-verify >/dev/null
+    kubectl vsphere login --server="$S" --vsphere-username "$1" $TLS_FLAG >/dev/null
   fi
   unset KUBECTL_VSPHERE_PASSWORD
 }

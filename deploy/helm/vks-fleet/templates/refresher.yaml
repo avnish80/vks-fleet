@@ -97,6 +97,12 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
+                - name: SUPERVISOR_INSECURE
+                  value: {{ .Values.refresher.insecure | toString | quote }}
+                {{- if .Values.caSecret }}
+                - name: CA_FILE
+                  value: /etc/vks-fleet-ca/ca.crt
+                {{- end }}
                 - name: VSPHERE_USERNAME
                   valueFrom:
                     secretKeyRef:
@@ -122,12 +128,22 @@ spec:
                   readOnly: true
                 - name: work
                   mountPath: /work
+                {{- if .Values.caSecret }}
+                - name: ca
+                  mountPath: /etc/vks-fleet-ca
+                  readOnly: true
+                {{- end }}
           volumes:
             - name: script
               configMap:
                 name: {{ include "vks-fleet.name" . }}-refresher
             - name: work
               emptyDir: {}
+            {{- if .Values.caSecret }}
+            - name: ca
+              secret:
+                secretName: {{ .Values.caSecret }}
+            {{- end }}
           {{- with .Values.nodeSelector }}
           nodeSelector: {{- toYaml . | nindent 12 }}
           {{- end }}

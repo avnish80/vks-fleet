@@ -162,7 +162,6 @@ tests/                  Node test runner suites (demo pipeline, rules, limiter)
   search.ts             Fleet-wide search: query parsing, Supervisor and in-cluster matching
   actions.ts            Action plans: checks, confirmations and the exact writes
   machine.ts            Machine page data: machine, VM, events; node, pods, drain blockers, pinned pods
-  overview.ts           Numbers behind the overview tiles and charts
   selector.ts           Kubernetes label selector matching
   quantity.ts           Kubernetes quantity parsing
   fleet.ts              fetchSupervisor() (never throws), fetchFleet() fan-out
@@ -174,7 +173,7 @@ tests/                  Node test runner suites (demo pipeline, rules, limiter)
   routes.ts             URLs built from supervisor/namespace/name
   settings/             ConfigStore wrapper, settings form, preset config.json loader
 deploy/                 In-cluster operator deployment (kustomize) and the sign-in refresher
-  components/           FleetView, Overview, charts, ClusterDetail, MachineDetail, ActionDialog, shared bits
+  components/           FleetView, FleetHero, FleetDetails, charts, ClusterDetail, MachineDetail, ActionDialog, shared bits
   index.tsx             Sidebar, routes, settings registration
 ```
 
@@ -184,11 +183,27 @@ Everything except the hooks, `api/headlampClient.ts`, `settings/` and `component
 
 Add `capi/v1beta2.ts` that produces the same `FleetCluster` model, and choose between the two translators in `fleet.ts`.
 
+## Confirmed on a live system, and still open
+
+Developed and tested against VMware Cloud Foundation 9.1 with vSphere Kubernetes Service 3.7. These Headlamp and VKS details have been **seen working** there:
+
+- Headlamp: `ApiProxy.request` for reads and writes (merge and JSON patches, with `?dryRun=All` first), `ConfigStore`, route and sidebar registration, `noAuthRequired` on the plugin's routes (without it the page stays blank), and `/config` listing each cluster's server, which matches contexts to clusters
+- VCF Automation's `vmware-system-vcf/organization-id` namespace label; the Cluster API, VM Operator, NSX VPC and VKS resource names
+- MachineHealthCheck status, VM class sizes (`spec.hardware`), Kubernetes release versions, and the ClusterBootstrap package fields
+- the Supervisor's controller leases (readable per namespace), and its Supervisor service namespaces
+
+**Not yet seen on a live system** (built from the APIs' documentation; reports welcome):
+
+- VKS admission webhooks accepting `spec.paused` (pause and resume) and a change to `spec.topology.workers.machineDeployments[].replicas` (scaling) through `cluster.x-k8s.io/v1beta1`
+- `nodeDrainTimeout` in the topology reaching machines that are already deleting
+- deletes through `ApiProxy.request`
+- Headlamp's links to node and pod pages (`/c/<cluster>/nodes/<name>`, `/c/<cluster>/pods/<ns>/<name>`), a pod list filtered by namespace, and custom-resource pages
+
 ## Known limits
 
 - **CAPI version:** the plugin reads `cluster.x-k8s.io/v1beta1`. Current Supervisors prefer v1beta2 but still serve v1beta1. A v1beta2 translator can be added next to `capi/v1beta1.ts`.
 - **Leftover timeouts:** a drain timeout under 5 minutes, or any volume-detach timeout, left on a pool with nothing deleting becomes a warning finding, so an unblocking fix isn't forgotten.
 - **Upgrade availability:** read from `tanzukubernetesreleases` (falling back to `kubernetesreleases`), skipping releases marked not ready or incompatible. The next minor version is preferred, since VKS upgrades one minor at a time.
 - **Packages and search** also fan out from the browser: packages every 3 minutes per signed-in cluster, search once per query across nine kinds (up to 50 hits per kind per cluster).
-- **Inside-cluster checks:** these fan out from the browser, at half the fleet refresh rate. Fine for tens of clusters; a larger fleet should use the server-side aggregator. Pod checks read at most 1000 pods per cluster.
-- **Tokens expire:** tokens from `kubectl vsphere login` last about a working day. Expired ones show as "Sign-in expired".
+- **Inside-cluster checks:** these fan out from the browser, at half the fleet refresh rate. Fine for tens of clusters; a much larger fleet would need a server-side component, which is planned but doesn't exist yet. Pod checks read at most 1000 pods per cluster.
+- **Tokens expire:** tokens from `kubectl vsphere login` last about a working day, and VCF Automation tokens about an hour. Expired ones show as "Sign-in expired" (and in the settings page's setup status); the refresh script or refresher job renews them.

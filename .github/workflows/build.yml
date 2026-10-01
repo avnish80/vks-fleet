@@ -31,7 +31,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          npx --yes @kinvolk/headlamp-plugin create vks-fleet
+          npx --yes @kinvolk/headlamp-plugin@0.14 create vks-fleet
 
       - name: Add plugin source
         working-directory: build/vks-fleet
@@ -53,11 +53,9 @@ jobs:
           # The vCenter collector (standard-library Python)
           python3 -m unittest discover -s "$GITHUB_WORKSPACE/deploy/collector" -p 'test_*.py'
 
-      # Type-check against the real Headlamp types. Non-blocking so you still
-      # get a build to try; if this step shows red, send the log output.
+      # Type-check against the real Headlamp types. Blocking: a type error stops the release.
       - name: Type-check
         working-directory: build/vks-fleet
-        continue-on-error: true
         run: npm run tsc
 
       - name: Build
@@ -91,7 +89,7 @@ jobs:
           helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 > /tmp/default.yaml
           helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 \
             --set plugin.source=download --set collector.enabled=true --set collector.vcenter=vcenter.example.com \
-            --set ingress.enabled=true --set ingress.host=fleet.example.com > /tmp/full.yaml
+            --set ingress.enabled=true --set ingress.host=fleet.example.com --set caSecret=vks-fleet-ca --set refresher.insecure=false > /tmp/full.yaml
           python3 -c "import yaml; [print(f, sum(1 for d in yaml.safe_load_all(open(f)) if d), 'objects') for f in ('/tmp/default.yaml', '/tmp/full.yaml')]"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             v="${GITHUB_REF_NAME#v}"

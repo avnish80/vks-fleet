@@ -75,32 +75,3 @@ Each cluster has deliberate problems, so every page has something to show:
 | analytics | Control-plane certificates expiring in 18 days, two node pools, Kyverno policy failures, a Kafka volume filling in about 3 days (Prometheus forecast) |
 
 Every request goes to in-memory data through the same code paths as real clusters, including the Pod Security probe (VKS's restricted default). **Dry runs work**, so action dialogs can be tried end to end. **Real changes are always refused.**
-
-## Verify first
-
-These Headlamp and VKS details were checked in CI or against a real Supervisor:
-
-- `ApiProxy.request`, `ConfigStore`, route and sidebar registration, and the common components (v0.1.x builds)
-- `noAuthRequired` on the home routes (without it the page stays blank)
-- VCFA's `vmware-system-vcf/organization-id` namespace label, and the CAPI and VKS resource names
-
-New in v0.5.0 and still to confirm on a live system:
-
-- Headlamp's node and pod pages at `/c/<cluster>/nodes/<name>` and `/c/<cluster>/pods/<ns>/<name>`
-- `nodeDrainTimeout` in the v1beta1 topology being propagated to machines that are already deleting
-
-From v0.4.0, still to confirm:
-
-- writes through `ApiProxy.request` with `method`, `headers` and `body` (PATCH merge and JSON patches, DELETE), and `?dryRun=All`
-- VKS admission webhooks accepting changes to `spec.topology.workers.machineDeployments[].replicas` and `spec.paused` through `cluster.x-k8s.io/v1beta1`
-
-From v0.3.0, still to confirm:
-
-- the Headlamp link formats: pod list filtered by namespace (`/c/<cluster>/pods?namespace=<ns>`) and custom-resource pages (`/c/<cluster>/customresources/clusters.cluster.x-k8s.io/<ns>/<name>`)
-- MachineHealthCheck status fields and the VM class `spec.hardware` sizes
-
-From v0.2.0, still to confirm:
-
-- that Headlamp's `/config` response includes each cluster's `server` (if not, contexts are matched by cluster name, when the name is unique in the fleet)
-- the release objects' version field (`spec.version`)
-- the ClusterBootstrap package fields (`spec.cni.refName` and similar)

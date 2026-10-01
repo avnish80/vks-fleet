@@ -23,9 +23,40 @@ vks-fleet runs in your browser inside Headlamp and talks to Kubernetes APIs (Sup
 ## Credentials
 
 - **Kubeconfig:** Headlamp's, as usual. The plugin never reads or stores tokens.
-- **In-cluster deployment:** the refresher signs in with a dedicated vSphere account stored in a Kubernetes Secret, and writes the kubeconfig to another Secret that only the Headlamp pod mounts. **Everyone who can open that Headlamp acts as that account**, so expose it only to operators (for example with `loadBalancerSourceRanges`, or behind your own authentication proxy) and give the account only the rights they need.
+- **In-cluster deployment:** the refresher signs in with a dedicated vSphere account stored in a Kubernetes Secret, and writes the kubeconfig to another Secret that only the Headlamp pod mounts. **Everyone who can open that Headlamp acts as that account**, so expose it only to operators, behind authentication, and give the account only the rights they need: see [Shared installations](#shared-installations).
 - **vCenter collector:** uses a **read-only** vCenter account, kept in a Secret (in-cluster) or a root-only file (jump server). The browser never contacts vCenter; the collector writes what it read into a ConfigMap. TLS verification can be turned off for lab certificates (`VCENTER_INSECURE=true`); don't in production.
 - **Settings** (Supervisors, org names, baselines, silences) are kept in the browser's local storage, or preset by an administrator in `config.json`. They contain no secrets.
+
+## Shared installations
+
+A Headlamp deployed in a cluster (the Helm chart or `deploy/`) signs in with **one dedicated account**, through the kubeconfig the refresher maintains. Headlamp doesn't know who is using it: **everyone who can open it acts as that account**, with that account's rights. Per-person rights apply only when each person runs Headlamp with their own sign-in (the desktop app, or their own instance).
+
+So for a shared installation:
+
+1. **Give the dedicated account read-only rights** (*Can view* on the vSphere namespaces), and make changes through **read by default, elevate to change**, with a separate admin sign-in, a reason and a time limit (see [Making changes safely](docs/making-changes.md#read-by-default-elevate-to-change)).
+2. **Put authentication in front of it.** Don't expose the Service directly. Any authenticating reverse proxy works; for example [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) with your identity provider, restricted to the operators' group, forwarding to Headlamp's Service:
+
+   ```bash
+   # oauth2-proxy in front of Headlamp: only members of the platform group get through.
+   oauth2-proxy \
+     --provider=oidc --oidc-issuer-url=https://idp.example.com \
+     --client-id=vks-fleet --client-secret-file=/secrets/client-secret \
+     --cookie-secret-file=/secrets/cookie-secret --email-domain='*' \
+     --allowed-group=platform-operators \
+     --upstream=http://vks-fleet-headlamp.vks-fleet.svc.cluster.local:80 \
+     --http-address=0.0.0.0:4180
+   ```
+
+   Then expose oauth2-proxy (not Headlamp) through your ingress or load balancer, and keep Headlamp's Service `ClusterIP`.
+3. **Limit the network** as well where you can (`service.loadBalancerSourceRanges`, network policies).
+
+## TLS
+
+The sign-in refresher (in-cluster and on a jump server) and the vCenter collector **verify certificates by default**. Supervisors and vCenters usually use vCenter's own CA (download it from `https://<vcenter>/certs/download.zip`): give it to them as `CA_FILE` (or the chart's `caSecret`). Skipping verification takes an explicit switch (`SUPERVISOR_INSECURE`, `VCENTER_INSECURE`, `VCFA_INSECURE`, or `INSECURE` in the jump-server script), meant for lab certificates only.
+
+## Changes and their guarantees
+
+Every action runs a **server-side dry run** of each write first, so anything the API would refuse is caught before anything changes. A dry run doesn't reserve anything, though: conditions can change between the dry run and the change. And a change made of several writes isn't a transaction. If a later write fails, the earlier ones have already taken effect; the plugin then says which steps were applied, which failed, and which weren't sent.
 
 ## Supported versions
 

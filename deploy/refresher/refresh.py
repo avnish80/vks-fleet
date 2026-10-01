@@ -22,6 +22,12 @@ Environment (supervisor mode):
   HEADLAMP_DEPLOYMENT  Deployment to restart (default headlamp)
   POD_NAMESPACE        where both live
 
+TLS (both modes): certificates are verified by default.
+  CA_FILE              a PEM bundle to trust in addition to the system's, typically the
+                       vCenter root CA that signs the Supervisor's certificate
+                       (https://<vcenter>/certs/download.zip)
+  SUPERVISOR_INSECURE  "true" to skip verification for the Supervisor (lab certificates only)
+
 Environment (vcfa mode):
   VCFA_ENDPOINT        e.g. https://auto-a.example.com
   VCFA_TENANT          the org's tenant name, e.g. Org2-CTGW
@@ -29,7 +35,7 @@ Environment (vcfa mode):
   VCFA_NAMESPACES      namespace=urn[@project], comma separated, e.g.
                        team-a-ns1=urn:vcloud:namespace:cee559b7-…@default-project
   VCFA_API_TOKEN       the org user's API token (from Secret vks-fleet-vcfa)
-  VCFA_INSECURE        "true" to skip TLS verification (lab certificates)
+  VCFA_INSECURE        "true" to skip TLS verification (lab certificates only)
   VCFA_ORG_SERVER      optional: the org-level server address from your VCF CLI
                        context (kubectl config view), to add a "<label>" context
                        the plugin uses for the org's quotas
@@ -88,11 +94,31 @@ def wanted_clusters(spec, listing):
     return [p for p in pairs if f"{p[0]}/{p[1]}" in allowed]
 
 
-def fetch_tools(server):
-    """kubectl and kubectl-vsphere, from the Supervisor's own CLI tools download."""
+def tls_context(insecure):
+    """Verifying by default, trusting CA_FILE as well when given; insecure only when asked for."""
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ca = ca_file()
+    if ca:
+        ctx.load_verify_locations(cafile=ca)
+    if insecure:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def ca_file():
+    """CA_FILE when it exists (an optional Secret may be mounted there, or not)."""
+    ca = os.environ.get("CA_FILE")
+    return ca if ca and os.path.isfile(ca) else None
+
+
+def supervisor_insecure():
+    return os.environ.get("SUPERVISOR_INSECURE", "").lower() == "true"
+
+
+def fetch_tools(server):
+    """kubectl and kubectl-vsphere, from the Supervisor's own CLI tools download (over verified TLS)."""
+    ctx = tls_context(supervisor_insecure())
     url = f"https://{server}/wcp/plugin/linux-amd64/vsphere-plugin.zip"
     data = urllib.request.urlopen(url, context=ctx, timeout=120).read()
     BIN.mkdir(parents=True, exist_ok=True)
@@ -113,6 +139,10 @@ def run(args, cfg, use_kubeconfig=True, check=True, stdin=None):
     env["PATH"] = f"{BIN}:{env.get('PATH', '')}"
     env["HOME"] = str(WORK)
     env["KUBECTL_VSPHERE_PASSWORD"] = cfg["password"]
+    # kubectl and kubectl-vsphere are Go programs: they trust the bundle in SSL_CERT_FILE.
+    # (Explicit CAs in a kubeconfig or a service account still apply as usual.)
+    if ca_file():
+        env["SSL_CERT_FILE"] = ca_file()
     if use_kubeconfig:
         env["KUBECONFIG"] = str(KUBECONFIG)
     else:
@@ -122,7 +152,9 @@ def run(args, cfg, use_kubeconfig=True, check=True, stdin=None):
 
 
 def login(cfg, server, namespace=None, name=None):
-    args = ["kubectl", "vsphere", "login", f"--server={server}", f"--vsphere-username={cfg['user']}", "--insecure-skip-tls-verify"]
+    args = ["kubectl", "vsphere", "login", f"--server={server}", f"--vsphere-username={cfg['user']}"]
+    if supervisor_insecure():
+        args.append("--insecure-skip-tls-verify")
     if name:
         args += ["--tanzu-kubernetes-cluster-namespace", namespace, "--tanzu-kubernetes-cluster-name", name]
     r = run(args, cfg, check=False)
@@ -191,10 +223,7 @@ def parse_vcfa_namespaces(spec):
 
 def vcfa_access_token(endpoint, tenant, api_token, insecure):
     """The VCF CLI's exchange: an API (refresh) token for a short-lived access token."""
-    ctx = ssl.create_default_context()
-    if insecure:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_context(insecure)
     body = urllib.parse.urlencode({"grant_type": "refresh_token", "refresh_token": api_token}).encode()
     req = urllib.request.Request(
         f"{endpoint.rstrip('/')}/tm/oauth/tenant/{urllib.parse.quote(tenant)}/token",

@@ -96,7 +96,15 @@ spec:
                 - name: script
                   mountPath: /app
                   readOnly: true
+                # vCenter's CA, if the optional Secret vks-fleet-ca exists (key ca.crt): TLS is verified.
+                - name: ca
+                  mountPath: /etc/vks-fleet-ca
+                  readOnly: true
           volumes:
             - name: script
               configMap:
                 name: vks-fleet-collector-script
+            - name: ca
+              secret:
+                secretName: vks-fleet-ca
+                optional: true

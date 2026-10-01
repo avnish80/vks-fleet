@@ -26,6 +26,14 @@ This runs Headlamp with the vks-fleet plugin inside a Kubernetes cluster, typica
 
 ## Install
 
+**TLS is verified.** Most Supervisors and vCenters use vCenter's own CA: download it from `https://<vcenter>/certs/download.zip` and store it before installing, so the refresher (and the collector) can verify their connections:
+
+```bash
+kubectl -n vks-fleet create secret generic vks-fleet-ca --from-file=ca.crt=vcenter-ca.pem
+```
+
+It's mounted when it exists. For lab certificates only, `SUPERVISOR_INSECURE=true` in `refresher/refresher.env` (and `VCENTER_INSECURE=true` for the collector) skip verification instead.
+
 ```bash
 cd deploy
 

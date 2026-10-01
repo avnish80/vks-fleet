@@ -133,3 +133,27 @@ class WriteErrorTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as e:
                 collect.write(collect.configmap({"supervisors": []}, "vks-fleet-vcenter"), "platform-ops")
         self.assertTrue(str(e.exception).startswith("Couldn't write the ConfigMap to platform-ops via 10.0.0.2"))
+
+
+class TlsDefaultsTest(unittest.TestCase):
+    """Certificates are verified unless a lab switch says otherwise; CA_FILE is used only if present."""
+
+    def test_refresher_verifies_by_default(self):
+        import importlib.util, os, ssl
+        from unittest import mock
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("refresh", os.path.join(here, "..", "refresher", "refresh.py"))
+        refresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(refresh)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(refresh.tls_context(refresh.supervisor_insecure()).verify_mode, ssl.CERT_REQUIRED)
+            self.assertIsNone(refresh.ca_file())
+        with mock.patch.dict(os.environ, {"SUPERVISOR_INSECURE": "true", "CA_FILE": "/nonexistent/ca.crt"}, clear=True):
+            self.assertEqual(refresh.tls_context(refresh.supervisor_insecure()).verify_mode, ssl.CERT_NONE)
+            self.assertIsNone(refresh.ca_file(), "a missing optional Secret is ignored")
+
+    def test_collector_ignores_a_missing_ca(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CA_FILE": "/nonexistent/ca.crt"}, clear=True):
+            self.assertIsNone(collect.ca_file())

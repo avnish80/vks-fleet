@@ -26,7 +26,9 @@ Environment:
   VCENTER               vCenter address, e.g. vcenter.example.com
   VCENTER_USERNAME      a read-only account
   VCENTER_PASSWORD      its password (or VCENTER_PASSWORD_FILE)
-  VCENTER_INSECURE      "true" to skip TLS verification (lab certificates)
+  CA_FILE               a PEM bundle to trust in addition to the system's, typically
+                        vCenter's root CA (https://<vcenter>/certs/download.zip)
+  VCENTER_INSECURE      "true" to skip TLS verification (lab certificates only)
   OUTPUT_NAMESPACE      where the ConfigMap goes (default: this pod's namespace, else vks-fleet)
   OUTPUT_CONFIGMAP      its name (default vks-fleet-vcenter)
   KUBE_CONTEXT          outside a cluster: kubectl context to write it with (else printed)
@@ -55,6 +57,12 @@ def iso(t):
     return t.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+
+def ca_file():
+    """CA_FILE when it exists (an optional Secret may be mounted there, or not)."""
+    ca = os.environ.get("CA_FILE")
+    return ca if ca and os.path.isfile(ca) else None
+
 class VCenter:
     """A minimal vCenter REST client (vSphere Automation API)."""
 
@@ -64,6 +72,8 @@ class VCenter:
         self.password = password
         self.token = None
         self.ctx = ssl.create_default_context()
+        if ca_file():
+            self.ctx.load_verify_locations(cafile=ca_file())
         if insecure:
             self.ctx.check_hostname = False
             self.ctx.verify_mode = ssl.CERT_NONE
@@ -170,6 +180,9 @@ def add_alarms(status, host, username, password, insecure, existing_history=None
     kwargs = {"host": host, "user": username, "pwd": password}
     if insecure:
         kwargs["disableSslCertValidation"] = True
+    elif ca_file():
+        ctx = ssl.create_default_context(cafile=ca_file())
+        kwargs["sslContext"] = ctx
     si = SmartConnect(**kwargs)
     try:
         try:

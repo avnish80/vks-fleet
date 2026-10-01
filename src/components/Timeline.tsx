@@ -30,7 +30,7 @@ export function ClusterTimeline({
   entries: TimelineEntry[];
   cluster: FleetCluster;
   limit?: number;
-  /** YYYY-MM-DD to show only that (local) day, e.g. from the overview heatmap. */
+  /** YYYY-MM-DD to show only that (local) day, e.g. from the fleet page's activity heatmap. */
   day?: string;
 }) {
   const tone = useTone();

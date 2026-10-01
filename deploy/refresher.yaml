@@ -94,9 +94,17 @@ spec:
                   readOnly: true
                 - name: work
                   mountPath: /work
+                # vCenter's CA, if the optional Secret vks-fleet-ca exists (key ca.crt): TLS is verified.
+                - name: ca
+                  mountPath: /etc/vks-fleet-ca
+                  readOnly: true
           volumes:
             - name: script
               configMap:
                 name: vks-fleet-refresher-script
             - name: work
               emptyDir: {}
+            - name: ca
+              secret:
+                secretName: vks-fleet-ca
+                optional: true

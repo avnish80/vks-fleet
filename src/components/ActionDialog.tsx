@@ -30,6 +30,7 @@ import { headlampClient } from '../api/headlampClient';
 import { upgradeKind, upgradeTargets } from '../releases';
 import { usePolling } from '../usePolling';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
+import { PartialApply, runSteps } from '../applySteps';
 import { FleetCluster, NodePool } from '../types';
 
 const LEVEL: Record<CheckLevel, { text: string; status: 'success' | 'warning' | 'error' }> = {
@@ -52,9 +53,7 @@ function explain(err: unknown): string {
 }
 
 async function runAll(plan: ActionPlan, writer: SupervisorWriter, reason: string, dryRun: boolean) {
-  for (const req of plan.requests(reason)) {
-    await writer.send(req, dryRun);
-  }
+  await runSteps(plan.requests(reason), r => writer.send(r, dryRun), { dryRun, explain });
 }
 
 export interface ActionDialogProps {
@@ -108,7 +107,7 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
       onApplied(`${plan.applyLabel}: done. The Supervisor is applying the change.`);
       onClose();
     } catch (err) {
-      setApplyError(explain(err));
+      setApplyError(err instanceof PartialApply ? err.message : explain(err));
     } finally {
       setApplying(false);
     }
