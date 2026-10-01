@@ -8,7 +8,7 @@ import { BacklogRow, healthTone, LeaseInfo, leftoverCleanupPlan, responsiveness,
 import { SupervisorResult } from '../types';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { diskForecast, entitiesFor, fullestDisk, historySeries, matchSupervisor, STALE_MINUTES, utilisationPenalty, vcenterPenalty, VcenterRead, VcEntity, vcHostOk, VcMetrics, VcSupervisor, vcServiceOk } from '../vcenterStatus';
+import { diskForecast, entitiesFor, fullestDisk, historySeries, matchSupervisor, STALE_MINUTES, supervisorScore, VcenterRead, VcEntity, vcHostOk, VcMetrics, vcServiceOk, VcSupervisor } from '../vcenterStatus';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { SeriesDetailDialog } from './SeriesDetailDialog';
 import { HostsSection } from './HostsSection';
@@ -48,7 +48,8 @@ export function SupervisorHealthPage() {
 
 function One({ h, r, vc, vcRead, vms, canClean, onClean }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; vcRead?: VcenterRead | null; vms: ServiceVm[]; canClean: boolean; onClean: () => void }) {
   const entities = vc ? entitiesFor(vcRead?.status?.metrics, vc.id) : [];
-  const score = Math.max(0, h.score - (vc ? vcenterPenalty(vc) + utilisationPenalty(entities) : 0));
+  // The same score as on the fleet page (one function for both).
+  const score = supervisorScore(h.score, vc, vcRead?.status?.metrics);
   const cps = h.nodes.filter(n => n.role === 'control-plane');
   const hosts = h.nodes.filter(n => n.role === 'host');
   const leftovers = h.services.reduce((n, s) => n + s.leftovers.length, 0);

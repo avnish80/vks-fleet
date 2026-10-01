@@ -2,6 +2,12 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.33.4
+
+- **One Supervisor score everywhere:** the fleet page, Supervisor health and Investigate all show the score with vCenter's findings when the collector has data (the fleet page showed the API-only score: 84 where Supervisor health said 64).
+- **The walk-down blames the Supervisor only when it's the cause:** it's judged by its controllers (not renewing means clusters aren't reconciled). A lower score from unrelated causes, such as a failed Supervisor service, is shown but no longer marked as the likely cause of a cluster's problem.
+- **Demo:** each cluster's API answers `/version`, so no cluster shows *"Some details not readable"*.
+
 ## 1.33.3
 
 From a review of every page in demo mode at 20 clusters:

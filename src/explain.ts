@@ -36,6 +36,8 @@ export interface WalkInput {
   limits?: NamespaceLimits;
   configured?: { memoryBytes: number; vcpu: number };
   supervisorScore?: number;
+  /** Supervisor controllers not renewing their leases (stuck or gone): what makes the Supervisor a cause for a cluster's trouble. */
+  supervisorStaleControllers?: number;
   /** VM name → ESXi host, when VM Operator doesn't report it (the vCenter collector's placement). */
   hostOf?: (vmName: string) => string | undefined;
 }
@@ -92,7 +94,18 @@ export function walkDown(i: WalkInput): WalkDown {
     facts: oc !== undefined ? [`Memory configured ${oc.toFixed(1)}× the namespace limit${oc > 1 ? ': VMs compete for memory under load' : ''}`] : ['No memory limit recorded'],
   });
   if (i.supervisorScore !== undefined) {
-    layers.push({ layer: 'Supervisor', name: i.cluster.supervisorId, state: i.supervisorScore >= 90 ? 'ok' : i.supervisorScore >= 70 ? 'warn' : 'bad', facts: [`Health ${i.supervisorScore}/100`] });
+    // Judged by what manages clusters: its controllers. A lower score from unrelated causes (a failed
+    // Supervisor service, its own memory) is shown, but isn't a reason to blame it for this cluster.
+    const stale = i.supervisorStaleControllers ?? 0;
+    layers.push({
+      layer: 'Supervisor',
+      name: i.cluster.supervisorId,
+      state: stale > 0 ? 'bad' : 'ok',
+      facts: [
+        `Health ${i.supervisorScore}/100`,
+        stale > 0 ? `${stale} controller${stale === 1 ? '' : 's'} not renewing: clusters aren't being reconciled` : 'Controllers renewing: it manages clusters normally',
+      ],
+    });
   }
   const troubled = layers.filter(l => l.state === 'bad');
   const likely = troubled[troubled.length - 1] ?? layers.filter(l => l.state === 'warn').slice(-1)[0];

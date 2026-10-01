@@ -29,7 +29,7 @@ import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, utilisationIssues, vcenterIssues } from '../vcenterStatus';
+import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
 import { glance, horizon, needsYouNow } from '../fleetHero';
 import { FleetHero } from './FleetHero';
 import { settingsStore } from '../settings/store';
@@ -434,7 +434,17 @@ export function FleetView() {
       {allClusters.length > 0 && (
         <Guard name="Fleet at a glance">
           <FleetHero
-            glance={glance(tenantClusters, scores.map(x => x.card.score), tenantIssues, (supervisorHealth ?? []).map(h => h.score))}
+            glance={glance(
+              tenantClusters,
+              scores.map(x => x.card.score),
+              tenantIssues,
+              // The same score as Supervisor health shows: with vCenter's findings when the collector has data.
+              (supervisorHealth ?? []).map(h => {
+                const r = (all ?? []).find(x => x.supervisor.id === h.supervisorId);
+                const v = r && vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, (all ?? []).length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
+                return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
+              })
+            )}
             top={needsYouNow(tenantIssues, coming)}
             horizon={coming}
             onScore={() => jump('scorecard')}

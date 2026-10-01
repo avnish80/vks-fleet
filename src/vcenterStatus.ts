@@ -284,3 +284,11 @@ export function placementFor(status: VcenterStatus | undefined, supervisorId: st
   return new Map((status?.placement?.vms ?? []).filter(v => !supervisorId || v.supervisor === supervisorId).map(v => [v.name, v.host]));
 }
 
+/**
+ * The Supervisor's health score as shown everywhere: the API-based score, less
+ * what vCenter reports (status, services, alarms, utilisation) when the collector has data.
+ */
+export function supervisorScore(apiScore: number, vc: VcSupervisor | undefined, metrics: Parameters<typeof entitiesFor>[0]): number {
+  return Math.max(0, apiScore - (vc ? vcenterPenalty(vc) + utilisationPenalty(entitiesFor(metrics, vc.id)) : 0));
+}
+

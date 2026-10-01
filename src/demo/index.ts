@@ -53,6 +53,13 @@ export function demoClient(ctx: string, opts: { now?: Date; latencyMs?: number; 
         if (opts.latencyMs !== 0) await pause(opts.latencyMs ?? 60 + Math.random() * 140);
         const store = storeFor(ctx, opts.now);
         if (!store) throw notFound(path);
+        // /version, as every Kubernetes API answers it: the cluster's release, or the Supervisor's.
+        if (path === '/version') {
+          const c = demoClusters().find(x => contextName(x.name) === ctx);
+          const v = c?.version ?? 'v1.34.9+vmware.1';
+          const [major, minor] = v.replace(/^v/, '').split('.');
+          return { major, minor, gitVersion: v, platform: 'linux/amd64' } as T;
+        }
         // Prometheus and Alertmanager behind the API's service proxy.
         const proxied = /^\/api\/v1\/namespaces\/[^/]+\/services\/[^/]+\/proxy\//.test(path);
         if (proxied) {

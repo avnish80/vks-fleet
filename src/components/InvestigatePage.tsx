@@ -14,7 +14,7 @@ import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useWorkloadHealth } from '../useWorkload';
 import { useVcenterStatus } from '../useVcenterStatus';
-import { matchSupervisor, placementFor } from '../vcenterStatus';
+import { matchSupervisor, placementFor, supervisorScore } from '../vcenterStatus';
 
 const DOT: Record<IncidentEvent['tone'], string> = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#3b82f6', neutral: '#94a3b8' };
 const SOURCE: Record<IncidentEvent['source'], string> = { change: 'Change', condition: 'Condition', alert: 'Alert', event: 'Event', anomaly: 'Unusual', forecast: 'Forecast', issue: 'Open issue' };
@@ -106,7 +106,11 @@ export function InvestigatePage() {
         hosts: h?.nodes.filter(n => n.role === 'host').map(n => ({ name: n.name, ready: n.ready })),
         limits: limitsAll.get(cluster.namespace),
         configured: configuredByNamespace(all ?? [], inventoryAll).get(cluster.namespace),
-        supervisorScore: h?.score,
+        // The same score as everywhere else (with vCenter's findings), and the controllers that matter here.
+        supervisorScore: h
+          ? supervisorScore(h.score, vcenter?.status ? matchSupervisor(vcenter.status, (all ?? []).find(r => r.supervisor.id === h.supervisorId)?.supervisor ?? ({ id: h.supervisorId } as any), (all ?? []).length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) ?? undefined : undefined, vcenter?.status?.metrics)
+          : undefined,
+        supervisorStaleControllers: h?.leases.filter(l => l.state !== 'ok').length,
         hostOf,
       })
     : undefined;
