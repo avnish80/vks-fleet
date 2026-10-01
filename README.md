@@ -4,7 +4,7 @@
 
 > **A personal open-source project.** Not affiliated with, endorsed by, or supported by Broadcom or VMware. Product names are used only to describe what it works with (see [NOTICE](NOTICE)). [Apache 2.0](LICENSE).
 
-<!-- ![The fleet page: fleet score, needs you now, the next 30 days, and clusters at a glance](docs/images/fleet.png) -->
+![The fleet page: fleet score, what needs you now, the next 30 days, and the orgs](docs/images/fleet.png)
 
 **Try it in two minutes without a lab:** install the plugin, open *VKS fleet*, and choose **Try the demo**: a fictional fleet with realistic problems, where nothing is ever changed.
 
@@ -14,17 +14,17 @@ Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, 
 
 **Observe.** The fleet page opens with a fleet score, **Needs you now** and **the next 30 days**, then one row per cluster with health, issues, best-practice score, baseline, backup, certificates, version and nodes. **Supervisor health** shows the platform itself: its controllers, services, control-plane VM and hosts, with vCenter's own view and 24 hours of utilisation. [Features](docs/features.md) · [The Supervisor](docs/supervisor.md)
 
-<!-- ![Supervisor health: hosts, what runs where, and what a host failure would take down](docs/images/supervisor.png) -->
+![Supervisor health: hosts, what runs where, and what esx-01 failing would take down](docs/images/supervisor.png)
 
 **Detect.** Issues are ranked, time-bound problems first, each with its cause and what to do: stuck nodes, drains blocked by PodDisruptionBudgets, crash loops, certificates, quota and overcommit, controllers that stopped reconciling, services running on a single host, CIS-aligned compliance, vulnerabilities from Trivy, and drift from your own baseline profiles.
 
 **Explain.** **Investigate** puts one cluster's timeline (changes, alerts, events, anomalies) beside a **walk down the layers** under a node: pod, node, Machine, VM, ESXi host, namespace, Supervisor, with the deepest unhealthy layer named. It drafts the post-mortem too. [Observability and investigation](docs/observability.md)
 
-<!-- ![Investigate: the timeline beside the walk-down](docs/images/investigate.png) -->
+![Investigate: what happened in checkout beside the layers under its troubled node](docs/images/investigate.png)
 
 **Predict.** Prometheus forecasts (disks, memory, volumes), the Supervisor's control-plane disk, and certificate expiries land on a 30-day timeline. **Pre-flight** answers *what will this change do?* before an upgrade, a scale or a VM class change: capacity while it runs, the pods and workloads that move, what would block, and a verdict. [Making changes safely](docs/making-changes.md)
 
-<!-- ![Pre-flight for scaling a node pool](docs/images/preflight.png) -->
+![Pre-flight for upgrading checkout: a blocker, the nodes and pods affected, and the namespace's capacity](docs/images/preflight.png)
 
 **Remediate.** Upgrades, scaling, node replacement, timeouts, packages, VMs and clusters, each from a dialog with its checks, a server-side dry run and a confirmation. With **read by default, elevate to change**, changes need a time-limited elevation with a reason.
 

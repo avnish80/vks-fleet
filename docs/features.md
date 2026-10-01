@@ -179,6 +179,8 @@ The vSphere cluster's own free capacity isn't visible through the Supervisor API
 
 A compliance matrix shows every cluster, with its profile, against every rule; clicking a cluster shows its **desired vs actual** table, drift first, with the fix for each. Safe fixes are applied from the matrix with the usual checks and dry run: grow the control plane to 3, or turn on certificate rotation through the cluster's `kubernetes` variable. Other drift links to the right dialog (Scale for a pool, Upgrade for the version or class).
 
+![A cluster's desired vs actual: six drifts first, each with its fix, then what matches and what isn't checked](images/baseline.png)
+
 **Cleanup** (sidebar: Cleanup): leftovers on the Supervisor, each with inspect and delete commands to review. The plugin deletes nothing itself.
 
 - VMs, load balancer services and volume claims that name a cluster that no longer exists. Only objects that say which cluster they belong to are judged, so VM Service VMs are never listed.

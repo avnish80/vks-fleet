@@ -2,6 +2,8 @@
 
 [← Back to the README](../README.md)
 
+![A cluster's metrics: the coverage line and the charts, with forecasts and the fleet's changes on every chart](images/observability.png)
+
 ## Observability
 
 **Observability** (sidebar) reads each cluster's own **Prometheus** and **Alertmanager** through the Kubernetes API's service proxy: the same connection and permissions as the rest of the plugin, with no extra endpoints, credentials or Grafana needed. VCF Operations isn't required.

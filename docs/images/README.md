@@ -11,4 +11,4 @@ Taken in **demo mode** (Settings → Demo mode, **Demo fleet size: 12**), so no 
 | `observability.png` | Observability → checkout | The charts, with one hovered |
 | `baseline.png` | Governance → Baseline | The desired-vs-actual dialog |
 
-When a file is added, uncomment its line in the README.
+All six are in place: `fleet.png`, `supervisor.png`, `investigate.png` and `preflight.png` in the README, `observability.png` in docs/observability.md, and `baseline.png` in docs/features.md. To refresh one, retake it with the settings above and keep the file name.
