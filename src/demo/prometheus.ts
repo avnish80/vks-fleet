@@ -28,7 +28,10 @@ function seriesFor(c: C, q: string): Array<[Record<string, string>, (t: number) 
     const pods = c.name === 'payments' ? ['payments/api-1', 'payments/api-2', 'payments/worker-1'] : c.name === 'checkout' ? ['shop/cart-1', 'shop/api-1', 'legacy/sync-agent-1'] : ['streaming/kafka-0', 'streaming/kafka-1', 'ml/notebook-1'];
     return pods.map((p, i) => [{ namespace: p.split('/')[0], pod: p.split('/')[1] }, t => Math.max(0.02, wave(t, 0.6 - i * 0.15, 0.2, i))]);
   }
-  if (/kubelet_volume_stats_used_bytes/.test(q)) return c.name === 'analytics' ? [0, 1, 2].map(i => [{ namespace: 'streaming', persistentvolumeclaim: `data-kafka-${i}` }, () => [71, 91, 83][i]]) : [];
+  if (/kubelet_volume_stats_used_bytes/.test(q))
+    return c.name === 'analytics'
+      ? [0, 1, 2].map(i => [{ namespace: 'streaming', persistentvolumeclaim: `data-kafka-${i}` }, () => [71, 91, 83][i]])
+      : [0, 1].map(i => [{ namespace: c.name === 'checkout' ? 'shop' : 'data', persistentvolumeclaim: `data-${i}` }, t => [42, 57][i] + ((t % 86400) / 86400) * 2]);
   if (/node_network_receive_errs_total/.test(q)) return nodes.map(n => [inst(n), () => 0]);
   return [];
 }

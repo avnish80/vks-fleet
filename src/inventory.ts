@@ -170,7 +170,8 @@ export function parseSubnets(
     const declared = Number((o.spec as any)?.ipv4SubnetSize);
     const capacity = cidrs.length ? cidrs.reduce((n, c) => n + usableAddresses(c), 0) : declared > 3 ? declared - 3 : 0;
     const vmMembers = vms.filter(v => v.namespace === ns && v.interfaces.some(i => i.network === o.metadata.name)).map(v => `VM ${v.name}`);
-    const clusterMembers = (clusterNames.get(ns) ?? []).filter(c => o.metadata.name.startsWith(`${c}-`)).map(c => `cluster ${c}`);
+    // VKS names a cluster's subnet set "<cluster>-<5 characters>": match exactly, so payments-2's isn't claimed by payments.
+    const clusterMembers = (clusterNames.get(ns) ?? []).filter(c => ownSubnetOf(o.metadata.name, c)).map(c => `cluster ${c}`);
     return {
       supervisorId,
       namespace: ns,
@@ -378,3 +379,9 @@ export async function fetchInventory(
     warnings,
   };
 }
+
+/** Is this subnet (set) the cluster's own network? VKS names it "<cluster>-<5 lowercase letters or digits>". */
+export function ownSubnetOf(subnet: string, cluster: string): boolean {
+  return subnet.startsWith(`${cluster}-`) && /^[a-z0-9]{5}$/.test(subnet.slice(cluster.length + 1));
+}
+

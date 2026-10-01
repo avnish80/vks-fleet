@@ -2,6 +2,16 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.33.3
+
+From a review of every page in demo mode at 20 clusters:
+
+- **Demo:** leases no longer go stale (the demo Supervisor dropped to 0/100 after a few minutes, which Investigate and Pre-flight then blamed); cloned clusters get valid, distinct addresses, their own networks, and Prometheus like the cluster they copy; control-plane nodes spread across hosts; certificate rotation is set (off in the sandbox, as a drift to find); volume metrics for every monitored cluster; checkout's workers have a second network, so the map shows a secondary network.
+- **Since you last looked** keeps a separate memory in demo mode, so the demo never lists a real fleet's issues (or the other way round).
+- **Settings** pauses the real-setup checks in demo mode, and says so.
+- **At scale:** host cards show the six largest clusters and *+N more*; the activity heatmap lists only clusters that changed; Observability lists clusters with metrics first and folds the rest into one line; the Tenants table (a duplicate of the org cards) is gone from the fleet page.
+- **Fixes:** a cluster's own subnet is matched exactly (`payments-2-…` was also counted as `payments`'s); Pre-flight no longer says vCPUs *fit* a GHz limit (different units: *not comparable*, with the reason); the Baseline Pod Security field's label no longer overlaps its value; *Alert* isn't repeated in Investigate's timeline; *1 update*; short host names in Investigate.
+
 ## 1.33.2
 
 Fixes from a review on a real VCF 9.1 lab:

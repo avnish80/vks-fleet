@@ -4,7 +4,7 @@ import React from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { hostPatterns, Layer, walkDown } from '../explain';
 import { useFleetData } from '../fleetContext';
-import { shortNode } from '../names';
+import { shortHost, shortNode } from '../names';
 import { buildIncident, IncidentEvent, postMortemMarkdown } from '../incident';
 import { buildIssues } from '../issues';
 import { configuredByNamespace } from '../limits';
@@ -148,7 +148,7 @@ export function InvestigatePage() {
       </Alert>
       {patterns.map(p => (
         <Alert key={p.host} severity="warning" sx={{ mb: 1.5 }} action={<Button size="small" color="inherit" onClick={() => set({ node: p.problemNodes[0] })}>Walk down</Button>}>
-          {p.problemNodes.length} of the {p.totalProblemNodes} nodes with problems are VMs on <b>{p.host}</b>: look at that host first.
+          {p.problemNodes.length} of the {p.totalProblemNodes} nodes with problems are VMs on <b title={p.host}>{shortHost(p.host)}</b>: look at that host first.
         </Alert>
       ))}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 3 }}>

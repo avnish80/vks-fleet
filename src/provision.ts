@@ -164,7 +164,8 @@ export interface ImpactRow {
   before: string;
   after: string;
   limit: string;
-  status: 'ok' | 'warn' | 'over';
+  /** 'na': the value and the limit are in different units (vCPUs against a GHz limit), so no verdict. */
+  status: 'ok' | 'warn' | 'over' | 'na';
   note?: string;
 }
 
@@ -179,8 +180,9 @@ export function impact(add: Delta & { reservedBytes?: number }, current: Configu
     before: String(cur.vcpu),
     after: String(cur.vcpu + add.cpus),
     limit: limits?.cpuLimitMHz ? `${(limits.cpuLimitMHz / 1000).toFixed(1)} GHz` : '—',
-    status: 'ok',
-    note: limits?.cpuLimitMHz ? 'CPU limits are in GHz; vCPUs share them when busy.' : undefined,
+    // vCPUs and a GHz limit are different units: a count of vCPUs can't "fit" a GHz figure. No verdict either way.
+    status: limits?.cpuLimitMHz ? 'na' : 'ok',
+    note: limits?.cpuLimitMHz ? "Not comparable: the limit is in GHz and VMs are sized in vCPUs. Busy vCPUs share the GHz; configured vCPUs aren't capped by it." : undefined,
   });
   const memLimit = limits?.memoryLimitBytes;
   const before = overcommit(cur.memoryBytes, memLimit);

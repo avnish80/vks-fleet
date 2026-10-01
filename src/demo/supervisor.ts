@@ -120,7 +120,9 @@ export function buildSupervisor(now: Date): Store {
     })),
     ...['kube-system', 'default', 'svc-tkg-d7x2k', 'svc-auto-attach-k2m7q', 'svc-cci-ns-p4w9z', 'vmware-system-vks-public'].map(n => ({ metadata: { name: n, labels: {} } })),
   ]);
-  for (const c of demoClusters()) {
+  // One list for the whole build: demoClusters() makes fresh objects each call, so positions must come from this list.
+  const clusterList = demoClusters();
+  for (const c of clusterList) {
     const machines = machineNames(c);
     add(s, 'cluster.x-k8s.io', 'clusters', [
       {
@@ -137,6 +139,8 @@ export function buildSupervisor(now: Date): Store {
             variables: [
               { name: 'vmClass', value: 'best-effort-large' },
               { name: 'storageClass', value: 'vsan-default-storage-policy' },
+              // Certificate rotation: on for production clusters, off in the sandbox (a baseline drift to find).
+              { name: 'kubernetes', value: { certificateRotation: { enabled: baseName(c) !== 'sandbox', renewalDaysBeforeExpiry: 90 } } },
             ],
             workers: { machineDeployments: c.pools.map(p => ({ class: 'node-pool', name: p.name, replicas: p.replicas, variables: { overrides: [{ name: 'vmClass', value: p.vmClass }] } })) },
           },
@@ -173,7 +177,8 @@ export function buildSupervisor(now: Date): Store {
           status: {
             phase: stuck ? 'Deleting' : 'Running',
             nodeRef: { name: m.name },
-            addresses: [{ type: 'InternalIP', address: `172.16.${DEMO_CLUSTERS.indexOf(c)}.${10 + i}` }],
+            // Each cluster (clones included) gets its own third octet.
+            addresses: [{ type: 'InternalIP', address: `172.16.${clusterList.indexOf(c) + 1}.${10 + i}` }],
             nodeInfo: { osImage: 'Ubuntu 24.04.4 LTS', kubeletVersion: c.version },
             ...(m.cp ? { certificatesExpiryDate: later(c.certDays) } : {}),
             conditions: stuck
@@ -203,12 +208,26 @@ export function buildSupervisor(now: Date): Store {
         // checkout's workers all landed on esx-02 (where its problems are); the rest spread out.
         status: {
           powerState: 'PoweredOn',
-          host: c.name === 'checkout' && !m.cp ? 'esx-02.demo.local' : `esx-0${(machines.indexOf(m) % 4) + 1}.demo.local`,
-          network: { primaryIP4: '172.16.0.10' },
+          // Clusters start on different hosts, so control-plane nodes spread out as they would for real.
+          host: c.name === 'checkout' && !m.cp ? 'esx-02.demo.local' : `esx-0${((machines.indexOf(m) + clusterList.indexOf(c)) % 4) + 1}.demo.local`,
+          network: { primaryIP4: `172.16.${clusterList.indexOf(c) + 1}.${10 + machines.indexOf(m)}` },
           conditions: [{ type: 'VirtualMachineCreated', status: 'True' }],
         },
-      }))
+      })).map((vm, k) => {
+        // Every node on the cluster's own network; checkout's workers also reach the database network (a second NIC).
+        const own = { name: 'eth0', network: { kind: 'SubnetSet', name: demoClusterNet(c) } };
+        const db = baseName(c) === 'checkout' && !machines[k].cp && c.ns === 'acme-prod-7kq2p' ? [{ name: 'eth1', network: { kind: 'Subnet', name: 'db-net' } }] : [];
+        return { ...vm, spec: { ...vm.spec, network: { interfaces: [own, ...db] } } };
+      })
     );
+    // The cluster's own network (VKS names it "<cluster>-<5 characters>").
+    add(s, 'crd.nsx.vmware.com', 'subnetsets', [
+      {
+        metadata: { namespace: c.ns, name: demoClusterNet(c) },
+        spec: { accessMode: 'Private' },
+        status: { subnets: [{ networkAddresses: [`172.16.${clusterList.indexOf(c) + 1}.0/27`] }], conditions: [{ type: 'Ready', status: 'True' }] },
+      },
+    ]);
     add(s, 'vmoperator.vmware.com', 'virtualmachineservices', [
       { metadata: { namespace: c.ns, name: c.name, ownerReferences: [{ kind: 'Cluster', name: c.name }] }, spec: { type: 'LoadBalancer', ports: [{ port: 6443 }], selector: { 'capv.vmware.com/cluster.name': c.name } }, status: { loadBalancer: { ingress: [{ ip: c.host }] } } },
     ]);
@@ -316,3 +335,11 @@ export function buildSupervisor(now: Date): Store {
   ]);
   return s;
 }
+
+/** A demo cluster's own subnet set: "<cluster>-<5 characters>", as VKS names it. */
+export function demoClusterNet(c: { name: string }): string {
+  let h = 0;
+  for (const ch of c.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `${c.name}-${h.toString(36).padStart(5, 'x').slice(-5)}`;
+}
+

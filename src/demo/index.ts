@@ -10,7 +10,7 @@ import { HeadlampClusterInfo } from '../contexts';
 import { buildGuest } from './guest';
 import { demoPrometheus, MONITORED } from './prometheus';
 import { answer, notFound, Store } from './router';
-import { buildSupervisor, contextName, DEMO_CLUSTERS, DEMO_PREFIX, DEMO_SUPERVISOR, demoContexts, demoClusters, demoScale } from './supervisor';
+import { buildSupervisor, contextName, DEMO_PREFIX, DEMO_SUPERVISOR, demoContexts, demoClusters, demoScale, baseName } from './supervisor';
 
 export { DEMO_SUPERVISOR_RAW } from './supervisor';
 
@@ -56,11 +56,19 @@ export function demoClient(ctx: string, opts: { now?: Date; latencyMs?: number; 
         // Prometheus and Alertmanager behind the API's service proxy.
         const proxied = /^\/api\/v1\/namespaces\/[^/]+\/services\/[^/]+\/proxy\//.test(path);
         if (proxied) {
-          const c = DEMO_CLUSTERS.find(x => contextName(x.name) === ctx);
-          if (!c || !MONITORED.has(c.name)) throw notFound(path);
+          // Any demo cluster, clones included (demoClusters() is the scaled list).
+          const c = demoClusters().find(x => contextName(x.name) === ctx);
+          // Clones (payments-2…) are monitored like the cluster they copy.
+          if (!c || !MONITORED.has(baseName(c))) throw notFound(path);
           return demoPrometheus(c, path, opts.now ?? new Date()) as T;
         }
-        return answer(store, path) as T;
+        const out = answer(store, path) as any;
+        // The store is rebuilt every few minutes; leases must look renewed now, as a real Supervisor's are.
+        if (path.includes('/leases') && Array.isArray(out?.items)) {
+          const at = (opts.now ?? new Date()).getTime();
+          return { ...out, items: out.items.map((l: any, i: number) => ({ ...l, spec: { ...l.spec, renewTime: new Date(at - (2 + i) * 1000).toISOString() } })) } as T;
+        }
+        return out as T;
       };
       return opts.remember === false ? read() : rememberingGet(ctx, path, read);
     },

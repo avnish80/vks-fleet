@@ -6,7 +6,7 @@
  * a cluster ("3 of 4 problem nodes are VMs on the same host").
  */
 import { NamespaceLimits, overcommit } from './limits';
-import { shortNode } from './names';
+import { shortHost, shortNode } from './names';
 import { FleetCluster, Inventory, WorkloadHealth } from './types';
 
 export type LayerState = 'ok' | 'warn' | 'bad' | 'unknown';
@@ -78,7 +78,7 @@ export function walkDown(i: WalkInput): WalkDown {
     const neighbours = (i.inventory?.vms ?? []).filter(v => where(v) === hostName && v.name !== (vm?.name ?? m?.name));
     layers.push({
       layer: 'Host',
-      name: hostName,
+      name: shortHost(hostName),
       state: h ? (h.ready ? 'ok' : 'bad') : 'unknown',
       facts: [h ? (h.ready ? 'Ready' : 'NOT Ready (as the Supervisor sees it)') : 'Not in the Supervisor\u2019s node list', `${neighbours.length} other VM${neighbours.length === 1 ? '' : 's'} on this host`],
     });

@@ -48,7 +48,7 @@ function ImpactTable({ rows, unknown }: { rows: ImpactRow[]; unknown?: string[] 
               <Box component="td" sx={{ p: 0.5 }}>{r.resource}</Box>
               <Box component="td" sx={{ p: 0.5 }}>{r.before}</Box>
               <Box component="td" sx={{ p: 0.5 }}>
-                {r.status === 'ok' ? r.after : <StatusLabel status={r.status === 'over' ? 'error' : 'warning'}>{r.after}</StatusLabel>}
+                {r.status === 'ok' || r.status === 'na' ? r.after : <StatusLabel status={r.status === 'over' ? 'error' : 'warning'}>{r.after}</StatusLabel>}
               </Box>
               <Box component="td" sx={{ p: 0.5 }}>{r.limit}</Box>
             </tr>

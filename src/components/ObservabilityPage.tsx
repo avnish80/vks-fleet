@@ -39,6 +39,7 @@ export function ObservabilityPage() {
   const packages = usePackages(enabling ? targets.filter(t => t.key === enabling) : [], 120);
   const [serverFor, setServerFor] = React.useState<ObservabilitySummary | null>(null);
   const [compareOn, setCompareOn] = React.useState(false);
+  const [showUnmonitored, setShowUnmonitored] = React.useState(false);
   const [showForecasts, setShowForecasts] = React.useState(false);
   const comparisons = usePolling<AppComparison[]>(
     compareOn && summaries ? `compare|${summaries.filter(s => s.reachable).map(s => s.clusterKey).join(',')}` : null,
@@ -53,6 +54,11 @@ export function ObservabilityPage() {
   if (clusters.length === 0) return <NoClusters title="Observability" what="monitoring information" />;
   if (targets.length > 0 && summaries === null) return <Loader title="Looking for Prometheus in the clusters" />;
   const list = summaries ?? [];
+  // Clusters with metrics first; at fleet scale the rest fold into one line (with a way to show them and enable monitoring).
+  const withMetrics = list.filter(s => s.reachable);
+  const unmonitored = list.filter(s => !s.reachable);
+  const foldUnmonitored = unmonitored.length > 3;
+  const shownList = foldUnmonitored && !showUnmonitored ? withMetrics : [...withMetrics, ...unmonitored];
   const byKey = new Map(clusters.map(c => [c.key, c]));
   const select = (key: string | null) => history.replace(`${location.pathname}${key ? `?cluster=${encodeURIComponent(key)}` : ''}`);
   const monitored = list.filter(s => s.reachable);
@@ -82,7 +88,19 @@ export function ObservabilityPage() {
       <SectionBox title="Clusters">
         <SimpleTable
           columns={[
-            { label: 'Cluster', getter: (s: ObservabilitySummary) => <Button size="small" onClick={() => select(s.clusterKey)} disabled={!s.reachable}>{s.clusterName}</Button> },
+            {
+              label: 'Cluster',
+              getter: (s: ObservabilitySummary) =>
+                s.reachable ? (
+                  <Box component="span" role="button" onClick={() => select(s.clusterKey)} sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer', fontWeight: 600 }}>
+                    {s.clusterName}
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {s.clusterName}
+                  </Typography>
+                ),
+            },
             {
               label: 'Monitoring',
               getter: (s: ObservabilitySummary) =>
@@ -111,8 +129,18 @@ export function ObservabilityPage() {
             { label: 'Restarts (1 h)', getter: (s: ObservabilitySummary) => kpi(s.kpis.restarts, 'count', 3) },
             { label: 'Alerts', getter: (s: ObservabilitySummary) => (s.stack.alertmanager ? (s.alertsReadable ? s.alerts.length : 'not reachable') : 'no Alertmanager') },
           ]}
-          data={list}
+          data={shownList}
         />
+        {foldUnmonitored && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            {unmonitored.length} cluster{unmonitored.length === 1 ? ' has' : 's have'} no metrics here (no Prometheus, or not reachable):{' '}
+            {unmonitored.slice(0, 8).map(u => u.clusterName).join(', ')}
+            {unmonitored.length > 8 ? ` and ${unmonitored.length - 8} more` : ''}.{' '}
+            <Button size="small" onClick={() => setShowUnmonitored(!showUnmonitored)}>
+              {showUnmonitored ? 'Hide them' : 'Show them'}
+            </Button>
+          </Typography>
+        )}
         {list.some(s => !s.stack.prometheus) && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             Enable monitoring installs the VKS Prometheus package (with Alertmanager, node-exporter and kube-state-metrics) from the

@@ -29,3 +29,9 @@ export function shortNode(cluster: string, node: string): string {
   while (n.startsWith(`${cluster}-`) && n.length > cluster.length + 1) n = n.slice(cluster.length + 1);
   return n;
 }
+
+/** A host by its short name (esx-02.demo.local → esx-02); IP addresses stay whole. */
+export function shortHost(host: string): string {
+  return /^\d+\.\d+\.\d+\.\d+$/.test(host) ? host : host.replace(/\..*$/, '');
+}
+

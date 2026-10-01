@@ -5,6 +5,7 @@ import { HostCard, hostBlast, hostMap } from '../hostmap';
 import { SupervisorHealth } from '../supervisorHealth';
 import { ServiceVm, SupervisorResult } from '../types';
 import { placementFor, VcEntity, VcenterStatus, VcSupervisor } from '../vcenterStatus';
+import { shortener } from '../names';
 
 const bar = (pct: number | undefined, label: string) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -42,6 +43,9 @@ const chip = (text: string, tone: 'primary' | 'neutral' | 'warning' = 'neutral',
 );
 
 /** The Supervisor by ESXi host: load, what runs where, and what a host failure takes down. */
+/** Cluster chips shown per host card before folding the rest. */
+const HOST_CHIPS = 6;
+
 export function HostsSection({ h, r, vc, status, vms, entities, label }: { h: SupervisorHealth; r: SupervisorResult; vc?: VcSupervisor; status?: VcenterStatus; vms: ServiceVm[]; entities: VcEntity[]; label: (n?: string) => string }) {
   const [selected, setSelected] = React.useState<string | null>(null);
   const placed = placementFor(status, vc?.id);
@@ -63,6 +67,7 @@ export function HostsSection({ h, r, vc, status, vms, entities, label }: { h: Su
   const blast = card ? hostBlast(card, h.services, r.clusters) : undefined;
   const short = (n: string) => n.replace(/\..*$/, '');
   const edge = (c: HostCard) => (!c.ready || (c.connection && c.connection !== 'CONNECTED') ? 'error.main' : c.alarms || (c.cpuPct ?? 0) > 90 || (c.memPct ?? 0) > 90 ? 'warning.main' : 'success.main');
+  const shortCluster = shortener(Array.from(new Set(map.cards.flatMap(c => c.clusters.map(x => x.cluster)))));
   return (
     <SectionBox title="Hosts">
       {h.placement.concentrated && (
@@ -100,7 +105,21 @@ export function HostsSection({ h, r, vc, status, vms, entities, label }: { h: Su
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
               {c.controlPlaneVms.length > 0 && chip('Supervisor CP', 'primary', c.controlPlaneVms.join(', '))}
               {c.services.length > 0 && chip(`${c.services.length} service${c.services.length === 1 ? '' : 's'}`, 'neutral', c.services.join(', '))}
-              {c.clusters.map(x => chip(`${x.cluster.replace(/^kubernetes-cluster-/, '')} ×${x.nodes.length}${x.controlPlane ? ' (CP)' : ''}`, 'neutral', x.nodes.join('\n')))}
+              {/* The largest few (control planes first); the rest fold into "+N more", all listed when the host is clicked. */}
+              {[...c.clusters]
+                .sort((p, q) => Number(q.controlPlane) - Number(p.controlPlane) || q.nodes.length - p.nodes.length)
+                .slice(0, HOST_CHIPS)
+                .map(x => chip(`${shortCluster(x.cluster)} ×${x.nodes.length}${x.controlPlane ? ' (CP)' : ''}`, 'neutral', x.nodes.join('\n')))}
+              {c.clusters.length > HOST_CHIPS &&
+                chip(
+                  `+${c.clusters.length - HOST_CHIPS} more`,
+                  'neutral',
+                  [...c.clusters]
+                    .sort((p, q) => Number(q.controlPlane) - Number(p.controlPlane) || q.nodes.length - p.nodes.length)
+                    .slice(HOST_CHIPS)
+                    .map(x => `${shortCluster(x.cluster)} ×${x.nodes.length}`)
+                    .join('\n')
+                )}
               {c.vms.length > 0 && chip(`${c.vms.length} VM${c.vms.length === 1 ? '' : 's'}`, 'neutral', c.vms.join(', '))}
               {!c.controlPlaneVms.length && !c.services.length && !c.clusters.length && !c.vms.length && (
                 <Typography variant="caption" color="text.secondary">

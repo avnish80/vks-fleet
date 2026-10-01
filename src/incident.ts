@@ -61,7 +61,7 @@ export function buildIncident(input: {
   }
   for (const a of input.alerts ?? []) {
     const t = a.since ? new Date(a.since).getTime() : undefined;
-    events.push({ time: inWindow(t) ? t : undefined, source: 'alert', text: `Alert ${a.name}${a.summary ? `: ${a.summary}` : ''}${!inWindow(t) && t ? ` (firing since ${new Date(t).toLocaleString()})` : ''}`, tone: a.severity === 'critical' ? 'error' : 'warning', symptom: true });
+    events.push({ time: inWindow(t) ? t : undefined, source: 'alert', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}${!inWindow(t) && t ? ` (firing since ${new Date(t).toLocaleString()})` : ''}`, tone: a.severity === 'critical' ? 'error' : 'warning', symptom: true });
   }
   for (const w of input.warnings ?? []) {
     const t = w.lastSeen ? new Date(w.lastSeen).getTime() : undefined;
@@ -86,7 +86,7 @@ export function buildIncident(input: {
   const open = events.filter(e => e.time === undefined && e.symptom).length;
   const parts: string[] = [];
   if (!firstSymptom && !open) parts.push(`Nothing went wrong in ${input.cluster} in the last ${input.hours} hours as far as the fleet can see.`);
-  if (firstSymptom) parts.push(`The first sign of trouble in ${input.cluster} was at ${new Date(firstSymptom.time!).toLocaleString()}: ${firstSymptom.text}.`);
+  if (firstSymptom) parts.push(`The first sign of trouble in ${input.cluster} was at ${new Date(firstSymptom.time!).toLocaleString()}: ${firstSymptom.source === 'alert' ? 'alert ' : ''}${firstSymptom.text}.`);
   if (trigger) parts.push(`It followed a change ${humanDuration((firstSymptom!.time! - trigger.time!) / 1000)} earlier: ${trigger.text}. That may be the trigger; check before concluding.`);
   else if (firstSymptom) parts.push('No change by the fleet preceded it within two hours.');
   if (open) parts.push(`${open} problem${open === 1 ? ' is' : 's are'} still open.`);

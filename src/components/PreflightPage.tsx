@@ -93,7 +93,15 @@ export function PreflightPage() {
         { label: 'Now', getter: (x: ImpactRow) => x.before },
         { label: 'With the change', getter: (x: ImpactRow) => <b>{x.after}</b> },
         { label: 'Limit', getter: (x: ImpactRow) => x.limit || '—' },
-        { label: '', getter: (x: ImpactRow) => <StatusLabel status={x.status === 'ok' ? 'success' : x.status === 'warn' ? 'warning' : 'error'}>{x.status === 'ok' ? 'fits' : x.status === 'warn' ? 'tight' : 'over'}</StatusLabel> },
+        {
+          label: '',
+          getter: (x: ImpactRow) =>
+            x.status === 'na' ? (
+              <span title={x.note}>not comparable</span>
+            ) : (
+              <StatusLabel status={x.status === 'ok' ? 'success' : x.status === 'warn' ? 'warning' : 'error'}>{x.status === 'ok' ? 'fits' : x.status === 'warn' ? 'tight' : 'over'}</StatusLabel>
+            ),
+        },
       ]}
       data={rows}
     />

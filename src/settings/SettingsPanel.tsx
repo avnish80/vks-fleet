@@ -267,10 +267,12 @@ export function SettingsPanel() {
   const suffix = raw.elevation?.suffix || '-admin';
 
   // Setup checks (every minute): Supervisors, VCF Automation org contexts, the collector.
-  const probeKey = JSON.stringify([effective.map(s => [s.headlampCluster, s.mode, s.tenantLabelKey]), newOrgs.map(o => o.headlampCluster), raw.vcenter, contexts.length]);
+  const probeKey = JSON.stringify([effective.map(s => [s.headlampCluster, s.mode, s.tenantLabelKey]), newOrgs.map(o => o.headlampCluster), raw.vcenter, contexts.length, raw.demo === true]);
   const probes = usePolling(
     `settings-probes|${probeKey}`,
     async () => {
+      // In demo mode every request answers with demo data: checking the real setup then would only mislead.
+      if (raw.demo) return { sv: [] as SupervisorProbe[], orgs: [], collector: undefined };
       const sv = await Promise.all(
         effective.map(s =>
           s.mode === 'vcfa'
@@ -293,9 +295,12 @@ export function SettingsPanel() {
   );
 
   const status: Array<{ level: Level; text: string; fix?: string }> = [];
-  if (raw.demo) status.push({ level: 'warn', text: 'Demo mode is on: every page shows the demo fleet.', fix: 'Turn it off under Display.' });
-  if (!effective.length) status.push({ level: 'pending', text: 'No Supervisor yet.', fix: 'Add one below.' });
-  effective.forEach((s, i) => {
+  if (raw.demo) {
+    status.push({ level: 'warn', text: 'Demo mode is on: every page shows the demo fleet.', fix: 'Turn it off under Display.' });
+    status.push({ level: 'pending', text: 'Your real setup is checked when demo mode is off.' });
+  }
+  if (!raw.demo && !effective.length) status.push({ level: 'pending', text: 'No Supervisor yet.', fix: 'Add one below.' });
+  (raw.demo ? [] : effective).forEach((s, i) => {
     const p = probes?.sv[i];
     status.push(p ? { ...p, text: `${s.displayName || s.headlampCluster || 'Supervisor'}: ${p.text}` } : { level: 'pending', text: `${s.displayName || s.headlampCluster}: checking…` });
   });
@@ -303,7 +308,7 @@ export function SettingsPanel() {
     const p = probes?.orgs[i];
     if (p && p.level !== 'ok') status.push({ ...p, text: `${o.org} (VCF Automation, not added): ${p.text.replace(/^[^:]*: /, '')}` });
   });
-  if (raw.vcenter?.context) {
+  if (!raw.demo && raw.vcenter?.context) {
     const c = probes?.collector;
     status.push(
       !c
@@ -315,7 +320,7 @@ export function SettingsPanel() {
         : { level: 'ok', text: `vCenter collector: last written ${c.ageMinutes} min ago` }
     );
   }
-  if (mode === 'elevate' && contexts.length) {
+  if (!raw.demo && mode === 'elevate' && contexts.length) {
     const missing = twins.supervisors.filter(x => !x.found);
     status.push(
       missing.length
@@ -379,7 +384,7 @@ export function SettingsPanel() {
               index={i}
               duplicateId={!!ids[i] && ids.indexOf(ids[i]) !== i}
               contexts={contexts.filter(c => !c.endsWith(suffix) || c === s.headlampCluster)}
-              probe={probes?.sv[i] as SupervisorProbe | undefined}
+              probe={raw.demo ? undefined : (probes?.sv[i] as SupervisorProbe | undefined)}
               onChange={next => write(supervisors.map((x, j) => (j === i ? next : x)))}
               onRemove={() => {
                 write(supervisors.filter((_, j) => j !== i));

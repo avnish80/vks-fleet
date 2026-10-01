@@ -213,7 +213,7 @@ export function PackagesPage() {
                 <>
                   {bad > 0 && <StatusLabel status="error">{`${bad} failing`}</StatusLabel>}
                   {drift > 0 && <StatusLabel status="warning">{`${drift} drifting`}</StatusLabel>}
-                  {upd > 0 && <StatusLabel status="">{`${upd} updates`}</StatusLabel>}
+                  {upd > 0 && <StatusLabel status="">{`${upd} update${upd === 1 ? '' : 's'}`}</StatusLabel>}
                   {!bad && !drift && !upd && <StatusLabel status="success">up to date</StatusLabel>}
                 </>
               ),

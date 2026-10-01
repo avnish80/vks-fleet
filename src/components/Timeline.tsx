@@ -117,9 +117,13 @@ export function ActivityHeatmap({
   const history = useHistory();
   const byKey = new Map(clusters.map(c => [c.key, c]));
   const dayKeys = Array.from({ length: days }, (_, i) => localDay(new Date(now.getTime() - (days - 1 - i) * 86400000)));
-  const rows = [...lanes.entries()]
+  const all = [...lanes.entries()]
     .map(([key, entries]) => ({ c: byKey.get(key), entries }))
-    .filter((r): r is { c: FleetCluster; entries: TimelineEntry[] } => !!r.c)
+    .filter((r): r is { c: FleetCluster; entries: TimelineEntry[] } => !!r.c);
+  // Only clusters that changed get a row; the quiet ones are counted in one line.
+  const quiet = all.filter(r => !r.entries.length).length;
+  const rows = all
+    .filter(r => r.entries.length)
     .sort((a, b) => b.entries.length - a.entries.length || a.c.name.localeCompare(b.c.name))
     .slice(0, max);
   if (!rows.some(r => r.entries.length)) {
@@ -227,7 +231,7 @@ export function ActivityHeatmap({
           </Box>
         ))}
         <Typography variant="caption" color="text.secondary">
-          Darker means more changes that day.
+          Darker means more changes that day.{quiet > 0 ? ` ${quiet} other cluster${quiet === 1 ? '' : 's'} had no changes.` : ''}
         </Typography>
       </Box>
     </Box>

@@ -39,7 +39,6 @@ import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
 import { Guard } from './Guard';
-import { ALL_ORGS } from '../scope';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
 import { clusterPath, FLEET_PATH, headlampClusterPath, SEARCH_ROUTE } from '../routes';
@@ -50,7 +49,7 @@ import { useClusterScans } from '../useClusterScans';
 import { configuredByNamespace } from '../limits';
 import { limitIssues } from '../limitIssues';
 import { compliance, evaluateBaseline, profileFor } from '../baseline';
-import { fleetTotals, needsAttention, rollupByTenant, TenantRollup } from '../summary';
+import { fleetTotals, needsAttention, rollupByTenant } from '../summary';
 import { FleetCluster, Health, supervisorLabel } from '../types';
 import { useWorkloadHealth } from '../useWorkload';
 import {
@@ -85,7 +84,7 @@ function summarySentence(clusters: FleetCluster[]): string {
 }
 
 export function FleetView() {
-  const { config, results, refreshing, refresh, inventory, limits, orgQuotas, setOrg, all, inventoryAll, org } = useFleetData();
+  const { config, results, refreshing, refresh, inventory, limits, orgQuotas, all, inventoryAll, org } = useFleetData();
 
   const [search, setSearch] = React.useState('');
   // Filters live in the URL, so overview clicks and shared links land on the same view.
@@ -108,7 +107,6 @@ export function FleetView() {
     const qs = p.toString();
     history.replace(`${FLEET_PATH}${qs ? `?${qs}` : ''}${hash ? `#${hash}` : ''}`);
   };
-  const setTenant = (t: string) => setOrg(t === ALL ? ALL_ORGS : t);
   const setSupervisorFilter = (id: string) => setParams({ supervisor: id === ALL ? undefined : id, tenant: undefined });
   const setAttentionOnly = (b: boolean) => setParams({ attention: b ? '1' : undefined });
   const jump = (id: string) =>
@@ -477,39 +475,6 @@ export function FleetView() {
         </Guard>
       )}
 
-      <Box id="tenants" sx={{ scrollMarginTop: 72 }} />
-      {multiTenant && tenant === ALL && (
-        <SectionBox title="Tenants">
-          <SimpleTable
-            columns={[
-              {
-                label: 'Tenant',
-                getter: (r: TenantRollup) => (
-                  <Button size="small" onClick={() => setTenant(r.tenantId)} title={r.tenantId}>
-                    {r.tenantName}
-                  </Button>
-                ),
-              },
-              { label: 'Clusters', getter: (r: TenantRollup) => r.clusters },
-              { label: 'Need attention', getter: (r: TenantRollup) => r.attention },
-              { label: 'Upgrading', getter: (r: TenantRollup) => r.upgrading },
-              { label: 'Upgrades available', getter: (r: TenantRollup) => r.upgradable },
-              { label: 'Kubernetes versions', getter: (r: TenantRollup) => r.versions.join(', ') },
-              { label: 'Node capacity', getter: (r: TenantRollup) => capacityText(r) },
-              ...(multiSupervisor
-                ? [
-                    {
-                      label: 'Supervisors',
-                      getter: (r: TenantRollup) =>
-                        r.supervisorIds.map(id => supervisorNames.get(id) ?? id).join(', '),
-                    },
-                  ]
-                : []),
-            ]}
-            data={rollups}
-          />
-        </SectionBox>
-      )}
 
       <Box id="clusters" sx={{ scrollMarginTop: 72 }} />
       {(healthFilter || versionFilter || attentionOnly || upgradableOnly) && (

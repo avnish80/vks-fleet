@@ -43,7 +43,7 @@ function BaselineEditor({ baseline, onChange, onReset }: { baseline: Baseline; o
         onChange={e => set({ targetMinor: e.target.value.trim().replace(/^v/, '') })} />
       <TextField size="small" label="Required packages, e.g. cert-manager, fluent-bit>=3.2" value={pkgText}
         onChange={e => { setPkgText(e.target.value); set({ requiredPackages: e.target.value.split(',').map(x => x.trim()).filter(Boolean) }); }} />
-      <TextField select SelectProps={{ native: true }} size="small" label="Pod Security default at least" value={baseline.podSecurity}
+      <TextField select SelectProps={{ native: true }} InputLabelProps={{ shrink: true }} size="small" label="Pod Security default at least" value={baseline.podSecurity ?? ''}
         onChange={e => set({ podSecurity: e.target.value as Baseline['podSecurity'] })}>
         <option value="">not checked</option>
         <option value="baseline">baseline</option>

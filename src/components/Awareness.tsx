@@ -3,11 +3,16 @@ import { Alert, Box, Button, FormControlLabel, Switch, Typography } from '@mui/m
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { diffSeen } from '../awareness';
+import { useRawSettings } from '../settings/store';
 import { Issue } from '../types';
 
 /** What this browser saw last time, for "since your last visit". */
-const seenStore = new ConfigStore<{ at?: string; issues?: Record<string, string>; notify?: boolean; notified?: string[] }>('vks-fleet-seen');
-const useSeen = seenStore.useConfig();
+type Seen = { at?: string; issues?: Record<string, string>; notify?: boolean; notified?: string[] };
+// Demo mode keeps its own memory, so the demo never lists a real fleet's issues (or the other way round).
+const realSeenStore = new ConfigStore<Seen>('vks-fleet-seen');
+const demoSeenStore = new ConfigStore<Seen>('vks-fleet-seen-demo');
+const useRealSeen = realSeenStore.useConfig();
+const useDemoSeen = demoSeenStore.useConfig();
 
 const ago = (iso: string) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -17,7 +22,11 @@ const ago = (iso: string) => {
 
 /** New and resolved issues since this browser last marked them as seen; plus desktop alerts for new critical ones. */
 export function SinceLastVisit({ issues, ready }: { issues: Issue[]; ready: boolean }) {
-  const seen = useSeen() ?? {};
+  const demo = useRawSettings().demo === true;
+  const realSeen = useRealSeen();
+  const demoSeen = useDemoSeen();
+  const seenStore = demo ? demoSeenStore : realSeenStore;
+  const seen = (demo ? demoSeen : realSeen) ?? {};
   const actionable = issues.filter(i => i.severity !== 'info');
   const snapshot = () => Object.fromEntries(actionable.slice(0, 300).map(i => [i.id, i.title]));
 
