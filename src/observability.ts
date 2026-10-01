@@ -392,7 +392,8 @@ export async function fetchSummary(client: SupervisorClient, clusterKey: string,
       }
     })(),
   ]);
-  out.forecasts.sort((a, b) => a.seconds - b.seconds);
+  // A node scraped by two jobs gives two forecasts for the same thing: keep the sooner one.
+  out.forecasts = mergeForecasts(out.forecasts);
   out.unusual = unusualKpis(out.kpis, weekAgo);
   return out;
 }
@@ -571,5 +572,29 @@ export function mergeByNode(series: Series[], resolve: (l: Record<string, string
   return Array.from(byNode.entries())
     .map(([name, pts]) => ({ labels: { name }, points: Array.from(pts.entries()).sort((a, b) => a[0] - b[0]) as Array<[number, number]> }))
     .sort((a, b) => a.labels.name.localeCompare(b.labels.name));
+}
+
+/** A query that takes longer than this gives up with a message instead of loading forever. */
+export const QUERY_LIMIT_MS = 25_000;
+
+export function withTimeLimit<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.finally(() => timer && clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
+/** One forecast per thing that runs out (the sooner, when it arrives twice), soonest first. */
+export function mergeForecasts(list: Forecast[]): Forecast[] {
+  const best = new Map<string, Forecast>();
+  for (const f of list) {
+    const k = `${f.what}|${f.subject}`;
+    const cur = best.get(k);
+    if (!cur || f.seconds < cur.seconds) best.set(k, f);
+  }
+  return Array.from(best.values()).sort((a, b) => a.seconds - b.seconds);
 }
 

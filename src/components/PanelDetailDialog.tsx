@@ -2,7 +2,7 @@ import { StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
 import React from 'react';
 import { headlampClient } from '../api/headlampClient';
-import { firstWith, mergeByNode, NEEDS_HELP, ObservabilitySummary, Panel, range, Range, RANGES, Series, seriesStats } from '../observability';
+import { firstWith, mergeByNode, NEEDS_HELP, QUERY_LIMIT_MS, withTimeLimit, ObservabilitySummary, Panel, range, Range, RANGES, Series, seriesStats } from '../observability';
 import { usePolling } from '../usePolling';
 import { formatValue, Marker, TimeSeriesChart } from './TimeSeriesChart';
 
@@ -17,7 +17,11 @@ export function PanelDetailDialog({ panel, summary, markers, initialRange, onClo
     `detail|${summary.contextName}|${panel.id}|${rng}`,
     async () => {
       try {
-        const r = await firstWith(panel.queries, q => range(headlampClient(summary.contextName), prom, q, rng));
+        const r = await withTimeLimit(
+          firstWith(panel.queries, q => range(headlampClient(summary.contextName), prom, q, rng)),
+          QUERY_LIMIT_MS,
+          `Prometheus took longer than ${QUERY_LIMIT_MS / 1000} s for this range. Try a shorter one.`
+        );
         const raw = r.data as Series[];
         return { series: panel.perNode && resolve ? mergeByNode(raw, resolve) : raw, query: r.query };
       } catch (err) {

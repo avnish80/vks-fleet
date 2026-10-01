@@ -66,3 +66,11 @@ describe('changes as one choice', () => {
     assert.deepEqual(changesPatch('readonly'), { readOnly: true, elevation: { enabled: false } });
   });
 });
+
+describe('elevation checks count only clusters', () => {
+  test("namespace contexts from kubectl vsphere login aren't clusters", () => {
+    const contexts = ['10.0.0.2', 'kubernetes-cluster-a1b2', 'kubernetes-cluster-c3d4', 'team-b-ns1', 'team-b-ns1-10.0.0.2', 'team-a-ns1'];
+    const t = adminTwins(contexts, '-admin', [{ context: '10.0.0.2' }], [], ['kubernetes-cluster-a1b2', 'kubernetes-cluster-c3d4']);
+    assert.deepEqual(t.clustersWithout, ['kubernetes-cluster-a1b2', 'kubernetes-cluster-c3d4']);
+  });
+});

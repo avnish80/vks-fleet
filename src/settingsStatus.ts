@@ -18,6 +18,8 @@ export interface SupervisorProbe extends Probe {
   namespaces?: number;
   /** Org (tenant) IDs found on namespaces, for naming them. */
   orgIds?: string[];
+  /** The VKS clusters it found (their contexts are named after them). */
+  clusterNames?: string[];
 }
 
 /** Why a request failed, in terms an operator acts on. */
@@ -33,7 +35,7 @@ export async function probeSupervisor(client: SupervisorClient, context: string,
   if (!context) return { level: 'error', text: 'No Headlamp cluster chosen', fix: 'Pick the context that points at the Supervisor.' };
   if (known.length && !known.includes(context)) return { level: 'error', text: `Headlamp has no cluster named ${context}`, fix: 'Sign in to the Supervisor (kubectl vsphere login), or pick another context.' };
   try {
-    const cl = await client.get<{ items?: unknown[] }>('/apis/cluster.x-k8s.io/v1beta1/clusters');
+    const cl = await client.get<{ items?: Array<{ metadata?: { name?: string } }> }>('/apis/cluster.x-k8s.io/v1beta1/clusters');
     let namespaces: number | undefined;
     let orgIds: string[] | undefined;
     try {
@@ -50,6 +52,7 @@ export async function probeSupervisor(client: SupervisorClient, context: string,
       clusters: n,
       namespaces,
       orgIds,
+      clusterNames: (cl.items ?? []).map(x => x.metadata?.name).filter((x): x is string => !!x),
     };
   } catch (err) {
     return explain(err, context);
@@ -74,14 +77,16 @@ export interface AdminTwins {
 }
 
 /** For elevation: which read contexts have their admin counterpart. */
-export function adminTwins(contexts: string[], suffix: string, supervisors: Array<{ context: string; admin?: string }>, exclude: string[] = []): AdminTwins {
+export function adminTwins(contexts: string[], suffix: string, supervisors: Array<{ context: string; admin?: string }>, exclude: string[] = [], clusterNames?: string[]): AdminTwins {
   const set = new Set(contexts);
   const sv = supervisors.filter(s => s.context).map(s => {
     const admin = s.admin?.trim() || `${s.context}${suffix}`;
     return { context: s.context, admin, found: set.has(admin) };
   });
   const skip = new Set([...sv.flatMap(s => [s.context, s.admin]), ...exclude]);
-  const clusters = contexts.filter(c => !skip.has(c) && !c.endsWith(suffix));
+  // Only the VKS clusters' own contexts, when known (namespace contexts from kubectl vsphere login aren't clusters).
+  const known = clusterNames ? new Set(clusterNames) : undefined;
+  const clusters = contexts.filter(c => !skip.has(c) && !c.endsWith(suffix) && (!known || known.has(c)));
   const twinned = clusters.filter(c => set.has(`${c}${suffix}`));
   return { supervisors: sv, clustersWith: twinned.length, clustersWithout: clusters.filter(c => !set.has(`${c}${suffix}`)) };
 }

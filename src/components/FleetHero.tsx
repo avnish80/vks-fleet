@@ -104,7 +104,7 @@ export function FleetHero({ glance, top, horizon, now = Date.now(), onScore }: {
 
       <Paper variant="outlined" sx={{ ...card, gridColumn: { md: '1 / -1', xl: 'auto' } }}>
         <Typography sx={{ fontWeight: 800, mb: 0.5 }}>Next {days} days</Typography>
-        <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible' }}>
+        <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
           <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
           {[0, 7, 14, 21, 28].map(d => (
             <g key={d}>

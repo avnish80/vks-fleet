@@ -2,6 +2,17 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.33.2
+
+Fixes from a review on a real VCF 9.1 lab:
+
+- **Access check under elevation:** with *read by default, elevate to change* on, the top bar said *Access not checked*: the access review went through the change path, which refuses everything until you elevate. Access reviews change nothing and now always use the read sign-in.
+- **Network map:** grouping per cluster didn't happen on real data (the page passed only VM Service VMs, not cluster node VMs). Node VMs are now recognised by name too, against every cluster on the page; public addresses use short names.
+- **Observability:** a slow panel (API server latency over 24 hours) gives up after 25 seconds with a message instead of loading forever; the coverage line appears as soon as the other panels are in.
+- **Forecasts:** a node scraped twice no longer gives two forecasts anywhere (merged where they're computed); Investigate, the walk-down and pre-flight use short node and pool names.
+- **Settings:** the elevation check counts only VKS clusters, not namespace contexts; context fields use the full width.
+- **Fleet page:** the 30-day timeline keeps its size on a wide card; the Supervisor services table shows short host names.
+
 ## 1.33.1
 
 - Fix: *Go to …* buttons on a cluster's page did nothing when clicked a second time (or when the address already pointed at that section); every click now scrolls to the section and highlights it.

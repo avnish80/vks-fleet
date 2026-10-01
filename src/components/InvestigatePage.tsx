@@ -4,6 +4,7 @@ import React from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { hostPatterns, Layer, walkDown } from '../explain';
 import { useFleetData } from '../fleetContext';
+import { shortNode } from '../names';
 import { buildIncident, IncidentEvent, postMortemMarkdown } from '../incident';
 import { buildIssues } from '../issues';
 import { configuredByNamespace } from '../limits';
@@ -109,7 +110,8 @@ export function InvestigatePage() {
         hostOf,
       })
     : undefined;
-  const nodeIn = (text: string) => nodes.find(n => text.includes(n));
+  // Timeline text names nodes by their short name; match either form.
+  const nodeIn = (text: string) => nodes.find(n => text.includes(n) || text.includes(shortNode(cluster.name, n)));
 
   return (
     <SectionBox
@@ -188,7 +190,7 @@ export function InvestigatePage() {
             <TextField select size="small" value={node ?? ''} onChange={e => set({ node: e.target.value })} sx={{ minWidth: 220 }}>
               {nodes.map(n => (
                 <MenuItem key={n} value={n}>
-                  {problemNodes.includes(n) ? `⚠ ${n}` : n}
+                  {problemNodes.includes(n) ? `⚠ ${shortNode(cluster.name, n)}` : shortNode(cluster.name, n)}
                 </MenuItem>
               ))}
             </TextField>

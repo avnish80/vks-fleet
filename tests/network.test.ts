@@ -70,3 +70,12 @@ describe('observability', () => {
     for (const id of ['node-cpu', 'node-mem', 'node-disk', 'net-errors']) assert.equal(PANELS.find(p => p.id === id)?.perNode, true, id);
   });
 });
+
+describe('networks without the node VMs in the list (as in the lab)', () => {
+  test('node VMs are recognised by name, from the cluster attached to the subnet or a given list', () => {
+    const own = subnet(`${C}-xbxsn`, [`cluster ${C}`, `VM ${node(C, 'a')}`, `VM ${node(C, 'b')}`], { kind: 'SubnetSet' });
+    assert.deepEqual(groupAttachments(own, [], [C, D]).map(x => x.label), ['c3d4 · cluster + 2 nodes']);
+    const nfs = subnet('nfs-storage-net', [`VM ${node(C, 'a')}`, `VM ${C}-qmdg9-zqwqq`, 'VM nfs-server-vm']);
+    assert.deepEqual(groupAttachments(nfs, [{ name: 'nfs-server-vm', namespace: 'ns' } as any], [C, D]).map(x => x.label), ['c3d4 · 2 nodes · secondary', 'nfs-server-vm']);
+  });
+});

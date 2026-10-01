@@ -72,11 +72,11 @@ function Section({ title, blurb, children }: { title: string; blurb?: string; ch
 /** A context picker: Headlamp's clusters, or free text when the list can't be read. */
 function ContextField({ label, value, contexts, onChange, helperText, placeholder, required }: { label: string; value: string; contexts: string[]; onChange: (v: string) => void; helperText?: string; placeholder?: string; required?: boolean }) {
   if (!contexts.length) {
-    return <TextField size="small" label={label} value={value} placeholder={placeholder} helperText={helperText} required={required} onChange={e => onChange(e.target.value.trim())} />;
+    return <TextField fullWidth size="small" label={label} value={value} placeholder={placeholder} helperText={helperText} required={required} onChange={e => onChange(e.target.value.trim())} />;
   }
   const options = value && !contexts.includes(value) ? [value, ...contexts] : contexts;
   return (
-    <TextField select size="small" label={label} value={value} helperText={helperText} required={required} onChange={e => onChange(String(e.target.value))}>
+    <TextField fullWidth select size="small" label={label} value={value} helperText={helperText} required={required} onChange={e => onChange(String(e.target.value))}>
       {!required && <MenuItem value="">(none)</MenuItem>}
       {options.map(c => (
         <MenuItem key={c} value={c}>
@@ -288,7 +288,8 @@ export function SettingsPanel() {
     contexts,
     suffix,
     effective.map(s => ({ context: s.headlampCluster ?? '', admin: s.adminContext })),
-    discovered.map(d => d.headlampCluster ?? '')
+    discovered.map(d => d.headlampCluster ?? ''),
+    probes ? probes.sv.flatMap(p => (p as SupervisorProbe).clusterNames ?? []) : undefined
   );
 
   const status: Array<{ level: Level; text: string; fix?: string }> = [];

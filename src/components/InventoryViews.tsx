@@ -1,6 +1,7 @@
 import { SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Box, Typography } from '@mui/material';
-import { Attachment, groupAttachments, orderSubnets, subnetGroup } from '../networkView';
+import { Attachment, clustersOn, groupAttachments, orderSubnets, subnetGroup } from '../networkView';
+import { shortener } from '../names';
 import React, { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDuration } from '../capi/v1beta1';
@@ -128,7 +129,7 @@ export function SubnetTable({ subnets, showNamespace = true, vms = [] }: { subne
         {
           label: 'Attached',
           getter: (s: SubnetInfo) => {
-            const a = groupAttachments(s, vms);
+            const a = groupAttachments(s, vms, clustersOn(subnets, vms));
             return a.length ? (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                 {a.map(x => (
@@ -222,6 +223,8 @@ export function NetworkMap({
   lbs: LbInfo[];
   vms: ServiceVm[];
 }) {
+  const allClusters = clustersOn(subnets, vms, lbs.map(l => l.cluster));
+  const shortCluster = shortener(allClusters);
   const tone = useTone();
   const vpc = vpcs[0];
   const box = (children: ReactNode, accent: Tone, key?: string) => (
@@ -256,7 +259,7 @@ export function NetworkMap({
               </Typography>
               {s.capacity > 0 && <UsageBar used={s.used} total={s.capacity} />}
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
-                {groupAttachments(s, vms).map(a => (
+                {groupAttachments(s, vms, allClusters).map(a => (
                   <AttachmentChip key={a.label} a={a} />
                 ))}
               </Box>
@@ -285,13 +288,13 @@ export function NetworkMap({
             <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Public addresses</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
               {lbs.map(l => (
-                <Box key={l.name} sx={{ px: 1, py: 0.5, borderRadius: 1, bgcolor: 'action.hover', fontSize: '0.8rem' }}>
+                <Box key={l.name} title={l.cluster ?? l.name} sx={{ px: 1, py: 0.5, borderRadius: 1, bgcolor: 'action.hover', fontSize: '0.8rem' }}>
                   <b>{l.vip ?? 'pending'}</b> →{' '}
                   {l.kind === 'guest-service'
-                    ? `${l.guestService} (${l.cluster})`
+                    ? `${l.guestService} (${shortCluster(l.cluster ?? '')})`
                     : l.kind === 'cluster-api'
-                    ? `${l.cluster} API`
-                    : l.vms.join(', ') || l.name}
+                    ? `${shortCluster(l.cluster ?? '')} API`
+                    : shortCluster(l.vms.join(', ') || l.name)}
                 </Box>
               ))}
               {vms

@@ -18,13 +18,14 @@ export function groupAttachments(s: SubnetInfo, vms: ServiceVm[], allClusters: s
   const own = new Set<string>();
   const nodes = new Map<string, string[]>();
   const standalone: string[] = [];
+  for (const m of s.members) if (m.startsWith('cluster ')) own.add(m.slice(8));
+  // Clusters a node VM can belong to: those attached here, those the VM list knows, and any given.
+  const candidates = Array.from(new Set([...own, ...vms.map(v => v.cluster).filter((c): c is string => !!c), ...allClusters])).sort((a, b) => b.length - a.length);
   for (const m of s.members) {
-    if (m.startsWith('cluster ')) {
-      own.add(m.slice(8));
-      continue;
-    }
+    if (m.startsWith('cluster ')) continue;
     const name = m.startsWith('VM ') ? m.slice(3) : m;
-    const cluster = vms.find(v => v.name === name && v.namespace === s.namespace)?.cluster;
+    // A VKS node VM is named after its cluster ("<cluster>-…"), so the name says which cluster it's a node of.
+    const cluster = vms.find(v => v.name === name && v.namespace === s.namespace)?.cluster ?? candidates.find(c => name.startsWith(`${c}-`));
     if (cluster) nodes.set(cluster, [...(nodes.get(cluster) ?? []), name]);
     else standalone.push(name);
   }
@@ -64,3 +65,15 @@ const fill = (s: SubnetInfo) => (s.capacity ? s.used / s.capacity : 0);
 export function orderSubnets(subnets: SubnetInfo[]): SubnetInfo[] {
   return [...subnets].sort((a, b) => ORDER[subnetGroup(a)] - ORDER[subnetGroup(b)] || fill(b) - fill(a) || a.name.localeCompare(b.name));
 }
+
+/** Every cluster a page's networks mention: clusters attached to any subnet, plus those the VMs and load balancers name. */
+export function clustersOn(subnets: SubnetInfo[], vms: ServiceVm[], extra: Array<string | undefined> = []): string[] {
+  return Array.from(
+    new Set([
+      ...subnets.flatMap(s => s.members.filter(m => m.startsWith('cluster ')).map(m => m.slice(8))),
+      ...vms.map(v => v.cluster),
+      ...extra,
+    ].filter((c): c is string => !!c))
+  ).sort();
+}
+

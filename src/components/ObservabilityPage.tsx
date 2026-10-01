@@ -4,7 +4,7 @@ import React from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import { headlampClient } from '../api/headlampClient';
 import { useFleetData } from '../fleetContext';
-import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual, mergeByNode, NEEDS_HELP, nodeResolver } from '../observability';
+import { Alert as FiringAlert, apiName, DeprecatedApi, firstWith, Forecast, humanDuration, ObservabilitySummary, Panel, PANELS, range, Range, RANGES, removedBy, Series, serverSetupCommands, Unusual, mergeByNode, NEEDS_HELP, nodeResolver, QUERY_LIMIT_MS, withTimeLimit } from '../observability';
 import { AppComparison, compareApps, fetchAppUsage, fetchRightSizing, RightSizing, WorkloadSizing } from '../compare';
 import { configuredByNamespace } from '../limits';
 import { compareVersions } from '../packages';
@@ -342,11 +342,12 @@ function ClusterPanels({ summary, cluster, clusters, rng, setRng, onClose }: { s
         Hover a chart for values at that moment; click one for a larger view with statistics, more ranges and the changes in the window.
         Markers are the fleet's own changes in this cluster. {markers.filter(m => m.time >= start).length ? '' : 'No changes in this window.'}
       </Typography>
-      {settled.length === PANELS.length && (
-        <Alert severity={missing.length ? 'warning' : 'success'} sx={{ mb: 1.5 }}>
+      {settled.length > 0 && (
+        <Alert severity={missing.length ? 'warning' : settled.length < PANELS.length ? 'info' : 'success'} sx={{ mb: 1.5 }}>
           <b>
-            {PANELS.length - missing.length} of {PANELS.length} panels collected
+            {settled.length - missing.length} of {PANELS.length} panels collected
           </b>
+          {settled.length < PANELS.length && ` · ${PANELS.length - settled.length} still loading`}
           {missing.length > 0 && (
             <>
               {' · Not collected: '}
@@ -435,7 +436,11 @@ function PanelCard({ panel, summary, rng, start, end, markers, onOpen, resolve, 
     `${summary.contextName}|${panel.id}|${rng}`,
     async () => {
       try {
-        const r = await firstWith(panel.queries, q => range(headlampClient(summary.contextName), prom, q, rng));
+        const r = await withTimeLimit(
+          firstWith(panel.queries, q => range(headlampClient(summary.contextName), prom, q, rng)),
+          QUERY_LIMIT_MS,
+          `Prometheus took longer than ${QUERY_LIMIT_MS / 1000} s for this range. Try a shorter one; this panel scans a lot of series.`
+        );
         return { series: r.data as Series[] };
       } catch (err) {
         return { series: [], error: String((err as Error)?.message ?? err) };

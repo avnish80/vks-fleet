@@ -54,7 +54,8 @@ function One({ h, r, vc, vcRead, vms, canClean, onClean }: { h: SupervisorHealth
   const leftovers = h.services.reduce((n, s) => n + s.leftovers.length, 0);
   const stuck = h.backlog.reduce((n, b) => n + b.notReady, 0);
   // The control-plane VM's node name is an id; say what it is.
-  const label = (node?: string) => (!node ? '—' : cps.some(n => n.name === node) ? `control-plane VM (${node.slice(0, 8)}…)` : node);
+  // Hosts by short name (esx-05a), as on the host cards; the control-plane VM by what it is.
+  const label = (node?: string) => (!node ? '—' : cps.some(n => n.name === node) ? `control-plane VM (${node.slice(0, 8)}…)` : /^\d+\.\d+\.\d+\.\d+$/.test(node) ? node : node.replace(/\..*$/, ''));
   const resp = responsiveness(requestStats().clusters.find(c => c.cluster === r.supervisor.headlampCluster));
   return (
     <>

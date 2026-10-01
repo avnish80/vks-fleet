@@ -8,6 +8,7 @@
  * the first symptom. The draft says so and asks for review.
  */
 import { Alert, Forecast, humanDuration, Unusual } from './observability';
+import { shortNode } from './names';
 import { TimelineEntry } from './timeline';
 import { EventInfo, Issue } from './types';
 
@@ -71,7 +72,7 @@ export function buildIncident(input: {
     events.push({ source: 'anomaly', text: `${UNUSUAL_LABEL[u.kpi]} unusual for this time: ${u.now.toFixed(2)} now, ${u.weekAgo.toFixed(2)} a week ago`, tone: 'warning', symptom: true });
   }
   for (const f of input.forecasts ?? []) {
-    events.push({ source: 'forecast', text: `${f.what} ${f.subject} runs out in about ${humanDuration(f.seconds)}`, tone: f.seconds < 2 * 86400 ? 'error' : 'warning', symptom: false });
+    events.push({ source: 'forecast', text: `${f.what} ${f.what.startsWith('node') ? shortNode(input.cluster, f.subject) : f.subject} runs out in about ${humanDuration(f.seconds)}`, tone: f.seconds < 2 * 86400 ? 'error' : 'warning', symptom: false });
   }
   for (const i of input.issues ?? []) {
     events.push({ source: 'issue', text: i.title, tone: i.severity === 'critical' ? 'error' : i.severity === 'warning' ? 'warning' : 'info', symptom: i.severity !== 'info' });

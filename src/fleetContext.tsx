@@ -98,7 +98,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         new Map(
           await Promise.all(
             config.supervisors.map(
-              async s => [s.id, await detectPersona(s, supervisorWriter(s), firstNs.get(s.id), !!config.readOnly)] as [string, PersonaInfo]
+              async s => [s.id, await detectPersona(s, supervisorWriter(s, { asViewer: true }), firstNs.get(s.id), !!config.readOnly)] as [string, PersonaInfo]
             )
           )
         ),

@@ -111,6 +111,8 @@ export function NamespaceDetail() {
   const inv = row.inv;
   const ns = row.name;
   const vms = only(inv?.vms, ns).filter(v => !v.cluster);
+  // Every VM in the namespace, cluster nodes included: networks group attachments by cluster.
+  const allVms = only(inv?.vms, ns);
   const lbs = only(inv?.lbs, ns);
   const subnets = only(inv?.subnets, ns);
   const nsx = only(inv?.nsx, ns);
@@ -152,7 +154,7 @@ export function NamespaceDetail() {
 
       {inv?.networking === 'vpc' && (
         <SectionBox title="Network map">
-          <NetworkMap vpcs={vpcs} subnets={subnets} lbs={lbs} vms={vms} />
+          <NetworkMap vpcs={vpcs} subnets={subnets} lbs={lbs} vms={allVms} />
         </SectionBox>
       )}
 
@@ -184,7 +186,7 @@ export function NamespaceDetail() {
         {inv?.networking === 'none' ? (
           <Typography color="text.secondary">This Supervisor doesn't use VPC networking, which is the only kind shown so far.</Typography>
         ) : subnets.length ? (
-          <SubnetTable subnets={subnets} showNamespace={false} vms={vms} />
+          <SubnetTable subnets={subnets} showNamespace={false} vms={allVms} />
         ) : (
           <Typography color="text.secondary">None readable.</Typography>
         )}

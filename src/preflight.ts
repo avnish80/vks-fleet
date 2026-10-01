@@ -16,6 +16,7 @@ import { NodePod, nodePods } from './machine';
 import { apiName, DeprecatedApi, removedBy } from './observability';
 import { isVksManaged } from './packages';
 import { impact, ImpactRow } from './provision';
+import { shortNode } from './names';
 import { FleetCluster, NodePool, VmClassInfo } from './types';
 
 export type ChangeSpec =
@@ -181,7 +182,7 @@ export function preflight(i: PreflightInput): Preflight {
   } else if (i.change.kind === 'scale') {
     const ch = i.change;
     const pool = c.nodePools.find(p => p.name === ch.pool);
-    title = `Scale ${c.name} pool ${ch.pool} ${pool?.desired ?? '?'} → ${ch.replicas}`;
+    title = `Scale ${c.name} pool ${shortNode(c.name, ch.pool)} ${pool?.desired ?? '?'} → ${ch.replicas}`;
     if (!pool) {
       checks.push({ area: 'Change', level: 'block', text: `Pool ${ch.pool} not found in ${c.name}.` });
     } else {
@@ -207,7 +208,7 @@ export function preflight(i: PreflightInput): Preflight {
     const ch = i.change;
     const pool = c.nodePools.find(p => p.name === ch.pool);
     const from = pool ? poolClass(c, pool) : undefined;
-    title = `Change ${c.name} pool ${ch.pool} VM class ${from ?? '?'} → ${ch.vmClass}`;
+    title = `Change ${c.name} pool ${shortNode(c.name, ch.pool)} VM class ${from ?? '?'} → ${ch.vmClass}`;
     const to = classSize(i.vmClasses, c.namespace, ch.vmClass);
     const was = classSize(i.vmClasses, c.namespace, from);
     if (!pool) checks.push({ area: 'Change', level: 'block', text: `Pool ${ch.pool} not found in ${c.name}.` });

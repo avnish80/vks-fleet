@@ -6,6 +6,7 @@
  * a cluster ("3 of 4 problem nodes are VMs on the same host").
  */
 import { NamespaceLimits, overcommit } from './limits';
+import { shortNode } from './names';
 import { FleetCluster, Inventory, WorkloadHealth } from './types';
 
 export type LayerState = 'ok' | 'warn' | 'bad' | 'unknown';
@@ -52,21 +53,22 @@ export function walkDown(i: WalkInput): WalkDown {
   const nodeFacts: string[] = [];
   if (onNode.length) nodeFacts.push(`${onNode.length} pod${onNode.length === 1 ? '' : 's'} with problems on this node`);
   if (sandbox) nodeFacts.push(`Pod networking failing here (${sandbox.pods} pod${sandbox.pods === 1 ? '' : 's'}, ${sandbox.attempts} attempts): ${sandbox.error}`);
-  layers.push({ layer: 'Node', name: i.node, state: sandbox ? 'bad' : onNode.length > 1 ? 'warn' : w ? 'ok' : 'unknown', facts: nodeFacts.length ? nodeFacts : ['Nothing reported'] });
+  const short = (n: string) => shortNode(i.cluster.name, n);
+  layers.push({ layer: 'Node', name: short(i.node), state: sandbox ? 'bad' : onNode.length > 1 ? 'warn' : w ? 'ok' : 'unknown', facts: nodeFacts.length ? nodeFacts : ['Nothing reported'] });
   // Machine (Cluster API).
   const m = i.cluster.machines.find(x => x.nodeName === i.node || x.name === i.node);
   if (m) {
     const facts = [`${m.phase}${m.ready ? ', ready' : ''}`];
     if (m.deletingSince) facts.push(`Deleting since ${new Date(m.deletingSince).toLocaleString()} (a drain may be blocked)`);
     if (m.failureDomain) facts.push(`Failure domain ${m.failureDomain}`);
-    layers.push({ layer: 'Machine', name: m.name, state: m.deletingSince || m.phase === 'Failed' ? 'bad' : !m.ready || m.phase !== 'Running' ? 'warn' : 'ok', facts });
+    layers.push({ layer: 'Machine', name: short(m.name), state: m.deletingSince || m.phase === 'Failed' ? 'bad' : !m.ready || m.phase !== 'Running' ? 'warn' : 'ok', facts });
   }
   // VM (VM Operator): VKS names a node's VM after its Machine.
   const vm = (i.inventory?.vms ?? []).find(v => v.name === (m?.name ?? i.node) && v.namespace === i.cluster.namespace);
   if (vm) {
     const facts = [`${vm.power ?? 'power unknown'}${vm.className ? `, class ${vm.className}` : ''}${vm.zone ? `, zone ${vm.zone}` : ''}`];
     if (vm.readyMessage) facts.push(vm.readyMessage);
-    layers.push({ layer: 'VM', name: vm.name, state: vm.power && vm.power !== 'PoweredOn' ? 'bad' : vm.ready === false ? 'warn' : 'ok', facts });
+    layers.push({ layer: 'VM', name: short(vm.name), state: vm.power && vm.power !== 'PoweredOn' ? 'bad' : vm.ready === false ? 'warn' : 'ok', facts });
   }
   // ESXi host.
   const hostName = vm?.host ?? i.hostOf?.(vm?.name ?? m?.name ?? i.node);

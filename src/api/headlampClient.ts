@@ -56,12 +56,16 @@ function withDryRun(path: string, dryRun: boolean): string {
  * Writes to one Headlamp cluster with the signed-in user's own credentials,
  * so the Supervisor's RBAC decides what's allowed.
  */
-export function headlampWriter(headlampCluster: string): SupervisorWriter {
+/**
+ * asViewer: for requests that change nothing (access reviews), which always go
+ * through the read sign-in, whether or not elevation is on or active.
+ */
+export function headlampWriter(headlampCluster: string, opts: { asViewer?: boolean } = {}): SupervisorWriter {
   if (isDemoContext(headlampCluster)) return demoWriter(headlampCluster);
   return {
     send(original: WriteRequest, dryRun: boolean): Promise<unknown> {
       // Read by default, elevate to change: while elevated, changes go to the admin context and are stamped.
-      const { context, elevated } = changeContext(headlampCluster);
+      const { context, elevated } = opts.asViewer ? { context: headlampCluster, elevated: false } : changeContext(headlampCluster);
       const req = elevated ? stamp(original, current()) : original;
       const params: Record<string, unknown> = {
         method: req.method,
@@ -91,10 +95,10 @@ export function supervisorClient(s: SupervisorConfig): SupervisorClient {
   };
 }
 
-export function supervisorWriter(s: SupervisorConfig): SupervisorWriter {
+export function supervisorWriter(s: SupervisorConfig, opts: { asViewer?: boolean } = {}): SupervisorWriter {
   return {
     send(req: WriteRequest, dryRun: boolean): Promise<unknown> {
-      return headlampWriter(contextFor(s, req.path)).send(req, dryRun);
+      return headlampWriter(contextFor(s, req.path), opts).send(req, dryRun);
     },
   };
 }
