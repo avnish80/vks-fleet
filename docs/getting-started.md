@@ -58,6 +58,17 @@ systemctl enable --now vks-refresh.timer
 
 The script verifies certificates. Supervisors usually use vCenter's own CA, so either set `CA_FILE` in the script to that CA (download it from `https://<vcenter>/certs/download.zip`), or, for a lab, `INSECURE=true` to skip the check.
 
+## Troubleshooting setup
+
+| What you see | Why | What to do |
+|---|---|---|
+| Helm says *"another operation (install/upgrade/rollback) is in progress"* | An earlier attempt was interrupted and left the release half-done | `helm -n <namespace> history <release>`: roll back to the last `deployed` revision, or if none, `helm -n <namespace> uninstall <release>` and install again |
+| *x509* or *"certificate signed by unknown authority"*; Settings says *"its certificate isn't trusted"* | Supervisors usually use vCenter's own CA | Give it vCenter's CA (`tls.caSecret` in the chart, `CA_FILE` for scripts), or, for a lab, skip the check: `tls.insecure=true` (chart), `INSECURE=true` (jump-server script) |
+| Changes fail, or *Elevate* says the admin sign-in is missing | *Read by default, elevate to change* needs a second, admin sign-in | Choose **Settings → Changes → Allow changes**, unless you've set up the two-account refresh script |
+| Pods rejected with *violates PodSecurity* | VKS enforces *restricted* Pod Security | Use chart v1.34.1 or later, which meets it |
+
+The vCenter collector and the sign-in refresher retry a write or a sign-in whose connection drops, so an occasional network hiccup doesn't lose a run.
+
 ## Multiple Supervisors
 
 Add as many Supervisors as you like in the plugin settings, each with its own namespaces, tenant label and tenant names. Every cluster key and URL carries the Supervisor ID, and they're read in parallel: an unreachable Supervisor shows an error banner and "Unreachable" in the overview while the rest of the fleet keeps working. With more than one, the fleet page adds a Supervisor filter, a Supervisor column and a "Clusters by Supervisor" chart.

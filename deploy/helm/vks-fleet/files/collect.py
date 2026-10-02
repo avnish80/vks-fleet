@@ -42,6 +42,7 @@ import pathlib
 import ssl
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -379,29 +380,56 @@ def write_error(namespace, where, detail):
     return f"Couldn't write the ConfigMap to {namespace} via {where}: {d}.{hint}"
 
 
+# Pauses before retrying a write whose connection dropped (an unreliable network, a brief API hiccup).
+RETRY_WAITS = (3, 10)
+
+
+def transient(err):
+    """Errors from a dropped or interrupted connection, rather than a refusal."""
+    e = (err or "").lower()
+    return any(t in e for t in ("connection lost", "connection reset", "broken pipe", "unexpected eof", " eof", "i/o timeout", "tls handshake timeout", "connection refused", "http2: server sent goaway"))
+
+
 def write(cm, namespace):
     name = cm["metadata"]["name"]
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
         base = f"/api/v1/namespaces/{namespace}/configmaps"
-        try:
+        for attempt in range(len(RETRY_WAITS) + 1):
             try:
-                in_cluster_request("PUT", f"{base}/{name}", cm)
+                try:
+                    in_cluster_request("PUT", f"{base}/{name}", cm)
+                except urllib.error.HTTPError as err:
+                    if err.code != 404:
+                        raise
+                    in_cluster_request("POST", base, cm)
+                break
             except urllib.error.HTTPError as err:
-                if err.code != 404:
-                    raise
-                in_cluster_request("POST", base, cm)
-        except urllib.error.HTTPError as err:
-            raise SystemExit(write_error(namespace, "this cluster's API", f"HTTP {err.code} {err.reason}"))
+                raise SystemExit(write_error(namespace, "this cluster's API", f"HTTP {err.code} {err.reason}"))
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as err:
+                # The connection dropped (not an HTTP refusal): try again, then give up clearly.
+                if attempt < len(RETRY_WAITS):
+                    log(f"write interrupted ({err}); retrying in {RETRY_WAITS[attempt]}s")
+                    time.sleep(RETRY_WAITS[attempt])
+                    continue
+                raise SystemExit(write_error(namespace, "this cluster's API", str(err)))
         log(f"wrote {namespace}/{name}")
     elif os.environ.get("KUBE_CONTEXT"):
         ctx = os.environ["KUBE_CONTEXT"]
-        done = subprocess.run(
-            ["kubectl", "--context", ctx, "-n", namespace, "apply", "-f", "-"],
-            input=json.dumps(cm).encode(),
-            capture_output=True,
-        )
-        if done.returncode != 0:
-            raise SystemExit(write_error(namespace, ctx, done.stderr.decode(errors="replace")))
+        for attempt in range(len(RETRY_WAITS) + 1):
+            done = subprocess.run(
+                ["kubectl", "--context", ctx, "-n", namespace, "apply", "-f", "-"],
+                input=json.dumps(cm).encode(),
+                capture_output=True,
+            )
+            if done.returncode == 0:
+                break
+            err = done.stderr.decode(errors="replace")
+            # A dropped connection is worth another try; a real refusal (no namespace, no rights) isn't.
+            if attempt < len(RETRY_WAITS) and transient(err):
+                log(f"write interrupted ({err.strip().splitlines()[-1][:120]}); retrying in {RETRY_WAITS[attempt]}s")
+                time.sleep(RETRY_WAITS[attempt])
+                continue
+            raise SystemExit(write_error(namespace, ctx, err))
         log(f"wrote {namespace}/{name} via {ctx}")
     else:
         print(json.dumps(cm, indent=2))

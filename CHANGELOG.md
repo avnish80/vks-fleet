@@ -2,6 +2,13 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.34.2 (release candidate)
+
+From the clean-install retest on VCF 9.1 (which passed: restricted Pod Security, verified TLS, Headlamp trusting the CA, with no manual steps):
+
+- **Troubleshooting setup:** a new section in *Getting started* for an interrupted Helm install, certificates, and elevation without an admin sign-in; the chart guide's troubleshooting table covers the same.
+- **Retries:** the vCenter collector retries a write, and the sign-in refresher a sign-in, whose connection dropped (twice, after 3 and 10 seconds). Real refusals (a missing namespace, a wrong password) still fail at once with their message.
+
 ## 1.34.1 (release candidate)
 
 From a clean install of v1.34.0 from the release, and live write tests, on a VCF 9.1 lab:

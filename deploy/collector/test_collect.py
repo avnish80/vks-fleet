@@ -174,3 +174,37 @@ class KubeconfigCaTest(unittest.TestCase):
             {"name": "lab", "cluster": {"server": "https://10.0.0.9", "insecure-skip-tls-verify": True}},
         ]}
         self.assertEqual(refresh.clusters_needing_ca(view), ["10.0.0.2"])
+
+
+class RetryTest(unittest.TestCase):
+    """A dropped connection is retried; a real refusal isn't."""
+
+    def _write(self, results):
+        import os
+        import subprocess as sp
+        from unittest import mock
+        calls = iter(results)
+        def run(*a, **k):
+            code, err = next(calls)
+            return sp.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=err.encode())
+        with mock.patch.dict(os.environ, {"KUBE_CONTEXT": "c"}, clear=True), mock.patch.object(collect.subprocess, "run", side_effect=run) as m, mock.patch.object(collect.time, "sleep"):
+            try:
+                collect.write(collect.configmap({"supervisors": []}, "vks-fleet-vcenter"), "vks-fleet")
+                return m.call_count, None
+            except SystemExit as e:
+                return m.call_count, str(e)
+
+    def test_a_dropped_connection_is_retried(self):
+        lost = 'Patch "https://10.0.1.1:6443/…": http2: client connection lost'
+        self.assertEqual(self._write([(1, lost), (0, "")]), (2, None))
+
+    def test_a_refusal_fails_at_once(self):
+        calls, err = self._write([(1, 'Error from server (NotFound): namespaces "x" not found')])
+        self.assertEqual(calls, 1)
+        self.assertIn("doesn't exist", err)
+
+    def test_gives_up_after_the_retries(self):
+        lost = "http2: client connection lost"
+        calls, err = self._write([(1, lost)] * 3)
+        self.assertEqual(calls, 3)
+        self.assertIn("Couldn't write the ConfigMap", err)

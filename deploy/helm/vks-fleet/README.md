@@ -35,7 +35,7 @@ kubectl -n vks-fleet create secret generic vks-fleet-vsphere \
 **3. Install, and sign in for the first time.**
 
 ```bash
-VERSION=1.34.1                 # the release to install
+VERSION=1.34.2                 # the release to install
 SUPERVISOR=10.0.0.2            # your Supervisor's address (several: "10.0.0.2 10.0.0.3")
 
 helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \
@@ -84,6 +84,7 @@ All of them: [values.yaml](values.yaml).
 | The sign-in log shows `x509` or *certificate signed by unknown authority* | The Supervisor's certificate isn't trusted: use `tls.caSecret` with vCenter's CA, or `tls.insecure=true` for a lab |
 | Settings shows *"its certificate isn't trusted"* | Same cause, seen from Headlamp: same fix (then run `first-sign-in` again) |
 | Pods rejected with *violates PodSecurity* | You're on a chart older than v1.34.1: upgrade |
+| *"another operation (install/upgrade/rollback) is in progress"* | An interrupted attempt left the release half-done: `helm -n vks-fleet history vks-fleet`, then roll back to the last `deployed` revision, or uninstall and install again |
 | *Sign-in failed* for the Supervisor | Check the account in `vks-fleet-vsphere`, and that it has *Can view* on the namespaces |
 
 Uninstall: `helm -n vks-fleet uninstall vks-fleet`, then `kubectl delete namespace vks-fleet`.

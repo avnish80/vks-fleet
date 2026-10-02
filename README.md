@@ -44,7 +44,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 - **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh), in three steps: a Secret with the sign-in account; a choice for certificates, either **secure** (trust vCenter's CA, one command) or **quick, for labs** (`tls.insecure=true`); then:
 
   ```bash
-  VERSION=1.34.1
+  VERSION=1.34.2
   SUPERVISOR=10.0.0.2
   helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \
     -n vks-fleet --set plugin.source=download --set refresher.supervisors="$SUPERVISOR" \
@@ -53,7 +53,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 
   The [chart guide](deploy/helm/vks-fleet/README.md) has all three steps, the secure option, how to open it, and what to do if something doesn't work. Plain manifests (kustomize): [deploy/](deploy/README.md).
 
-Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, orgs and demo mode.
+Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, orgs, demo mode, and troubleshooting setup.
 
 ## Security in brief
 

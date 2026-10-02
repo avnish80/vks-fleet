@@ -47,6 +47,7 @@ import pathlib
 import ssl
 import subprocess
 import sys
+import time
 import tempfile
 import urllib.error
 import urllib.parse
@@ -151,14 +152,29 @@ def run(args, cfg, use_kubeconfig=True, check=True, stdin=None):
     return subprocess.run(args, env=env, check=check, capture_output=True, text=True, input=stdin)
 
 
+# Pauses before retrying a sign-in whose connection dropped (an unreliable network, a brief API hiccup).
+RETRY_WAITS = (3, 10)
+
+
+def transient(err):
+    """Errors from a dropped or interrupted connection, rather than a refusal (a wrong password isn't retried)."""
+    e = (err or "").lower()
+    return any(t in e for t in ("connection lost", "connection reset", "broken pipe", "unexpected eof", " eof", "i/o timeout", "tls handshake timeout", "connection refused", "timed out"))
+
+
 def login(cfg, server, namespace=None, name=None):
     args = ["kubectl", "vsphere", "login", f"--server={server}", f"--vsphere-username={cfg['user']}"]
     if supervisor_insecure():
         args.append("--insecure-skip-tls-verify")
     if name:
         args += ["--tanzu-kubernetes-cluster-namespace", namespace, "--tanzu-kubernetes-cluster-name", name]
-    r = run(args, cfg, check=False)
-    return r.returncode == 0, (r.stderr or r.stdout).strip()[:400]
+    for attempt in range(len(RETRY_WAITS) + 1):
+        r = run(args, cfg, check=False)
+        msg = (r.stderr or r.stdout).strip()[:400]
+        if r.returncode == 0 or attempt == len(RETRY_WAITS) or not transient(msg):
+            return r.returncode == 0, msg
+        log(f"  sign-in interrupted ({msg.splitlines()[-1][:120] if msg else 'no detail'}); retrying in {RETRY_WAITS[attempt]}s")
+        time.sleep(RETRY_WAITS[attempt])
 
 
 def main():
