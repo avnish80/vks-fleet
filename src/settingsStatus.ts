@@ -25,6 +25,14 @@ export interface SupervisorProbe extends Probe {
 /** Why a request failed, in terms an operator acts on. */
 export function explain(err: unknown, what: string): Probe {
   const s = statusOf(err);
+  const text = String((err as { message?: string })?.message ?? err ?? '');
+  // Headlamp couldn't verify the server's certificate (x509): a CA problem, not a network one.
+  if (/x509|certificate|unknown authority|tls:/i.test(text))
+    return {
+      level: 'error',
+      text: `${what}: its certificate isn't trusted`,
+      fix: "Give Headlamp the vCenter CA (the chart's tls.caSecret, or the refresher's CA_FILE writes it into the kubeconfig), or for lab certificates skip the check (tls.insecure).",
+    };
   if (s === 401) return { level: 'error', text: `${what}: sign-in expired`, fix: 'Sign in again (kubectl vsphere login, or vcf context refresh), or check the refresh timer.' };
   if (s === 403) return { level: 'warn', text: `${what}: signed in, but not allowed to list this`, fix: 'Give the account read rights, or list the namespaces it can read (Advanced).' };
   if (s === 404) return { level: 'warn', text: `${what}: not found`, fix: 'Check the name.' };

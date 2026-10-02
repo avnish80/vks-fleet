@@ -38,6 +38,15 @@ export function configureElevation(c: ElevationConfig): void {
 
 export const elevationEnabled = () => config.enabled;
 
+/** The admin contexts elevation sends Supervisor changes to. */
+export const requiredAdminContexts = (): string[] => Array.from(new Set(Object.values(config.supervisorAdmin)));
+
+/** Those Headlamp doesn't have: elevating would only lead to failed changes. */
+export function missingAdminContexts(known: string[]): string[] {
+  const have = new Set(known);
+  return requiredAdminContexts().filter(c => !have.has(c));
+}
+
 export function current(now = Date.now()): Elevation | null {
   if (state && now >= state.until) {
     state = null;

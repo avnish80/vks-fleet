@@ -190,11 +190,12 @@ Developed and tested against VMware Cloud Foundation 9.1 with vSphere Kubernetes
 - Headlamp: `ApiProxy.request` for reads and writes (merge and JSON patches, with `?dryRun=All` first), `ConfigStore`, route and sidebar registration, `noAuthRequired` on the plugin's routes (without it the page stays blank), and `/config` listing each cluster's server, which matches contexts to clusters
 - VCF Automation's `vmware-system-vcf/organization-id` namespace label; the Cluster API, VM Operator, NSX VPC and VKS resource names
 - MachineHealthCheck status, VM class sizes (`spec.hardware`), Kubernetes release versions, and the ClusterBootstrap package fields
+- VKS admission webhooks accepting scaling (`spec.topology.workers.machineDeployments[].replicas`) and pausing and resuming (`spec.paused`) through `cluster.x-k8s.io/v1beta1`
+- the Helm chart installed from a release on a VKS cluster, under restricted Pod Security, with TLS verified against vCenter's CA
 - the Supervisor's controller leases (readable per namespace), and its Supervisor service namespaces
 
 **Not yet seen on a live system** (built from the APIs' documentation; reports welcome):
 
-- VKS admission webhooks accepting `spec.paused` (pause and resume) and a change to `spec.topology.workers.machineDeployments[].replicas` (scaling) through `cluster.x-k8s.io/v1beta1`
 - `nodeDrainTimeout` in the topology reaching machines that are already deleting
 - deletes through `ApiProxy.request`
 - Headlamp's links to node and pod pages (`/c/<cluster>/nodes/<name>`, `/c/<cluster>/pods/<ns>/<name>`), a pod list filtered by namespace, and custom-resource pages

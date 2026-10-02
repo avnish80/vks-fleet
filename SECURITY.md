@@ -52,7 +52,7 @@ So for a shared installation:
 
 ## TLS
 
-The sign-in refresher (in-cluster and on a jump server) and the vCenter collector **verify certificates by default**. Supervisors and vCenters usually use vCenter's own CA (download it from `https://<vcenter>/certs/download.zip`): give it to them as `CA_FILE` (or the chart's `caSecret`). Skipping verification takes an explicit switch (`SUPERVISOR_INSECURE`, `VCENTER_INSECURE`, `VCFA_INSECURE`, or `INSECURE` in the jump-server script), meant for lab certificates only.
+The sign-in refresher (in-cluster and on a jump server) and the vCenter collector **verify certificates by default**. Supervisors and vCenters usually use vCenter's own CA (download it from `https://<vcenter>/certs/download.zip`): give it to them as `CA_FILE` (the chart's `tls.caSecret`); the refresher also writes it into the kubeconfig, so Headlamp trusts it too. Skipping verification takes an explicit switch (the chart's `tls.insecure`; `SUPERVISOR_INSECURE`, `VCENTER_INSECURE` or `VCFA_INSECURE` for the scripts; `INSECURE` in the jump-server script), meant for lab certificates only.
 
 ## Changes and their guarantees
 

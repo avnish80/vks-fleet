@@ -89,8 +89,12 @@ jobs:
           helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 > /tmp/default.yaml
           helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 \
             --set plugin.source=download --set collector.enabled=true --set collector.vcenter=vcenter.example.com \
-            --set ingress.enabled=true --set ingress.host=fleet.example.com --set caSecret=vks-fleet-ca --set refresher.insecure=false > /tmp/full.yaml
-          python3 -c "import yaml; [print(f, sum(1 for d in yaml.safe_load_all(open(f)) if d), 'objects') for f in ('/tmp/default.yaml', '/tmp/full.yaml')]"
+            --set ingress.enabled=true --set ingress.host=fleet.example.com --set tls.caSecret=vks-fleet-ca > /tmp/full.yaml
+          helm template t deploy/helm/vks-fleet --set refresher.supervisors=10.0.0.2 --set tls.insecure=true > /tmp/insecure.yaml
+          python3 -c "import yaml; [print(f, sum(1 for d in yaml.safe_load_all(open(f)) if d), 'objects') for f in ('/tmp/default.yaml', '/tmp/full.yaml', '/tmp/insecure.yaml')]"
+          # Every pod must meet "restricted" Pod Security, which VKS enforces by default.
+          python3 scripts/check-restricted.py /tmp/default.yaml /tmp/full.yaml /tmp/insecure.yaml \
+            deploy/headlamp.yaml deploy/refresher.yaml deploy/collector/collector.yaml
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             v="${GITHUB_REF_NAME#v}"
             helm package deploy/helm/vks-fleet --version "$v" --app-version "$v"

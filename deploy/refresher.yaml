@@ -56,6 +56,8 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: refresh
               image: python

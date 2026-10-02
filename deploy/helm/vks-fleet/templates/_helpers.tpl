@@ -10,3 +10,7 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- define "vks-fleet.pluginUrl" -}}
 {{- default (printf "https://github.com/avnish80/vks-fleet/releases/download/v%s/vks-fleet.tar.gz" .Chart.AppVersion) .Values.plugin.downloadUrl -}}
 {{- end }}
+{{- define "vks-fleet.caSecret" -}}{{ default .Values.caSecret .Values.tls.caSecret }}{{- end }}
+{{- define "vks-fleet.supervisorInsecure" -}}{{ or .Values.tls.insecure .Values.refresher.insecure }}{{- end }}
+{{- define "vks-fleet.vcenterInsecure" -}}{{ or .Values.tls.insecure .Values.collector.insecure }}{{- end }}
+

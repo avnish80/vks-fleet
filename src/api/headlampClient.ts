@@ -3,7 +3,7 @@ import { HeadlampClusterInfo, parseHeadlampConfig } from '../contexts';
 import { SupervisorConfig } from '../types';
 import { contextFor } from '../vcfa';
 import { demoClient, demoClusterList, demoModeOn, demoWriter, isDemoContext } from '../demo';
-import { SupervisorClient, SupervisorWriter, WriteRequest } from './client';
+import { SupervisorClient, SupervisorWriter, WriteRequest, statusOf } from './client';
 import { limited } from './limiter';
 import { rememberingGet } from './served';
 import { changeContext, current, stamp } from '../elevation';
@@ -77,9 +77,25 @@ export function headlampWriter(headlampCluster: string, opts: { asViewer?: boole
       };
       if (req.body !== undefined) params.body = JSON.stringify(req.body);
       const path = req.method === 'PATCH' ? withParam(req.path, 'fieldManager=vks-fleet') : req.path;
-      return ApiProxy.request(withDryRun(path, dryRun), params, false);
+      return ApiProxy.request(withDryRun(path, dryRun), params, false).catch(async (err: unknown) => {
+        // Elevated, and a 404: is it the admin context that's missing (not the object)? Say so plainly.
+        if (elevated && statusOf(err) === 404) {
+          const known = await listHeadlampClusters().catch(() => undefined);
+          if (known && !known.some(c => c.name === context)) throw new MissingChangeContext(context);
+        }
+        throw err;
+      });
     },
   };
+}
+
+/** Elevated changes go to an admin context that Headlamp doesn't have. */
+export class MissingChangeContext extends Error {
+  constructor(public context: string) {
+    super(
+      `The admin context ${context} isn't in Headlamp's kubeconfig, so the change couldn't be sent. Sign in the admin account under that name (the refresh script does), or choose Settings → Changes → Allow changes.`
+    );
+  }
 }
 
 /**

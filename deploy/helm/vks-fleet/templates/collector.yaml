@@ -81,12 +81,12 @@ spec:
                       fieldPath: metadata.namespace
                 - name: VCENTER
                   value: {{ required "collector.vcenter is required when the collector is enabled" .Values.collector.vcenter | quote }}
-                {{- if .Values.caSecret }}
+                {{- if include "vks-fleet.caSecret" . }}
                 - name: CA_FILE
                   value: /etc/vks-fleet-ca/ca.crt
                 {{- end }}
                 - name: VCENTER_INSECURE
-                  value: {{ .Values.collector.insecure | toString | quote }}
+                  value: {{ include "vks-fleet.vcenterInsecure" . | quote }}
                 - name: OUTPUT_CONFIGMAP
                   value: {{ .Values.collector.configMapName | quote }}
                 - name: VCENTER_USERNAME
@@ -110,7 +110,7 @@ spec:
                 - name: script
                   mountPath: /app
                   readOnly: true
-                {{- if .Values.caSecret }}
+                {{- if include "vks-fleet.caSecret" . }}
                 - name: ca
                   mountPath: /etc/vks-fleet-ca
                   readOnly: true
@@ -119,10 +119,10 @@ spec:
             - name: script
               configMap:
                 name: {{ include "vks-fleet.name" . }}-collector
-            {{- if .Values.caSecret }}
+            {{- if include "vks-fleet.caSecret" . }}
             - name: ca
               secret:
-                secretName: {{ .Values.caSecret }}
+                secretName: {{ include "vks-fleet.caSecret" . }}
             {{- end }}
           {{- with .Values.nodeSelector }}
           nodeSelector: {{- toYaml . | nindent 12 }}

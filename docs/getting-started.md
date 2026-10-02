@@ -56,6 +56,8 @@ This creates contexts named `<org>:<namespace>:<project>`, each pointing at VCF 
 systemctl enable --now vks-refresh.timer
 ```
 
+The script verifies certificates. Supervisors usually use vCenter's own CA, so either set `CA_FILE` in the script to that CA (download it from `https://<vcenter>/certs/download.zip`), or, for a lab, `INSECURE=true` to skip the check.
+
 ## Multiple Supervisors
 
 Add as many Supervisors as you like in the plugin settings, each with its own namespaces, tenant label and tenant names. Every cluster key and URL carries the Supervisor ID, and they're read in parallel: an unreachable Supervisor shows an error banner and "Unreachable" in the overview while the rest of the fleet keeps working. With more than one, the fleet page adds a Supervisor filter, a Supervisor column and a "Clusters by Supervisor" chart.

@@ -1,6 +1,8 @@
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material';
 import React from 'react';
-import { dropElevation, elevate, useElevation } from '../elevation';
+import { listHeadlampClusters } from '../api/headlampClient';
+import { dropElevation, elevate, missingAdminContexts, useElevation } from '../elevation';
+import { usePolling } from '../usePolling';
 
 const DURATIONS = [5, 15, 30, 60];
 
@@ -8,6 +10,17 @@ const DURATIONS = [5, 15, 30, 60];
 export function ElevateForm({ onElevated, compact }: { onElevated?: () => void; compact?: boolean }) {
   const [reason, setReason] = React.useState('');
   const [minutes, setMinutes] = React.useState(15);
+  const known = usePolling('elevate-contexts', listHeadlampClusters, 60);
+  // Refuse to elevate into changes that can only fail: the admin sign-in must exist first.
+  const missing = known ? missingAdminContexts(known.map(c => c.name)) : [];
+  if (missing.length) {
+    return (
+      <Alert severity="warning">
+        Elevation needs the admin sign-in {missing.join(', ')}, and Headlamp doesn't have {missing.length === 1 ? 'it' : 'them'}. Sign in the admin account under that name
+        (the refresh script does), or choose Settings → Changes → Allow changes.
+      </Alert>
+    );
+  }
   return (
     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <TextField size="small" label="Why (recorded on each change)" value={reason} onChange={e => setReason(e.target.value)} sx={{ flex: 1, minWidth: compact ? 200 : 280 }} autoFocus={!compact} />

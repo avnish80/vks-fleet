@@ -2,6 +2,7 @@ import { Loader, SectionBox, StatusLabel } from '@kinvolk/headlamp-plugin/lib/Co
 import { Box, FormControlLabel, Switch, Typography } from '@mui/material';
 import { useFleetData } from '../fleetContext';
 import React from 'react';
+import { shortNode } from '../names';
 import { Link } from 'react-router-dom';
 import { PagedTable } from './scale';
 import { formatDuration } from '../capi/v1beta1';
@@ -51,7 +52,15 @@ export function MachinesPage() {
         <PagedTable
           filterText={(r: Row) => `${r.nodeName ?? r.name} ${r.cluster.name} ${r.role} ${r.pool ?? ''} ${r.phase}`}
           columns={[
-            { label: 'Node', getter: (r: Row) => <Link to={machinePath(r.cluster, r.name)}>{r.nodeName ?? r.name}</Link> },
+            {
+              label: 'Node',
+              // Without the cluster's name in front (VKS can repeat it); the full name on hover.
+              getter: (r: Row) => (
+                <Link to={machinePath(r.cluster, r.name)} title={r.nodeName ?? r.name}>
+                  {shortNode(r.cluster.name, r.nodeName ?? r.name)}
+                </Link>
+              ),
+            },
             { label: 'Cluster', getter: (r: Row) => <Link to={clusterPath(r.cluster)}>{r.cluster.name}</Link> },
             { label: 'Role', getter: (r: Row) => (r.role === 'control-plane' ? 'Control plane' : r.pool ?? 'Worker') },
             {

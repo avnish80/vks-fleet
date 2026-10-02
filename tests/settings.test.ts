@@ -74,3 +74,12 @@ describe('elevation checks count only clusters', () => {
     assert.deepEqual(t.clustersWithout, ['kubernetes-cluster-a1b2', 'kubernetes-cluster-c3d4']);
   });
 });
+
+describe('certificate errors', () => {
+  test("an untrusted certificate is named as such, not 'not reachable'", async () => {
+    const x509 = Object.assign(new Error('Get "https://10.0.0.2/api": tls: failed to verify certificate: x509: certificate signed by unknown authority'), { status: 502 });
+    const p = await probeSupervisor(client({ '/apis/cluster.x-k8s.io/v1beta1/clusters': x509 }), '10.0.0.2', ['10.0.0.2'], ORG);
+    assert.equal(p.text, "10.0.0.2: its certificate isn't trusted");
+    assert.match(p.fix!, /CA/);
+  });
+});

@@ -157,3 +157,20 @@ class TlsDefaultsTest(unittest.TestCase):
         from unittest import mock
         with mock.patch.dict(os.environ, {"CA_FILE": "/nonexistent/ca.crt"}, clear=True):
             self.assertIsNone(collect.ca_file())
+
+
+class KubeconfigCaTest(unittest.TestCase):
+    """The refresher embeds the CA where Headlamp would otherwise fail to verify (the v1.34.0 clean-install finding)."""
+
+    def test_only_entries_without_a_ca_or_an_explicit_skip(self):
+        import importlib.util, os
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("refresh", os.path.join(here, "..", "refresher", "refresh.py"))
+        refresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(refresh)
+        view = {"clusters": [
+            {"name": "10.0.0.2", "cluster": {"server": "https://10.0.0.2:443"}},
+            {"name": "kubernetes-cluster-a1b2", "cluster": {"server": "https://10.0.1.1:6443", "certificate-authority-data": "LS0t"}},
+            {"name": "lab", "cluster": {"server": "https://10.0.0.9", "insecure-skip-tls-verify": True}},
+        ]}
+        self.assertEqual(refresh.clusters_needing_ca(view), ["10.0.0.2"])

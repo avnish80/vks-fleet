@@ -38,7 +38,12 @@ spec:
       # Headlamp talks to Supervisors and VKS clusters through the kubeconfig the
       # refresher maintains, not through this cluster's API.
       automountServiceAccountToken: false
+      # Restricted Pod Security (what VKS enforces by default): a non-root user for every container.
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       {{- if eq .Values.plugin.source "download" }}
@@ -63,6 +68,12 @@ spec:
           args:
             - -kubeconfig=/kube/config
             - -plugins-dir=/headlamp/plugins
+          {{- if include "vks-fleet.caSecret" . }}
+          # Trust vCenter's CA too (the refresher also writes it into the kubeconfig).
+          env:
+            - name: SSL_CERT_FILE
+              value: /etc/vks-fleet-ca/ca.crt
+          {{- end }}
           ports:
             - name: http
               containerPort: 4466
@@ -78,6 +89,11 @@ spec:
             - name: kubeconfig
               mountPath: /kube
               readOnly: true
+            {{- if include "vks-fleet.caSecret" . }}
+            - name: ca
+              mountPath: /etc/vks-fleet-ca
+              readOnly: true
+            {{- end }}
             {{- if eq .Values.plugin.source "download" }}
             - name: plugins
               mountPath: /headlamp/plugins
@@ -91,6 +107,11 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        {{- if include "vks-fleet.caSecret" . }}
+        - name: ca
+          secret:
+            secretName: {{ include "vks-fleet.caSecret" . }}
+        {{- end }}
         # Written by the refresher. The pod waits until it exists.
         - name: kubeconfig
           secret:

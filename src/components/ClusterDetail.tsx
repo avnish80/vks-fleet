@@ -57,6 +57,7 @@ import {
   SupervisorBanners,
   WorkloadCell,
 } from './common';
+import { shortNode } from '../names';
 
 type OpenAction =
   | { kind: 'pause' }
@@ -187,7 +188,7 @@ function InsideCluster({
           <Typography variant="h6">Pod network setup failures in the last hour</Typography>
           <SimpleTable
             columns={[
-              { label: 'Node', getter: (f: SandboxFailure) => f.node },
+              { label: 'Node', getter: (f: SandboxFailure) => <span title={f.node}>{shortNode(cluster.name, f.node)}</span> },
               { label: 'Pods', getter: (f: SandboxFailure) => f.pods },
               { label: 'Attempts', getter: (f: SandboxFailure) => f.attempts },
               { label: 'Latest error', getter: (f: SandboxFailure) => f.error },
@@ -630,7 +631,9 @@ export function ClusterDetail() {
                 label: 'Node',
                 getter: (m: MachineInfo) => (
                   <Box id={`row-${m.name}`} sx={focus === m.name ? FOCUSED : undefined}>
-                    <Link to={machinePath(cluster, m.name)}>{m.nodeName ?? m.name}</Link>
+                    <Link to={machinePath(cluster, m.name)} title={m.nodeName ?? m.name}>
+                      {shortNode(cluster.name, m.nodeName ?? m.name)}
+                    </Link>
                   </Box>
                 ),
               },
@@ -1037,7 +1040,7 @@ function UtilisationView({ cluster, u }: { cluster: FleetCluster; u: import('../
             columns={[
               { label: 'Pod', getter: (p: import('../types').PodUse) => `${p.namespace}/${p.name}` },
               { label: 'CPU (cores)', getter: (p: import('../types').PodUse) => cores(p.cpu) },
-              { label: 'Node', getter: (p: import('../types').PodUse) => p.node ?? '—' },
+              { label: 'Node', getter: (p: import('../types').PodUse) => (p.node ? <span title={p.node}>{shortNode(cluster.name, p.node)}</span> : '—') },
             ]}
             data={u.topByCpu}
           />

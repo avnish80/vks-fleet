@@ -26,7 +26,7 @@ import {
   timeoutPlan,
   upgradePlan,
 } from '../actions';
-import { headlampClient } from '../api/headlampClient';
+import { headlampClient, MissingChangeContext } from '../api/headlampClient';
 import { upgradeKind, upgradeTargets } from '../releases';
 import { usePolling } from '../usePolling';
 import { describeError, statusOf, SupervisorWriter } from '../api/client';
@@ -39,7 +39,7 @@ const LEVEL: Record<CheckLevel, { text: string; status: 'success' | 'warning' | 
   block: { text: 'Blocked', status: 'error' },
 };
 
-type DryRun = { state: 'running' } | { state: 'ok' } | { state: 'error'; message: string } | { state: 'skipped' };
+type DryRun = { state: 'running' } | { state: 'ok' } | { state: 'error'; message: string; notSent?: boolean } | { state: 'skipped' };
 
 /** Always keeps the Supervisor's own words: a 403 can be RBAC or an admission webhook. */
 function explain(err: unknown): string {
@@ -88,7 +88,7 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
     setDry({ state: 'running' });
     runAll(plan, writer, 'dry run', true)
       .then(() => !cancelled && setDry({ state: 'ok' }))
-      .catch(err => !cancelled && setDry({ state: 'error', message: explain(err) }));
+      .catch(err => !cancelled && setDry({ state: 'error', message: explain(err), notSent: err instanceof MissingChangeContext }));
     return () => {
       cancelled = true;
     };
@@ -135,7 +135,8 @@ export function ActionDialog({ plan, writer, onClose, onApplied, children, rejec
           {dry.state === 'ok' && <Alert severity="success">The Supervisor accepted this change in a dry run.</Alert>}
           {dry.state === 'error' && (
             <Alert severity="error">
-              The Supervisor would reject this change. {dry.message}
+              {/* A missing admin context never reached the Supervisor: don't say it rejected anything. */}
+              {dry.notSent ? 'The change could not be checked.' : 'The Supervisor would reject this change.'} {dry.message}
               {rejectedHint && <Box sx={{ mt: 1 }}>{rejectedHint}</Box>}
             </Alert>
           )}

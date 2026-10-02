@@ -2,6 +2,18 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.34.1 (release candidate)
+
+From a clean install of v1.34.0 from the release, and live write tests, on a VCF 9.1 lab:
+
+- **The chart and the manifests meet restricted Pod Security,** which VKS enforces by default: v1.34.0's Headlamp pod was rejected. CI now renders the chart (default, secure and insecure) and checks every pod against the restricted level, and the kustomize manifests too.
+- **Headlamp trusts vCenter's CA:** the refresher verified the Supervisor but Headlamp, reading the kubeconfig, didn't. The refresher now writes the CA into the kubeconfig, and the chart also gives Headlamp the CA Secret.
+- **Simpler installs:** one `tls` setting in the chart, `tls.caSecret` (secure) or `tls.insecure` (labs); a three-step install guide with both paths, how to open it, and a troubleshooting table.
+- **Settings:** a certificate problem is named as such (*"its certificate isn't trusted"*), with the fix, instead of *"not reachable"*.
+- **Elevation:** Elevate refuses, with the reason, when the admin sign-in doesn't exist; a change sent to a missing admin context says so instead of *"The Supervisor would reject this change"*.
+- **Short node names** in the cluster page's machine, sandbox-failure and pod tables, and the Machines page.
+- **Validation status:** scaling a pool, pausing and resuming a cluster, and the clean Helm install are confirmed on a live system.
+
 ## 1.34.0 (release candidate)
 
 Hardening for publication, from an external review:

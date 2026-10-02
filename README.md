@@ -41,16 +41,17 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 ## Quick start
 
 - **Headlamp desktop app or Docker:** extract the release's `vks-fleet.tar.gz` into Headlamp's plugins folder, restart Headlamp, and open *VKS fleet*.
-- **In a cluster, with Helm:** the chart attached to each release, with a job that keeps sign-ins fresh and the optional vCenter collector:
+- **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh), in three steps: a Secret with the sign-in account; a choice for certificates, either **secure** (trust vCenter's CA, one command) or **quick, for labs** (`tls.insecure=true`); then:
 
   ```bash
-  VERSION=1.34.0                 # the release to install
-  SUPERVISOR=10.0.0.2            # your Supervisor's address
+  VERSION=1.34.1
+  SUPERVISOR=10.0.0.2
   helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \
-    -n vks-fleet --create-namespace --set plugin.source=download --set refresher.supervisors="$SUPERVISOR"
+    -n vks-fleet --set plugin.source=download --set refresher.supervisors="$SUPERVISOR" \
+    --set tls.insecure=true      # quick, for labs; the secure option: tls.caSecret (see the chart guide)
   ```
 
-  It needs a Secret with the sign-in account first, and usually vCenter's CA (TLS is verified): see [the chart](deploy/helm/vks-fleet/README.md), or [deploy/](deploy/README.md) for kustomize.
+  The [chart guide](deploy/helm/vks-fleet/README.md) has all three steps, the secure option, how to open it, and what to do if something doesn't work. Plain manifests (kustomize): [deploy/](deploy/README.md).
 
 Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, orgs and demo mode.
 
@@ -64,8 +65,8 @@ Developed and tested against VMware Cloud Foundation 9.1 with vSphere Kubernetes
 
 ### Validation status
 
-- **On a real VCF 9.1 lab** (one Supervisor, two VKS clusters, VCF Automation tenants): every read and view, the vCenter collector, and patch-type changes with their dry runs.
-- **Not yet confirmed on a live system:** pausing and scaling through the VKS admission webhooks, deletes, drain timeouts reaching machines already deleting, and some links into Headlamp's own pages. The [development guide](docs/development.md#confirmed-on-a-live-system-and-still-open) keeps the full list.
+- **On a real VCF 9.1 lab** (one Supervisor, two VKS clusters, VCF Automation tenants): every read and view, the vCenter collector, and changes through the VKS admission webhooks (scaling a node pool up and down, pausing and resuming a cluster, patch-type changes), each with its dry run. A clean install of the Helm chart from the release, on VKS's default (restricted) Pod Security, with verified TLS.
+- **Not yet confirmed on a live system:** deletes through the plugin, drain timeouts reaching machines already deleting, and some links into Headlamp's own pages. The [development guide](docs/development.md#confirmed-on-a-live-system-and-still-open) keeps the full list.
 - **Scale:** demo mode exercises the pages at up to 50 clusters; a real fleet has been tested at 2. Checks run from the browser, which suits tens of clusters (see [known limits](docs/development.md#known-limits)).
 
 ## Documentation

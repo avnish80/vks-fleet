@@ -98,8 +98,8 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: SUPERVISOR_INSECURE
-                  value: {{ .Values.refresher.insecure | toString | quote }}
-                {{- if .Values.caSecret }}
+                  value: {{ include "vks-fleet.supervisorInsecure" . | quote }}
+                {{- if include "vks-fleet.caSecret" . }}
                 - name: CA_FILE
                   value: /etc/vks-fleet-ca/ca.crt
                 {{- end }}
@@ -128,7 +128,7 @@ spec:
                   readOnly: true
                 - name: work
                   mountPath: /work
-                {{- if .Values.caSecret }}
+                {{- if include "vks-fleet.caSecret" . }}
                 - name: ca
                   mountPath: /etc/vks-fleet-ca
                   readOnly: true
@@ -139,10 +139,10 @@ spec:
                 name: {{ include "vks-fleet.name" . }}-refresher
             - name: work
               emptyDir: {}
-            {{- if .Values.caSecret }}
+            {{- if include "vks-fleet.caSecret" . }}
             - name: ca
               secret:
-                secretName: {{ .Values.caSecret }}
+                secretName: {{ include "vks-fleet.caSecret" . }}
             {{- end }}
           {{- with .Values.nodeSelector }}
           nodeSelector: {{- toYaml . | nindent 12 }}

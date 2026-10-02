@@ -70,3 +70,13 @@ describe('fixes from the Supervisor health review', () => {
     assert.deepEqual([st.requests, st.errors, st.expected], [5, 2, 3]);
   });
 });
+
+describe('elevation needs its admin contexts', () => {
+  test("lists the admin contexts Headlamp doesn't have", async () => {
+    const { configureElevation, missingAdminContexts } = await import('../src/elevation');
+    configureElevation({ enabled: true, suffix: '-admin', supervisorAdmin: { '10.0.0.2': '10.0.0.2-admin' } });
+    assert.deepEqual(missingAdminContexts(['10.0.0.2', 'kubernetes-cluster-a1b2']), ['10.0.0.2-admin']);
+    assert.deepEqual(missingAdminContexts(['10.0.0.2', '10.0.0.2-admin']), []);
+    configureElevation({ enabled: false, suffix: '-admin', supervisorAdmin: {} });
+  });
+});

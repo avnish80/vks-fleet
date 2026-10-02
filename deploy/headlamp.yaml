@@ -26,6 +26,14 @@ spec:
       # Headlamp talks to Supervisors and VKS clusters through the kubeconfig
       # the refresher maintains, not through this cluster's API.
       automountServiceAccountToken: false
+      # Restricted Pod Security (what VKS enforces by default).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: headlamp
           image: ghcr.io/headlamp-k8s/headlamp:v0.45.0

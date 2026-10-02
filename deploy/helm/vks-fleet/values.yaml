@@ -48,11 +48,17 @@ ingress:
   annotations: {}
   tls: []
 
-# TLS: certificates are verified. Most Supervisors and vCenters use vCenter's own CA:
-# put it in a Secret under the key ca.crt and name the Secret here (used by the
-# refresher and the collector).
-#   kubectl -n vks-fleet create secret generic vks-fleet-ca --from-file=ca.crt=vcenter-ca.pem
-# (vCenter's CA: https://<vcenter>/certs/download.zip)
+# TLS to the Supervisor and vCenter. Choose one:
+#  - Secure (recommended): put vCenter's CA in a Secret (key ca.crt) and name it in caSecret:
+#      kubectl -n vks-fleet create secret generic vks-fleet-ca --from-file=ca.crt=vcenter-ca.pem
+#    (download it from https://<vcenter>/certs/download.zip; see the chart README)
+#  - Quick, for labs: insecure: true skips certificate checks everywhere.
+#  With neither, only certificates from public CAs are trusted, which most Supervisors don't use.
+tls:
+  caSecret: ""
+  insecure: false
+
+# Older name for tls.caSecret (still honoured).
 caSecret: ""
 
 # Keeps Headlamp's sign-ins fresh: signs in to each Supervisor (and the VKS

@@ -195,6 +195,8 @@ def main():
     if not signed_in:
         sys.exit("No Supervisor sign-in succeeded; the existing kubeconfig was left in place.")
 
+    trust_ca_in_kubeconfig(cfg)
+
     manifest = run(
         ["kubectl", "create", "secret", "generic", cfg["secret"], f"--from-file=config={KUBECONFIG}",
          "-n", cfg["namespace"], "--dry-run=client", "-o", "yaml"],
@@ -206,6 +208,35 @@ def main():
                   cfg, use_kubeconfig=False, check=False)
     log("Kubeconfig stored in Secret", cfg["secret"] + ";",
         "Headlamp restarted." if restart.returncode == 0 else f"restart failed: {restart.stderr.strip()[:200]}")
+
+
+def clusters_needing_ca(view):
+    """Cluster entries (from `kubectl config view --raw -o json`) with no CA of their own and no
+    explicit skip: Headlamp, reading this kubeconfig, couldn't verify them without the CA."""
+    out = []
+    for c in view.get("clusters") or []:
+        d = c.get("cluster") or {}
+        if d.get("certificate-authority-data") or d.get("certificate-authority") or d.get("insecure-skip-tls-verify"):
+            continue
+        out.append(c.get("name"))
+    return [n for n in out if n]
+
+
+def trust_ca_in_kubeconfig(cfg):
+    """Embed CA_FILE into the kubeconfig's cluster entries that need it, so whatever reads the
+    kubeconfig (Headlamp) verifies the Supervisor the same way the refresher did."""
+    ca = ca_file()
+    if not ca:
+        return
+    view = run(["kubectl", "config", "view", "--raw", "-o", "json"], cfg, check=False)
+    if view.returncode:
+        log(f"Couldn't read the kubeconfig to add the CA: {view.stderr.strip()[:200]}")
+        return
+    names = clusters_needing_ca(json.loads(view.stdout or "{}"))
+    for name in names:
+        run(["kubectl", "config", "set-cluster", name, f"--certificate-authority={ca}", "--embed-certs=true"], cfg, check=False)
+    if names:
+        log(f"CA added to {len(names)} kubeconfig entr{'y' if len(names) == 1 else 'ies'} ({', '.join(names[:4])}{'…' if len(names) > 4 else ''})")
 
 
 # ---------------- VCF Automation mode ----------------
