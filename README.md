@@ -41,17 +41,31 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 ## Quick start
 
 - **Headlamp desktop app or Docker:** extract the release's `vks-fleet.tar.gz` into Headlamp's plugins folder, restart Headlamp, and open *VKS fleet*.
-- **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh), in three steps: a Secret with the sign-in account; a choice for certificates, either **secure** (trust vCenter's CA, one command) or **quick, for labs** (`tls.insecure=true`); then:
+- **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh):
 
   ```bash
-  VERSION=1.34.2
-  SUPERVISOR=10.0.0.2
+  VERSION=1.34.3
+  SUPERVISOR=10.0.0.2                 # your Supervisor's address
+  VCENTER=vcenter.example.com         # the vCenter it belongs to
+  kubectl create namespace vks-fleet
+
+  # The account Headlamp signs in with (read-only rights are enough to view)
+  kubectl -n vks-fleet create secret generic vks-fleet-vsphere \
+    --from-literal=username='svc-vks-fleet@vsphere.local' --from-literal=password='…'
+
+  # Trust vCenter's CA, so certificates are verified
+  curl -fsk -o vc-certs.zip "https://$VCENTER/certs/download.zip" && unzip -q -o vc-certs.zip -d vc-certs
+  cat vc-certs/certs/lin/*.0 > vcenter-ca.pem
+  kubectl -n vks-fleet create secret generic vks-fleet-ca --from-file=ca.crt=vcenter-ca.pem
+
   helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \
-    -n vks-fleet --set plugin.source=download --set refresher.supervisors="$SUPERVISOR" \
-    --set tls.insecure=true      # quick, for labs; the secure option: tls.caSecret (see the chart guide)
+    -n vks-fleet --set plugin.source=download --set refresher.supervisors="$SUPERVISOR" --set tls.caSecret=vks-fleet-ca
+  kubectl -n vks-fleet create job --from=cronjob/vks-fleet-refresher first-sign-in
   ```
 
-  The [chart guide](deploy/helm/vks-fleet/README.md) has all three steps, the secure option, how to open it, and what to do if something doesn't work. Plain manifests (kustomize): [deploy/](deploy/README.md).
+  **In a lab only**, you can skip the CA steps and certificate checks: replace `--set tls.caSecret=vks-fleet-ca` with `--set tls.insecure=true`.
+
+  The [chart guide](deploy/helm/vks-fleet/README.md) explains each step, how to open Headlamp, the options, and what to do if something doesn't work. Plain manifests (kustomize): [deploy/](deploy/README.md).
 
 Then connect a Supervisor (Settings → Plugins → vks-fleet). [Getting started](docs/getting-started.md) covers sign-ins, multiple Supervisors, orgs, demo mode, and troubleshooting setup.
 

@@ -2,6 +2,14 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.34.3 (release candidate)
+
+From the final pre-publication review:
+
+- **The README's install puts the secure path first:** a complete, copyable Helm install that trusts vCenter's CA, with skipping certificate checks as a clearly labelled lab-only alternative.
+- **Release pages explain the project:** each release's description is generated from a template (what VKS fleet is, the observe–investigate–predict–pre-flight–act workflow, how to install, the validation scope) plus that version's section of this changelog. Versions marked *release candidate* here are published as pre-releases automatically.
+- **Artifact Hub:** the package metadata includes Headlamp version compatibility (0.45 and later).
+
 ## 1.34.2 (release candidate)
 
 From the clean-install retest on VCF 9.1 (which passed: restricted Pod Security, verified TLS, Headlamp trusting the CA, with no manual steps):

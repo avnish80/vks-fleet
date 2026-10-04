@@ -34,5 +34,6 @@ maintainers:
 annotations:
   headlamp/plugin/archive-url: "https://github.com/avnish80/vks-fleet/releases/download/v${version}/vks-fleet.tar.gz"
   headlamp/plugin/archive-checksum: "SHA256:${sum}"
+  headlamp/plugin/version-compat: ">=0.45"
   headlamp/plugin/distro-compat: "in-cluster,web,app,docker-desktop"
 YAML

@@ -35,7 +35,7 @@ kubectl -n vks-fleet create secret generic vks-fleet-vsphere \
 **3. Install, and sign in for the first time.**
 
 ```bash
-VERSION=1.34.2                 # the release to install
+VERSION=1.34.3                 # the release to install
 SUPERVISOR=10.0.0.2            # your Supervisor's address (several: "10.0.0.2 10.0.0.3")
 
 helm install vks-fleet "https://github.com/avnish80/vks-fleet/releases/download/v$VERSION/vks-fleet-$VERSION.tgz" \

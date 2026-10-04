@@ -117,7 +117,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          v="${GITHUB_REF_NAME#v}"
+          # The release page: what VKS fleet is, what this version changed (from CHANGELOG.md), install, validation.
+          python3 scripts/release-notes.py "$v" > release-notes.md
+          # A version marked "release candidate" in CHANGELOG.md is published as a pre-release.
+          PRE=""
+          grep -qE "^## ${v//./\\.}( |$).*release candidate" CHANGELOG.md && PRE="--prerelease"
           gh release create "$GITHUB_REF_NAME" vks-fleet.tar.gz vks-fleet-plugin-configmap.yaml \
-            "vks-fleet-${GITHUB_REF_NAME#v}.tgz" artifacthub-pkg.yml \
-            --title "vks-fleet $GITHUB_REF_NAME" \
-            --notes "Plugin: extract vks-fleet.tar.gz into the Headlamp plugins folder. In-cluster: the Helm chart (vks-fleet-${GITHUB_REF_NAME#v}.tgz) or vks-fleet-plugin-configmap.yaml with deploy/. Changes: see CHANGELOG.md."
+            "vks-fleet-$v.tgz" artifacthub-pkg.yml \
+            --title "VKS fleet $GITHUB_REF_NAME" --notes-file release-notes.md $PRE
