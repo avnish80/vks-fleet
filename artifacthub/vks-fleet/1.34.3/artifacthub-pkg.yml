@@ -1,0 +1,27 @@
+version: 1.34.3
+name: vks-fleet
+displayName: VKS fleet
+createdAt: "2026-10-04T23:27:41Z"
+description: A multi-cluster view for vSphere Kubernetes Service (VKS) fleets on vSphere Supervisors, for operators and tenants.
+license: Apache-2.0
+homeURL: https://github.com/avnish80/vks-fleet
+keywords:
+  - vks
+  - vsphere
+  - supervisor
+  - cluster-api
+  - fleet
+  - vcf
+links:
+  - name: Source
+    url: https://github.com/avnish80/vks-fleet
+  - name: Changelog
+    url: https://github.com/avnish80/vks-fleet/blob/main/CHANGELOG.md
+maintainers:
+  - name: Avnish Tripathi
+    email: noreply@github.com
+annotations:
+  headlamp/plugin/archive-url: "https://github.com/avnish80/vks-fleet/releases/download/v1.34.3/vks-fleet.tar.gz"
+  headlamp/plugin/archive-checksum: "SHA256:1603e267f31d6987f0172b2558e4df99d7fd5d72a37d5a78b57b2ed51c518f6a"
+  headlamp/plugin/version-compat: ">=0.45"
+  headlamp/plugin/distro-compat: "in-cluster,web,app,docker-desktop"
