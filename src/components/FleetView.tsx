@@ -30,6 +30,7 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
+import { fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
 import { glance, horizon, needsYouNow } from '../fleetHero';
 import { FleetHero } from './FleetHero';
 import { settingsStore } from '../settings/store';
@@ -113,6 +114,8 @@ export function FleetView() {
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
+  // Simulate fixes: recomputes the picture only; nothing is sent anywhere.
+  const [simulate, setSimulate] = React.useState(false);
   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
 
   const multiSupervisor = config.supervisors.length > 1;
@@ -445,9 +448,16 @@ export function FleetView() {
                 return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
               })
             )}
-            top={needsYouNow(tenantIssues, coming)}
+            top={needsYouNow(tenantIssues, coming, Date.now(), 6)}
             horizon={coming}
             onScore={() => jump('scorecard')}
+            tiles={wallTiles(tenantClusters, tenantIssues, simulate, shortCluster)}
+            drivers={scoreDrivers(scores.map(x => x.card))}
+            fixes={fixCounts(tenantIssues, clusterByKey)}
+            fixByIssue={fixesByIssue(tenantIssues, clusterByKey)}
+            simulate={simulate}
+            simulatedScore={fleetScore(scores.map(x => x.card), true)}
+            onSimulate={setSimulate}
           />
         </Guard>
       )}
@@ -558,6 +568,7 @@ export function FleetView() {
         setShowInfo={setShowInfo}
         open={findingsOpen}
         setOpen={setFindingsOpen}
+        simulate={simulate}
       />
 
       {exportOpen && (
@@ -591,6 +602,7 @@ function IssuesSection({
   setShowInfo,
   open,
   setOpen,
+  simulate,
 }: {
   silenced: Array<{ issue: ReturnType<typeof buildIssues>[number]; by: Silence }>;
   silences: Silence[];
@@ -601,6 +613,7 @@ function IssuesSection({
   setShowInfo: (v: boolean) => void;
   open: boolean;
   setOpen: (v: boolean) => void;
+  simulate: boolean;
 }) {
   const counts = countIssues(issues);
   const shown = showInfo ? issues : issues.filter(x => x.severity !== 'info');
@@ -629,7 +642,7 @@ function IssuesSection({
       </Box>
       {open && shown.length > 0 && (
         <Guard name="Issues">
-          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={5} />
+          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={10} simulate={simulate} />
         </Guard>
       )}
       {silences.length > 0 && (

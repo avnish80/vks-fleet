@@ -23,7 +23,13 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 Search is one keystroke away everywhere: **Ctrl+K**.
 
-**The fleet page** is built so that every number appears once. It opens with three things: **the fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health), **Needs you now** (the top three issues, critical first and then by how much they touch, each with Investigate), and **the next 30 days** (a timeline of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back). *Needs you now* puts time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings.
+**The fleet page** is built so that the fleet itself is the picture. It opens with:
+
+- **The fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health) beside **what holds the score down**: the best-practice checks that cost the most points across the fleet, largest first, each with the number of clusters behind it.
+- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue. A tile names that issue, says **Fix ready** (with the fix) or **Needs a decision**, counts the cluster's other issues, and opens the cluster. Tiles shrink when the fleet is large.
+- **Needs you now:** up to six items, time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings; each with Fix…, Investigate or Open. Under it, **the next 30 days**: a timeline of what expires or runs out (control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
+
+**Simulate fixes** (the switch beside the score) shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. Fixed tiles, score reasons and issues are marked, the score moves, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
 
 Below it: the org cards; **Clusters at a glance**, one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured (clicking the fleet score opens it); cards only where there's something to show (busiest nodes, subnet usage, and version or package drift when there is some); the activity heatmap; and the issues. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
 
@@ -39,7 +45,7 @@ Filters live in the URL (the search box, *only clusters with problems*, the org)
 
 The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
 
-**Issues:** findings and signals folded into problems with a cause. Each issue shows the evidence, what it affects (clusters, tenants, nodes, pods), what to do, and links to the right pages, plus **Copy diagnosis**: a Markdown write-up for a ticket, a chat or an AI assistant. Rules built from real incidents:
+**Issues:** findings and signals folded into problems with a cause. Each issue is one line (severity, title, where, **Fix ready** or **Needs a decision**, and its main button) until **Details** opens it. Opened, an issue shows the evidence, what it affects (clusters, tenants, nodes, pods), what to do, and links to the right pages, plus **Copy diagnosis**: a Markdown write-up for a ticket, a chat or an AI assistant. Rules built from real incidents:
 
 - a node whose pod networking fails, with the CNI error and the pods stuck there (critical when platform pods such as DNS or sign-in are hit)
 - a deletion stuck for more than 30 minutes, with the pool's timeouts and the pods on the node

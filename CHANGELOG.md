@@ -2,6 +2,19 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.35.0 (release candidate)
+
+The fleet page, rebuilt around the fleet itself:
+
+- **Cluster wall:** every cluster is a tile, grouped by org and coloured by its worst open issue, naming that issue and whether a fix is ready. Tiles shrink for large fleets; a tile opens its cluster.
+- **The score explains itself:** next to the fleet score, *What holds the score down* lists the best-practice checks that cost the most points across the fleet, and which of them the plugin can fix.
+- **Simulate fixes:** a switch that shows the fleet as it would be after the fixes the plugin already has (unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, a control plane of 3, a Pod Security level). The wall, the score and the issues update together. It only redraws the page: nothing is sent anywhere. Upgrades and package re-reconciles aren't counted as fixes.
+- **Fix ready / Needs a decision** on every issue, in *Needs you now* and in the issues list; where a fix exists, its button opens the existing action with its checks and dry run.
+- **Issues are one line each** until opened (**Details**), so a long list fits a screen; the cause, evidence, runbook, Investigate, Silence and Copy diagnosis are inside. A list of one opens by default.
+- ***Needs you now* and *Next 30 days* share one card:** up to six items with their timing, and the timeline below without the repeated list.
+- **Marks:** a vks-fleet mark, an icon per kind of issue, and the Kubernetes icon on cluster tiles (unmodified, from the CNCF artwork repository; see NOTICE).
+- **Fixed:** an issue's button could read *Go to Go to it*.
+
 ## 1.34.3 (release candidate)
 
 From the final pre-publication review:
@@ -9,6 +22,7 @@ From the final pre-publication review:
 - **The README's install puts the secure path first:** a complete, copyable Helm install that trusts vCenter's CA, with skipping certificate checks as a clearly labelled lab-only alternative.
 - **Release pages explain the project:** each release's description is generated from a template (what VKS fleet is, the observe–investigate–predict–pre-flight–act workflow, how to install, the validation scope) plus that version's section of this changelog. Versions marked *release candidate* here are published as pre-releases automatically.
 - **Artifact Hub:** the package metadata includes Headlamp version compatibility (0.45 and later).
+
 
 ## 1.34.2 (release candidate)
 

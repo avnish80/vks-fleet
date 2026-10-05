@@ -10,3 +10,10 @@ its subsidiaries. Kubernetes is a registered trademark of the Linux
 Foundation. Headlamp is a Cloud Native Computing Foundation project. Other
 names may be trademarks of their respective owners. They are used here only
 to describe what this software works with.
+
+The Kubernetes icon (src/assets/kubernetesIcon.ts) is the unmodified icon from
+the CNCF artwork repository (https://github.com/cncf/artwork). It is a
+trademark of the Linux Foundation, used only to mark Kubernetes clusters in
+line with the Foundation's trademark usage guidelines
+(https://www.linuxfoundation.org/legal/trademark-usage), and is not covered by
+this project's licence.

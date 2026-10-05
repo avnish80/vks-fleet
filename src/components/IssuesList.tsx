@@ -12,12 +12,18 @@ import {
 } from '@mui/material';
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { issueFix } from '../fixes';
 import { leadsSomewhere } from '../links';
 import { diagnosisMarkdown } from '../issues';
 import { FleetCluster, Issue, RunbookStep } from '../types';
 import { SilenceDialog } from './SilenceDialog';
 import { useTone } from './charts';
 import { SeverityLabel } from './common';
+
+/** "Go to Packages"; long labels and ones that already say it become "Go to it". */
+export function goTo(label: string): string {
+  return /^go to /i.test(label) || label.length > 24 ? 'Go to it' : `Go to ${label}`;
+}
 
 function chips(label: string, items: string[], max = 4) {
   if (!items.length) return null;
@@ -97,13 +103,20 @@ function IssueCard({
   cluster,
   supervisorName,
   showCluster,
+  simulate = false,
+  defaultOpen = false,
 }: {
   issue: Issue;
   cluster?: FleetCluster;
   supervisorName?: string;
   showCluster: boolean;
+  simulate?: boolean;
+  defaultOpen?: boolean;
 }) {
   const tone = useTone();
+  const [open, setOpen] = React.useState(defaultOpen);
+  const fix = issue.severity === 'info' ? undefined : issueFix(issue, cluster);
+  const fixed = simulate && !!fix;
   const [copied, setCopied] = React.useState<'idle' | 'done' | 'manual'>('idle');
   const [showRunbook, setShowRunbook] = React.useState(false);
   const [silencing, setSilencing] = React.useState(false);
@@ -113,7 +126,7 @@ function IssueCard({
   // A link to this very page (with no section to jump to) would do nothing: leave it out.
   const primary = candidate && leadsSomewhere(candidate.path, here) ? candidate : undefined;
   const others = issue.links.filter(l => l.path !== candidate?.path && leadsSomewhere(l.path, here));
-  const edge = issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
+  const edge = fixed ? tone('info') : issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
 
   async function copy() {
     try {
@@ -129,17 +142,18 @@ function IssueCard({
     <Paper
       variant="outlined"
       sx={{
-        p: 2,
+        p: open ? 2 : 1.25,
         pl: 2.5,
+        opacity: fixed ? 0.75 : 1,
         borderRadius: 2,
         position: 'relative',
         overflow: 'hidden',
         '&::before': { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: edge },
       }}
     >
-      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', gap: 1.5, alignItems: open ? 'flex-start' : 'center', flexWrap: 'wrap' }}>
         <SeverityLabel severity={issue.severity} />
-        <Box sx={{ flex: 1, minWidth: 240 }}>
+        <Box sx={{ flex: 1, minWidth: 240, textDecoration: fixed ? 'line-through' : 'none' }}>
           {primary ? (
             <Link to={primary.path} title={`Go to: ${primary.label}`} style={{ fontWeight: 600, textDecoration: 'none' }}>
               {issue.title} ›
@@ -153,9 +167,32 @@ function IssueCard({
             </Typography>
           )}
         </Box>
-        {primary && (
-          <Button size="small" variant="contained" component={Link} to={primary.path}>
-            Go to {primary.label.length > 24 ? 'it' : primary.label}
+        {issue.severity !== 'info' && (
+          <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: fixed ? 'info.main' : fix ? 'text.primary' : 'warning.main', color: fixed ? 'info.main' : 'text.primary', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            {fixed ? 'Fixed in simulation' : fix ? 'Fix ready' : 'Needs a decision'}
+          </Box>
+        )}
+        {fix ? (
+          <Button size="small" variant="contained" component={Link} to={fix.path} title="Opens the action with its checks and a dry run; nothing changes until you confirm">
+            {fix.label}…
+          </Button>
+        ) : (
+          primary && (
+            <Button size="small" variant="contained" component={Link} to={primary.path}>
+              {goTo(primary.label)}
+            </Button>
+          )
+        )}
+        <Button size="small" variant="outlined" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide details' : 'Details'}
+        </Button>
+      </Box>
+
+      {open && (
+      <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        {fix && primary && (
+          <Button size="small" variant="outlined" component={Link} to={primary.path}>
+            {goTo(primary.label)}
           </Button>
         )}
         {issue.clusterKey && (
@@ -175,7 +212,9 @@ function IssueCard({
           {copied === 'done' ? 'Copied' : 'Copy diagnosis'}
         </Button>
       </Box>
+      )}
 
+      {open && (
       <Box sx={{ mt: 1.5, display: 'grid', gap: 1 }}>
         <Typography variant="body2">
           <Box component="span" sx={{ fontWeight: 700 }}>
@@ -222,6 +261,7 @@ function IssueCard({
           </Box>
         )}
       </Box>
+      )}
 
       {copied === 'manual' && (
         <Dialog open onClose={() => setCopied('idle')} maxWidth="md" fullWidth>
@@ -248,12 +288,15 @@ export function IssuesList({
   supervisorNames,
   showCluster = true,
   limit = 12,
+  simulate = false,
 }: {
   issues: Issue[];
   clusters: Map<string, FleetCluster>;
   supervisorNames: Map<string, string>;
   showCluster?: boolean;
   limit?: number;
+  /** Show issues the plugin can fix as fixed (the fleet page's Simulate fixes). */
+  simulate?: boolean;
 }) {
   const [count, setCount] = React.useState(limit);
   const [q, setQ] = React.useState('');
@@ -261,7 +304,7 @@ export function IssuesList({
   const matching = needle ? issues.filter(i => `${i.title} ${i.clusterName ?? ''} ${i.tenantName ?? ''} ${i.severity}`.toLowerCase().includes(needle)) : issues;
   const shown = matching.slice(0, count);
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {issues.length > limit && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <TextField size="small" placeholder="Filter issues (title, cluster, org, severity)…" value={q} onChange={e => { setQ(e.target.value); setCount(limit); }} sx={{ width: 360 }} />
@@ -277,6 +320,8 @@ export function IssuesList({
           cluster={i.clusterKey ? clusters.get(i.clusterKey) : undefined}
           supervisorName={supervisorNames.get(i.supervisorId)}
           showCluster={showCluster}
+          simulate={simulate}
+          defaultOpen={issues.length === 1}
         />
       ))}
       {matching.length > count && (
