@@ -149,8 +149,10 @@ const looksLikeId = (o: OrgInfo) => {
   return o.name === o.id || (short.length >= 6 && o.id.startsWith(short));
 };
 
-export function OrgCards() {
-  const { orgs, org, setOrg, persona } = useFleetData();
+/** `attention`: clusters needing attention per org id, when the page has worked it out from the issues; otherwise the Supervisor's view. */
+export function OrgCards({ attention }: { attention?: Map<string, number> } = {}) {
+  const { orgs: rawOrgs, org, setOrg, persona } = useFleetData();
+  const orgs = attention ? rawOrgs.map(o => ({ ...o, attention: attention.get(o.id) ?? 0 })) : rawOrgs;
   const stats = useOrgStats();
   if (persona?.persona === 'tenant' || persona?.persona === 'tenant-readonly' || orgs.length === 0) return null;
   const totals = orgs.reduce((a, o) => ({ ns: a.ns + o.namespaces.length, c: a.c + o.clusters, v: a.v + o.vms, att: a.att + o.attention }), { ns: 0, c: 0, v: 0, att: 0 });
@@ -177,15 +179,15 @@ export function OrgCards() {
               onClick={() => setOrg(org === o.id ? ALL_ORGS : o.id)}
               accent={o.attention ? 'warning.main' : mem !== undefined && mem > 4 ? 'error.main' : 'success.main'}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 0.75 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.25, rowGap: 0.5, mb: 0.75 }}>
                 <Initials name={o.name} colour={o.attention ? '#ed6c02' : '#1976d2'} />
-                <Typography sx={{ fontWeight: 700, fontSize: '1.05rem', flex: 1, minWidth: 0 }} noWrap title={o.id}>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.05rem', flex: '1 1 90px', minWidth: 0 }} noWrap title={o.id}>
                   {o.name}
                 </Typography>
                 {o.attention > 0 ? (
                   <StatusLabel status="warning">{`${o.attention} need attention`}</StatusLabel>
                 ) : o.clusters > 0 ? (
-                  <StatusLabel status="success">Healthy</StatusLabel>
+                  <StatusLabel status="success">{attention ? 'No urgent issues' : 'Healthy'}</StatusLabel>
                 ) : null}
               </Box>
               {looksLikeId(o) && <NameOrg id={o.id} />}

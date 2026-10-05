@@ -55,7 +55,7 @@ export function KubernetesIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-export function useTileLook(): (s: TileState) => { bg: string; border: string; fg: string; sub: string } {
+export function useTileLook(): (s: TileState) => { bg: string; border: string; fg: string; sub: string; dashed?: boolean } {
   const theme: any = useTheme();
   const p = theme.palette ?? {};
   const text = p.text?.primary ?? '#111827';
@@ -63,6 +63,7 @@ export function useTileLook(): (s: TileState) => { bg: string; border: string; f
   return (s: TileState) => {
     if (s === 'critical') return { bg: p.error?.main ?? '#d32f2f', border: p.error?.main ?? '#d32f2f', fg: p.error?.contrastText ?? '#ffffff', sub: p.error?.contrastText ?? '#ffffff' };
     if (s === 'warning') return { bg: alpha(p.warning?.main ?? '#ed6c02', 0.16), border: p.warning?.main ?? '#ed6c02', fg: text, sub: text };
+    if (s === 'advisory') return { bg: 'transparent', border: p.warning?.main ?? '#ed6c02', fg: text, sub: muted, dashed: true };
     if (s === 'fixed') return { bg: alpha(p.info?.main ?? '#0288d1', 0.14), border: p.info?.main ?? '#0288d1', fg: text, sub: text };
     return { bg: 'transparent', border: p.divider ?? 'rgba(0,0,0,0.12)', fg: muted, sub: muted };
   };
@@ -70,7 +71,8 @@ export function useTileLook(): (s: TileState) => { bg: string; border: string; f
 
 const LEGEND: Array<{ state: TileState; label: string }> = [
   { state: 'critical', label: 'Critical' },
-  { state: 'warning', label: 'Warning' },
+  { state: 'warning', label: 'Needs attention' },
+  { state: 'advisory', label: 'Advisory only' },
   { state: 'fixed', label: 'Fixed in simulation' },
   { state: 'healthy', label: 'Healthy' },
 ];
@@ -89,7 +91,7 @@ function Tile({ tile }: { tile: WallTile }) {
         minHeight: 112,
         p: 1.5,
         borderRadius: 2,
-        border: '1.5px solid',
+        border: look.dashed ? '1.5px dashed' : '1.5px solid',
         borderColor: look.border,
         bgcolor: look.bg,
         color: look.fg,
@@ -117,7 +119,7 @@ export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: 
   const look = useTileLook();
   const groups = new Map<string, WallTile[]>();
   for (const t of tiles) groups.set(t.tenantId, [...(groups.get(t.tenantId) ?? []), t]);
-  const rank: Record<TileState, number> = { critical: 0, warning: 1, fixed: 2, healthy: 3 };
+  const rank: Record<TileState, number> = { critical: 0, warning: 1, advisory: 2, fixed: 3, healthy: 4 };
   const ordered = Array.from(groups.values()).sort((a, b) => a[0].tenantName.localeCompare(b[0].tenantName));
   // Many clusters: smaller tiles, so the whole fleet still fits one screen.
   const min = tiles.length > 36 ? 132 : 168;
@@ -128,7 +130,7 @@ export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {LEGEND.filter(l => l.state !== 'fixed' || simulate).map(l => (
             <Box key={l.state} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 12, height: 12, borderRadius: '3px', border: '1px solid', borderColor: look(l.state).border, bgcolor: look(l.state).bg }} />
+              <Box sx={{ width: 12, height: 12, borderRadius: '3px', border: look(l.state).dashed ? '1px dashed' : '1px solid', borderColor: look(l.state).border, bgcolor: look(l.state).bg }} />
               <Typography variant="caption" color="text.secondary">
                 {l.label}
               </Typography>

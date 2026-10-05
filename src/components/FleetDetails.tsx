@@ -5,7 +5,7 @@ import { Link, useHistory } from 'react-router-dom';
 import { namespacePath } from '../inventoryIssues';
 import { shortener, shortNode } from '../names';
 import { DriftRow, shortPackage } from '../packages';
-import { clusterDeepLink, clusterPath, machinePath, PACKAGES_PATH } from '../routes';
+import { clusterDeepLink, clusterPath, headlampClusterPath, machinePath, PACKAGES_PATH } from '../routes';
 import { versionSpread } from '../summary';
 import { fleetTimeline } from '../timeline';
 import { BackupStatus, FleetCluster, Issue, SubnetInfo } from '../types';
@@ -20,6 +20,8 @@ export interface ScoreRow {
   baseline?: number;
   backup?: BackupStatus;
   issues: Issue[];
+  /** Headlamp cluster (kubeconfig context) for the workload cluster, when signed in. */
+  contextName?: string;
 }
 
 type Cell = { text: string; tone: 'success' | 'warning' | 'error' | ''; title?: string; link?: string };
@@ -99,6 +101,9 @@ export function ClusterScorecard({ rows, orgs }: { rows: ScoreRow[]; orgs: boole
                   {c.label}
                 </Box>
               ))}
+              <Box component="th" sx={{ textAlign: 'left', px: 1, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary' }}>
+                Open
+              </Box>
             </tr>
           </thead>
           <tbody>
@@ -117,6 +122,7 @@ export function ClusterScorecard({ rows, orgs }: { rows: ScoreRow[]; orgs: boole
                       <StatusLabel status={cs[c.key].tone}>{cs[c.key].text}</StatusLabel>
                     </td>
                   ))}
+                  <Box component="td" sx={{ whiteSpace: 'nowrap' }}>{r.contextName ? <Link to={headlampClusterPath(r.contextName)}>Open in Headlamp</Link> : '—'}</Box>
                 </Box>
               );
             })}

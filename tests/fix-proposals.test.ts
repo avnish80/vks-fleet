@@ -1,7 +1,7 @@
 /** v1.35: fix proposals, the simulated score and the cluster wall. */
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { fixCounts, fleetScore, iconFor, issueFix, scoreDrivers, simulatedScore, tileTitle, wallTiles } from '../src/fixes';
+import { attentionByTenant, attentionCount, fixCounts, fleetScore, iconFor, isAdvisory, issueFix, scoreDrivers, simulatedScore, tileTitle, wallTiles } from '../src/fixes';
 
 const cluster = (name: string, o: any = {}): any => ({ key: `s/ns/${name}`, supervisorId: 's', namespace: 'ns', name, tenantId: 't', tenantName: 'acme', health: 'healthy', machines: [{}, {}, {}], kubernetesVersion: 'v1.34.1', ...o });
 const issue = (c: any, rule: string, severity = 'warning', title = rule): any => ({ id: `${c.key}#${rule}`, severity, title, clusterKey: c.key, affected: { clusters: [], nodes: [], pods: [], tenants: [] } });
@@ -71,7 +71,7 @@ describe('cluster wall', () => {
     assert.deepEqual([ta.name, ta.state, ta.icon, ta.more], ['a1', 'critical', 'network', 1]);
     assert.equal(ta.line1, "Pods can't start on node np-1-x: pod networking fails");
     assert.equal(ta.line2, 'Needs a decision');
-    assert.deepEqual([tb.state, tb.line2], ['warning', 'Fix ready: Scale the control plane to 3']);
+    assert.deepEqual([tb.state, tb.line2], ['advisory', 'Fix ready: Scale the control plane to 3']);
     assert.deepEqual([th.state, th.line1, th.line2], ['healthy', 'Healthy', 'v1.34.1 · 1 node']);
   });
   test('simulated: fixable issues go, what is left stays', () => {
@@ -86,5 +86,27 @@ describe('cluster wall', () => {
     assert.equal(iconFor(issue(a, 'certs')), 'certificate');
     assert.equal(iconFor(issue(a, 'hot-n1')), 'memory');
     assert.equal(iconFor(issue(a, 'something-new')), 'alert');
+  });
+  test('attention: operational warnings and unwell clusters count, posture alone does not', () => {
+    const posture = cluster('posture');
+    const backup = cluster('backup');
+    const degraded = cluster('degraded', { health: 'degraded' });
+    const quietButDegraded = cluster('quiet', { health: 'degraded' });
+    const mixed = cluster('mixed');
+    const all = [posture, backup, degraded, quietButDegraded, mixed, h];
+    const list = [
+      issue(posture, 'scan#sec-psa-x'), issue(posture, 'behind'), issue(posture, 'vulns#critical'),
+      issue(backup, 'backup-failed'),
+      issue(degraded, 'single-cp'),
+      issue(mixed, 'scan#storage-default', 'warning', 'No default StorageClass'), issue(mixed, 'certs', 'warning', 'Certificates expire'),
+    ];
+    const tiles = wallTiles(all, list);
+    assert.deepEqual(tiles.map(t => t.state), ['advisory', 'warning', 'warning', 'warning', 'warning', 'healthy']);
+    assert.equal(tiles[3].line1, 'Reported degraded');
+    assert.equal(tiles[4].line1, 'Certificates expire', 'the warning that needs attention is named before the advisory');
+    assert.equal(attentionCount(tiles), 4);
+    assert.deepEqual([...attentionByTenant(tiles)], [['t', 4]]);
+    assert.equal(isAdvisory(issue(posture, 'scan#sec-psa-x', 'critical')), false, 'a critical is never advisory');
+    assert.equal(isAdvisory(issue(posture, 'x#compliance#drift')), true);
   });
 });

@@ -2,6 +2,16 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.35.1 (release candidate)
+
+From the first run of the new fleet page on a live Supervisor and on the demo fleet:
+
+- **One meaning of "needs attention":** a cluster needs attention when it has a critical issue, a warning about something failing or running out, or the Supervisor doesn't report it healthy. The score card, the sentence at the top, the org cards and the wall now all count it the same way. Before, a cluster with two critical issues could read *all healthy*, because only the Supervisor's view was counted.
+- **Advisory-only tiles:** a cluster whose only open findings are posture and hygiene (a missing Pod Security level, an older version, a single control plane, scanner, policy and compliance findings) gets a dashed outline, not a filled tile, so the wall shows where something is wrong now.
+- **The per-org cluster tables are gone:** the wall and *Clusters at a glance* already list every cluster. *Open in Headlamp* moved to *Clusters at a glance*, and the filter box and *Only clusters with problems* now filter the wall and that table.
+- **Layout:** on a small fleet the 30-day timeline sits under the wall instead of leaving it empty; the score's reasons sit next to their bars; an org's name is no longer cut short by its status chip.
+- **Docs:** the install commands use this version.
+
 ## 1.35.0 (release candidate)
 
 The fleet page, rebuilt around the fleet itself:

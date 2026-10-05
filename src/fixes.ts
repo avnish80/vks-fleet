@@ -107,7 +107,11 @@ export function scoreDrivers(cards: Scorecard[]): ScoreDriver[] {
 
 /* ---------------- The cluster wall ---------------- */
 
-export type TileState = 'critical' | 'warning' | 'healthy' | 'fixed';
+/**
+ * critical: a critical issue. warning: needs attention (an operational warning, or the Supervisor
+ * doesn't report the cluster healthy). advisory: only posture and hygiene findings are open.
+ */
+export type TileState = 'critical' | 'warning' | 'advisory' | 'healthy' | 'fixed';
 export type TileIcon = 'storage' | 'memory' | 'network' | 'node' | 'certificate' | 'lifecycle' | 'security' | 'alert' | 'ok';
 
 export interface WallTile {
@@ -141,6 +145,22 @@ export function iconFor(issue: Issue): TileIcon {
 
 const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
+const ADVISORY = /^(scan#sec-|scan#storage-default|policy#|vulns#|deprecated-apis$|behind$|upgrade$|class$|single-cp$|one-zone$|timeouts-)/;
+
+/**
+ * Posture and hygiene: worth fixing, but nothing is failing or running out (a missing Pod Security
+ * level, an older version, a single control plane, scanner and compliance findings). These don't
+ * make a cluster "need attention" on their own.
+ */
+export function isAdvisory(issue: Issue): boolean {
+  if (issue.severity !== 'warning') return false;
+  const rule = issueRule(issue.id);
+  return ADVISORY.test(rule) || rule.includes('compliance');
+}
+
+/** Sort key: critical, then warnings that need attention, then advisories. */
+const urgency = (i: Issue) => RANK[i.severity] * 2 + (isAdvisory(i) ? 1 : 0);
+
 /** An issue title without the cluster's own name in it: the tile already carries the name. */
 export function tileTitle(title: string, clusterName: string): string {
   let t = title.split(` in ${clusterName}`).join('');
@@ -160,19 +180,21 @@ export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = 
     byCluster.set(i.clusterKey, [...(byCluster.get(i.clusterKey) ?? []), i]);
   }
   return clusters.map(c => {
-    const open = (byCluster.get(c.key) ?? []).slice().sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+    const open = (byCluster.get(c.key) ?? []).slice().sort((a, b) => urgency(a) - urgency(b));
     const left = simulate ? open.filter(i => !issueFix(i, c)) : open;
     const top = left[0];
     const base = { key: c.key, name: short(c.name), fullName: c.name, tenantId: c.tenantId, tenantName: c.tenantName, path: clusterPath(c) };
     const nodes = c.machines.length;
     const runs = [c.kubernetesVersion, nodes ? `${nodes} node${nodes === 1 ? '' : 's'}` : undefined].filter(Boolean).join(' · ');
+    // The Supervisor's own view counts too: a degraded cluster needs attention even with no issue listed.
+    const unwell = c.health !== 'healthy';
     if (!top) {
       const fixed = simulate && open.length > 0;
       return {
         ...base,
-        state: fixed ? ('fixed' as const) : ('healthy' as const),
-        icon: 'ok' as const,
-        line1: fixed ? 'Fixed in simulation' : 'Healthy',
+        state: unwell ? ('warning' as const) : fixed ? ('fixed' as const) : ('healthy' as const),
+        icon: unwell ? ('alert' as const) : ('ok' as const),
+        line1: unwell ? `Reported ${c.health}` : fixed ? 'Fixed in simulation' : 'Healthy',
         line2: fixed ? `${open.length} fix${open.length === 1 ? '' : 'es'} applied` : runs,
         more: 0,
       };
@@ -180,13 +202,25 @@ export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = 
     const fix = issueFix(top, c);
     return {
       ...base,
-      state: top.severity === 'critical' ? ('critical' as const) : ('warning' as const),
+      state: top.severity === 'critical' ? ('critical' as const) : unwell || !isAdvisory(top) ? ('warning' as const) : ('advisory' as const),
       icon: iconFor(top),
       line1: tileTitle(top.title, c.name),
       line2: fix ? `Fix ready: ${fix.label}` : 'Needs a decision',
       more: left.length - 1,
     };
   });
+}
+
+/** Clusters that need attention: a critical tile or a warning tile. Advisory-only clusters don't count. */
+export function attentionCount(tiles: WallTile[]): number {
+  return tiles.filter(t => t.state === 'critical' || t.state === 'warning').length;
+}
+
+/** The same count per org (tenant id). */
+export function attentionByTenant(tiles: WallTile[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const t of tiles) out.set(t.tenantId, (out.get(t.tenantId) ?? 0) + (t.state === 'critical' || t.state === 'warning' ? 1 : 0));
+  return out;
 }
 
 /** The fix the plugin has for each open issue, by issue id. */

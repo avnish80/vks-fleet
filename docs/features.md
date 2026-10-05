@@ -26,8 +26,8 @@ Search is one keystroke away everywhere: **Ctrl+K**.
 **The fleet page** is built so that the fleet itself is the picture. It opens with:
 
 - **The fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health) beside **what holds the score down**: the best-practice checks that cost the most points across the fleet, largest first, each with the number of clusters behind it.
-- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue. A tile names that issue, says **Fix ready** (with the fix) or **Needs a decision**, counts the cluster's other issues, and opens the cluster. Tiles shrink when the fleet is large.
-- **Needs you now:** up to six items, time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings; each with Fix…, Investigate or Open. Under it, **the next 30 days**: a timeline of what expires or runs out (control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
+- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue. A tile names that issue, says **Fix ready** (with the fix) or **Needs a decision**, counts the cluster's other issues, and opens the cluster. Tiles shrink when the fleet is large. A filled tile **needs attention**: a critical issue, a warning about something failing or running out, or a cluster the Supervisor doesn't report healthy. A dashed outline is **advisory only**: nothing is failing, but posture or hygiene findings are open (a missing Pod Security level, an older version, a single control plane, scanner, policy and compliance findings). The score card, the org cards and the sentence at the top count *needs attention* the same way.
+- **Needs you now:** up to six items, time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings; each with Fix…, Investigate or Open. Beside or under the wall, **the next 30 days**: a timeline of what expires or runs out (control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
 
 **Simulate fixes** (the switch beside the score) shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. Fixed tiles, score reasons and issues are marked, the score moves, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
 
@@ -95,13 +95,15 @@ Cluster page links take `?focus=<row>&action=<dialog>&pool=<pool>#<section>`, so
 - namespace quotas over 80%
 - Supervisor services with failing pods
 
-**Fleet page:** every VKS cluster, grouped by tenant (VCFA organization by default), with:
+**Fleet page:** every VKS cluster appears twice, each time for a different question: on the wall, grouped by org (VCFA organization by default), for *what's wrong and where*; and in *Clusters at a glance*, one row each, for comparing them:
 
 - health, including problems the Supervisor can see, such as a machine stuck deleting
-- Kubernetes version, and whether a newer release is available
-- control plane and worker readiness
-- a one-line summary from inside the cluster (nodes, failing pods, unavailable deployments)
+- open issues, best-practice score, baseline, backup and certificates
+- Kubernetes version, and how far behind the newest release it is
+- nodes ready
 - a link that opens the cluster in Headlamp's own views
+
+The filter box and *Only clusters with problems or upgrades in progress* narrow both. What's failing inside a cluster (pods, deployments) shows as its issues and on the cluster's own page.
 
 With more than one tenant it adds a tenant rollup (including node capacity in vCPU and memory, from VM class sizes) and the spread of Kubernetes versions. Operators with Supervisor-wide access also see the Supervisor services (VKS, Velero, CCI and the others), with pod health and a link to their pods and logs in Headlamp.
 

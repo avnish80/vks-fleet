@@ -1,4 +1,4 @@
-import { Loader, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { Loader, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
   Box,
   Button,
@@ -30,7 +30,7 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
-import { fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
+import { attentionByTenant, attentionCount, fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
 import { glance, horizon, needsYouNow } from '../fleetHero';
 import { FleetHero } from './FleetHero';
 import { settingsStore } from '../settings/store';
@@ -42,7 +42,7 @@ import { OrgCards, OrgSummary } from './OrgCards';
 import { Guard } from './Guard';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
-import { clusterPath, FLEET_PATH, headlampClusterPath, SEARCH_ROUTE } from '../routes';
+import { FLEET_PATH, SEARCH_ROUTE } from '../routes';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
@@ -53,15 +53,7 @@ import { compliance, evaluateBaseline, profileFor } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant } from '../summary';
 import { FleetCluster, Health, supervisorLabel } from '../types';
 import { useWorkloadHealth } from '../useWorkload';
-import {
-  capacityText,
-  HealthLabel,
-  IssuesText,
-  nodesText,
-  SupervisorBanners,
-  VersionCell,
-  WorkloadCell,
-} from './common';
+import { capacityText, SupervisorBanners } from './common';
 import { IssuesList } from './IssuesList';
 
 const ALL = '__all__';
@@ -71,15 +63,16 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function summarySentence(clusters: FleetCluster[]): string {
-  const t = fleetTotals(clusters);
+/** `attention`: clusters needing attention as the page counts them (issues included), not only the Supervisor's view. */
+function summarySentence(clusters: FleetCluster[], attention?: number): string {
+  const t = { ...fleetTotals(clusters), ...(attention === undefined ? {} : { attention }) };
   const first = `${plural(t.clusters, 'cluster', 'clusters')} across ${plural(t.tenants, 'tenant', 'tenants')}.`;
   const parts: string[] = [];
   if (t.attention) parts.push(`${t.attention} ${t.attention === 1 ? 'needs' : 'need'} attention`);
   if (t.upgrading) parts.push(`${t.upgrading} ${t.upgrading === 1 ? 'is' : 'are'} upgrading`);
   if (t.upgradable) parts.push(`${t.upgradable} can be upgraded`);
   const capacity = t.cpus ? ` Nodes use ${capacityText(t)} of memory.`.replace(' vCPU, ', ' vCPU and ') : '';
-  if (!parts.length) return `${first} All healthy.${capacity}`;
+  if (!parts.length) return `${first} Nothing needs attention.${capacity}`;
   const text = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
   return `${first} ${text.charAt(0).toUpperCase()}${text.slice(1)}.${capacity}`;
 }
@@ -279,11 +272,6 @@ export function FleetView() {
     return !q || c.name.toLowerCase().includes(q) || c.namespace.toLowerCase().includes(q);
   });
 
-  const byTenant = new Map<string, FleetCluster[]>();
-  for (const c of visible) {
-    byTenant.set(c.tenantId, [...(byTenant.get(c.tenantId) ?? []), c]);
-  }
-
   const actions = [
     <Button key="search" size="small" variant="outlined" component={Link} to={SEARCH_ROUTE}>
       Search the fleet
@@ -339,40 +327,13 @@ export function FleetView() {
     return <Loader title="Loading VKS clusters" />;
   }
 
-  const columns = [
-    {
-      label: 'Name',
-      getter: (c: FleetCluster) => <Link to={clusterPath(c)}>{c.name}</Link>,
-    },
-    { label: 'Namespace', getter: (c: FleetCluster) => c.namespace },
-    ...(multiSupervisor
-      ? [{ label: 'Supervisor', getter: (c: FleetCluster) => supervisorNames.get(c.supervisorId) ?? c.supervisorId }]
-      : []),
-    {
-      label: 'Status',
-      getter: (c: FleetCluster) => (
-        <Box>
-          <HealthLabel cluster={c} />
-          <IssuesText cluster={c} />
-        </Box>
-      ),
-    },
-    { label: 'Kubernetes', getter: (c: FleetCluster) => <VersionCell cluster={c} /> },
-    { label: 'Nodes', getter: (c: FleetCluster) => nodesText(c) },
-    { label: 'Inside the cluster', getter: (c: FleetCluster) => <WorkloadCell health={workload.byKey.get(c.key)} /> },
-    {
-      label: 'Open',
-      getter: (c: FleetCluster) => {
-        const ctx = workload.byKey.get(c.key)?.contextName;
-        return ctx ? <Link to={headlampClusterPath(ctx)}>Open in Headlamp</Link> : '—';
-      },
-    },
-  ];
-
-  const multiTenant = rollups.length > 1;
   const tenantById = new Map(rollups.map(r => [r.tenantId, r]));
 
   const shortCluster = shortener(tenantClusters.map(c => c.name));
+  // One rule for "needs attention" everywhere on the page: the wall's (as things are, not simulated).
+  const tilesNow = wallTiles(tenantClusters, tenantIssues, false, shortCluster);
+  const attention = attentionCount(tilesNow);
+  const visibleKeys = new Set(visible.map(c => c.key));
   const coming = horizon({
               now: new Date(),
               clusters: tenantClusters,
@@ -400,13 +361,13 @@ export function FleetView() {
       <SectionBox title="VKS fleet" headerProps={{ actions }}>
         <SupervisorBanners results={results} />
         <Typography sx={{ mb: 2 }}>
-          {summarySentence(allClusters)}
+          {summarySentence(allClusters, attention)}
         </Typography>
 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
           <TextField
             size="small"
-            label="Search clusters or namespaces"
+            label="Filter clusters or namespaces"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -437,7 +398,8 @@ export function FleetView() {
       {allClusters.length > 0 && (
         <Guard name="Fleet at a glance">
           <FleetHero
-            glance={glance(
+            glance={{
+              ...glance(
               tenantClusters,
               scores.map(x => x.card.score),
               tenantIssues,
@@ -447,11 +409,13 @@ export function FleetView() {
                 const v = r && vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, (all ?? []).length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
                 return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
               })
-            )}
+              ),
+              attention,
+            }}
             top={needsYouNow(tenantIssues, coming, Date.now(), 6)}
             horizon={coming}
             onScore={() => jump('scorecard')}
-            tiles={wallTiles(tenantClusters, tenantIssues, simulate, shortCluster)}
+            tiles={wallTiles(visible, tenantIssues, simulate, shortCluster)}
             drivers={scoreDrivers(scores.map(x => x.card))}
             fixes={fixCounts(tenantIssues, clusterByKey)}
             fixByIssue={fixesByIssue(tenantIssues, clusterByKey)}
@@ -463,7 +427,7 @@ export function FleetView() {
       )}
 
       <Guard name="Org cards">
-        <OrgCards />
+        <OrgCards attention={attentionByTenant(tilesNow)} />
         <OrgSummary />
       </Guard>
       {allClusters.length > 0 && (
@@ -477,8 +441,9 @@ export function FleetView() {
       {allClusters.length > 0 && (
         <Guard name="Overview">
         <FleetDetails
-          rows={tenantClusters.map(c => ({
+          rows={tenantClusters.filter(c => visibleKeys.has(c.key)).map(c => ({
             cluster: c,
+            contextName: workload.byKey.get(c.key)?.contextName,
             score: scores.find(x => x.cluster.key === c.key)?.card.score,
             baseline: baselineRows.find(x => x.cluster.key === c.key)?.pct,
             backup: backups?.get(c.key),
@@ -534,28 +499,15 @@ export function FleetView() {
         </SectionBox>
       )}
 
-      {Array.from(byTenant.entries())
-        .sort(([a], [b]) => (tenantById.get(a)?.tenantName ?? a).localeCompare(tenantById.get(b)?.tenantName ?? b))
-        .map(([tid, cs]) => {
-          const info = tenantById.get(tid);
-          const name = info?.tenantName ?? tid;
-          return (
-            <SectionBox key={tid} title={multiTenant ? name : `Clusters in ${name}`}>
-              {info && !info.tenantNamed && (
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  This org has no name yet. Name it under Settings → Plugins → vks-fleet, where each Supervisor lists its org
-                  IDs ({tid}).
-                </Typography>
-              )}
-              {info?.unmapped && (
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Some namespaces here have no tenant label, so they're shown under their namespace name.
-                </Typography>
-              )}
-              <SimpleTable columns={columns} data={cs.sort((a, b) => a.name.localeCompare(b.name))} />
-            </SectionBox>
-          );
-        })}
+      {rollups
+        .filter(r => !r.tenantNamed || r.unmapped)
+        .map(r => (
+          <Typography key={r.tenantId} variant="body2" color="text.secondary" sx={{ px: 2, mb: 1 }}>
+            {!r.tenantNamed
+              ? `Org ${r.tenantId} has no name yet. Name it under Settings → Plugins → vks-fleet, where each Supervisor lists its org IDs.`
+              : `Some namespaces in ${r.tenantName} have no tenant label, so they're shown under their namespace name.`}
+          </Typography>
+        ))}
 
       <Box id="issues" sx={{ scrollMarginTop: 72 }} />
       <IssuesSection

@@ -48,7 +48,7 @@ function Drivers({ drivers, simulate }: { drivers: ScoreDriver[]; simulate: bool
       {shown.map(d => {
         const gone = simulate && !!d.fix;
         return (
-          <Box key={d.id} title={`${d.clusters} cluster${d.clusters === 1 ? '' : 's'}${d.fix ? `. Fix: ${d.fix}` : ''}`} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr) 52px', gap: 1.5, alignItems: 'center' }}>
+          <Box key={d.id} title={`${d.clusters} cluster${d.clusters === 1 ? '' : 's'}${d.fix ? `. Fix: ${d.fix}` : ''}`} sx={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 270px) minmax(60px, 1fr) 52px', gap: 1.5, alignItems: 'center' }}>
             <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: gone ? 'text.secondary' : 'text.primary', textDecoration: gone ? 'line-through' : 'none' }}>
               {d.title}
             </Typography>
@@ -128,6 +128,42 @@ export function FleetHero({
     : simulate
     ? `${fixes.fixable} fix${fixes.fixable === 1 ? '' : 'es'} simulated. ${left ? `${left} issue${left === 1 ? '' : 's'} left need${left === 1 ? 's' : ''} a decision.` : 'Nothing would be left.'} Nothing has been changed.`
     : `${fixes.fixable} of ${fixes.open} open issues ${fixes.fixable === 1 ? 'has' : 'have'} a fix ready.`;
+  // A small fleet leaves the wall short: the timeline goes under it. A large one keeps it beside the wall.
+  const timelineLeft = tiles.length <= 8;
+  const timeline = (
+    <>
+          <Typography sx={{ fontWeight: 800, mt: timelineLeft ? 0 : 2, mb: 0.5 }}>Next {days} days</Typography>
+          <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
+            <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
+            {[0, 7, 14, 21, 28].map(d => (
+              <g key={d}>
+                <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
+                <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
+                  {d === 0 ? 'today' : `${d / 7} wk`}
+                </text>
+              </g>
+            ))}
+            {placed.map(({ item, cx, row }, k) => (
+              <g key={k}>
+                <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
+                <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
+                  <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
+                </circle>
+              </g>
+            ))}
+          </svg>
+          {horizon.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Nothing expires or runs out in the next {days} days, as far as the fleet can see.
+            </Typography>
+          )}
+          {horizon.length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+              {horizon.length === 1 ? `1 item expires or runs out, ${inWords(horizon[0].at, now)}.` : `${horizon.length} items expire or run out; the first ${inWords(horizon[0].at, now)}.`} Hover a dot for what it is.
+            </Typography>
+          )}
+    </>
+  );
   return (
     <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
       <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 3 }}>
@@ -144,7 +180,7 @@ export function FleetHero({
               </Typography>
             </Box>
             <Typography variant="body2" sx={{ fontWeight: 700, color: glance.attention ? 'warning.main' : 'success.main' }}>
-              {glance.attention ? `${glance.attention} need${glance.attention === 1 ? 's' : ''} attention` : 'all healthy'}
+              {glance.attention ? `${glance.attention} need${glance.attention === 1 ? 's' : ''} attention` : 'none need attention'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               <Box component="span" sx={{ color: glance.critical ? 'error.main' : undefined, fontWeight: glance.critical ? 700 : 400 }}>
@@ -176,9 +212,16 @@ export function FleetHero({
       </Paper>
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.8fr) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
-        <Paper variant="outlined" sx={card}>
-          <ClusterWall tiles={tiles} simulate={simulate} />
-        </Paper>
+        <Box sx={{ display: 'grid', gap: 2 }}>
+          <Paper variant="outlined" sx={card}>
+            <ClusterWall tiles={tiles} simulate={simulate} />
+          </Paper>
+          {timelineLeft && (
+            <Paper variant="outlined" sx={card}>
+              {timeline}
+            </Paper>
+          )}
+        </Box>
 
         <Paper variant="outlined" sx={card}>
           <Typography sx={{ fontWeight: 800, mb: 1 }}>Needs you now</Typography>
@@ -226,36 +269,7 @@ export function FleetHero({
             </Typography>
           )}
 
-          <Typography sx={{ fontWeight: 800, mt: 2, mb: 0.5 }}>Next {days} days</Typography>
-          <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
-            <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
-            {[0, 7, 14, 21, 28].map(d => (
-              <g key={d}>
-                <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
-                <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
-                  {d === 0 ? 'today' : `${d / 7} wk`}
-                </text>
-              </g>
-            ))}
-            {placed.map(({ item, cx, row }, k) => (
-              <g key={k}>
-                <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
-                <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
-                  <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
-                </circle>
-              </g>
-            ))}
-          </svg>
-          {horizon.length === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Nothing expires or runs out in the next {days} days, as far as the fleet can see.
-            </Typography>
-          )}
-          {horizon.length > 0 && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-              {horizon.length === 1 ? `1 item expires or runs out, ${inWords(horizon[0].at, now)}.` : `${horizon.length} items expire or run out; the first ${inWords(horizon[0].at, now)}.`} Hover a dot for what it is.
-            </Typography>
-          )}
+          {!timelineLeft && timeline}
         </Paper>
       </Box>
     </Box>
