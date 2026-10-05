@@ -2,6 +2,10 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.35.2 (release candidate)
+
+- **The score's reasons open:** click a line under *What holds the score down* for the clusters where that check isn't passing; each one links to that cluster's checks, with how to fix it, and the fix is named when the plugin has one. *Show all* lists the smaller reasons too.
+
 ## 1.35.1 (release candidate)
 
 From the first run of the new fleet page on a live Supervisor and on the demo fleet:

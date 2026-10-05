@@ -42,7 +42,7 @@ import { OrgCards, OrgSummary } from './OrgCards';
 import { Guard } from './Guard';
 import { isOwnSilence, removeSilence } from './SilenceDialog';
 import { packageDrift } from '../packages';
-import { FLEET_PATH, SEARCH_ROUTE } from '../routes';
+import { clusterDeepLink, FLEET_PATH, SEARCH_ROUTE } from '../routes';
 import { download, fleetReportCsv, fleetReportMarkdown } from '../report';
 import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
@@ -417,6 +417,7 @@ export function FleetView() {
             onScore={() => jump('scorecard')}
             tiles={wallTiles(visible, tenantIssues, simulate, shortCluster)}
             drivers={scoreDrivers(scores.map(x => x.card))}
+            clusterLinks={new Map(tenantClusters.map(c => [c.key, { name: shortCluster(c.name), path: clusterDeepLink(c, { hash: 'checks' }) }]))}
             fixes={fixCounts(tenantIssues, clusterByKey)}
             fixByIssue={fixesByIssue(tenantIssues, clusterByKey)}
             simulate={simulate}

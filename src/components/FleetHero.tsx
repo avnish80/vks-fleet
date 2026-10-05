@@ -29,11 +29,13 @@ function Ring({ score }: { score?: number }) {
 
 const card = { p: 2, borderRadius: 3, display: 'flex', flexDirection: 'column' as const };
 
-/** What holds the score down: one bar per check, sized by the points it costs. */
-function Drivers({ drivers, simulate }: { drivers: ScoreDriver[]; simulate: boolean }) {
-  const shown = drivers.slice(0, 5);
-  const max = Math.max(...shown.map(d => d.points), 1);
-  if (!shown.length) {
+/** What holds the score down: one bar per check, sized by the points it costs. A row opens the clusters behind it. */
+function Drivers({ drivers, simulate, clusterLinks }: { drivers: ScoreDriver[]; simulate: boolean; clusterLinks: Map<string, { name: string; path: string }> }) {
+  const [open, setOpen] = React.useState<string | null>(null);
+  const [all, setAll] = React.useState(false);
+  const shown = all ? drivers : drivers.slice(0, 5);
+  const max = Math.max(...drivers.map(d => d.points), 1);
+  if (!drivers.length) {
     return (
       <Typography variant="body2" color="text.secondary">
         Every best-practice check that could run is passing.
@@ -41,30 +43,81 @@ function Drivers({ drivers, simulate }: { drivers: ScoreDriver[]; simulate: bool
     );
   }
   return (
-    <Box sx={{ display: 'grid', gap: 0.75 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-        What holds the score down
+    <Box sx={{ display: 'grid', gap: 0.25 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, mb: 0.5 }}>
+        What holds the score down (click one for the clusters behind it)
       </Typography>
       {shown.map(d => {
         const gone = simulate && !!d.fix;
+        const isOpen = open === d.id;
+        const links = d.clusterKeys.map(k => clusterLinks.get(k)).filter((x): x is { name: string; path: string } => !!x);
         return (
-          <Box key={d.id} title={`${d.clusters} cluster${d.clusters === 1 ? '' : 's'}${d.fix ? `. Fix: ${d.fix}` : ''}`} sx={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 270px) minmax(60px, 1fr) 52px', gap: 1.5, alignItems: 'center' }}>
-            <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: gone ? 'text.secondary' : 'text.primary', textDecoration: gone ? 'line-through' : 'none' }}>
-              {d.title}
-            </Typography>
-            <Box sx={{ height: 10 }}>
-              <Box sx={{ height: 10, width: `${Math.max(6, (d.points / max) * 100)}%`, borderRadius: '3px', border: '1px solid', borderColor: gone ? 'info.main' : 'warning.main', bgcolor: gone ? 'transparent' : 'warning.main', transition: 'background-color 240ms ease' }} />
+          <Box key={d.id}>
+            <Box
+              component="button"
+              type="button"
+              aria-expanded={isOpen}
+              onClick={() => setOpen(isOpen ? null : d.id)}
+              title={`Not passing in ${d.clusters} cluster${d.clusters === 1 ? '' : 's'}${d.fix ? `. Fix: ${d.fix}` : ''}`}
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(120px, 270px) minmax(60px, 1fr) 52px',
+                gap: 1.5,
+                alignItems: 'center',
+                width: '100%',
+                p: 0.5,
+                m: 0,
+                border: 0,
+                borderRadius: 1,
+                bgcolor: isOpen ? 'action.hover' : 'transparent',
+                color: 'inherit',
+                font: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: gone ? 'text.secondary' : 'text.primary', textDecoration: gone ? 'line-through' : 'underline', textDecorationStyle: gone ? 'solid' : 'dotted', textUnderlineOffset: '3px' }}>
+                {d.title}
+              </Typography>
+              <Box sx={{ height: 10 }}>
+                <Box sx={{ height: 10, width: `${Math.max(6, (d.points / max) * 100)}%`, borderRadius: '3px', border: '1px solid', borderColor: gone ? 'info.main' : 'warning.main', bgcolor: gone ? 'transparent' : 'warning.main', transition: 'background-color 240ms ease' }} />
+              </Box>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 700, color: gone ? 'info.main' : 'text.primary', textAlign: 'right' }}>
+                {gone ? 'fixed' : `−${d.points}`}
+              </Typography>
             </Box>
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 700, color: gone ? 'info.main' : 'text.primary', textAlign: 'right' }}>
-              {gone ? 'fixed' : `−${d.points}`}
-            </Typography>
+            {isOpen && (
+              <Box sx={{ px: 0.5, pt: 0.5, pb: 1, display: 'grid', gap: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Not passing in {d.clusters} cluster{d.clusters === 1 ? '' : 's'}. Each link opens that cluster's checks, with how to fix it.
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
+                  {links.map(l => (
+                    <Typography key={l.path} variant="body2" component={Link} to={l.path} sx={{ fontWeight: 700 }}>
+                      {l.name}
+                    </Typography>
+                  ))}
+                </Box>
+                {d.fix && (
+                  <Typography variant="body2">
+                    <Box component="span" sx={{ fontWeight: 700 }}>
+                      Fix ready:{' '}
+                    </Box>
+                    {d.fix}
+                  </Typography>
+                )}
+              </Box>
+            )}
           </Box>
         );
       })}
-      {drivers.length > shown.length && (
-        <Typography variant="caption" color="text.secondary">
-          and {drivers.length - shown.length} smaller ones
-        </Typography>
+      {drivers.length > 5 && (
+        <Box>
+          <Button size="small" onClick={() => setAll(!all)} sx={{ px: 0.5 }}>
+            {all ? 'Show the top 5' : `Show all ${drivers.length} (${drivers.length - 5} smaller ones)`}
+          </Button>
+        </Box>
       )}
     </Box>
   );
@@ -87,6 +140,7 @@ export function FleetHero({
   onScore,
   tiles = [],
   drivers = [],
+  clusterLinks = new Map(),
   fixes = { open: 0, fixable: 0 },
   fixByIssue = new Map(),
   simulate = false,
@@ -101,6 +155,8 @@ export function FleetHero({
   /** One tile per cluster. */
   tiles?: WallTile[];
   drivers?: ScoreDriver[];
+  /** Name and checks page of each cluster, by key, for the links behind a score reason. */
+  clusterLinks?: Map<string, { name: string; path: string }>;
   fixes?: FixCounts;
   /** The fix the plugin has, by issue id. */
   fixByIssue?: Map<string, FixProposal>;
@@ -196,7 +252,7 @@ export function FleetHero({
           </Box>
         </Box>
         <Box sx={{ flex: '1 1 340px', minWidth: 0 }}>
-          <Drivers drivers={drivers} simulate={simulate} />
+          <Drivers drivers={drivers} simulate={simulate} clusterLinks={clusterLinks} />
         </Box>
         <Box sx={{ flex: '0 1 260px', display: 'grid', gap: 0.5 }}>
           {onSimulate && (

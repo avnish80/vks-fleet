@@ -79,6 +79,8 @@ export interface ScoreDriver {
   points: number;
   /** Clusters where it isn't passing. */
   clusters: number;
+  /** Their keys, to link to each one's checks. */
+  clusterKeys: string[];
   /** The action that fixes it, when the plugin has one. */
   fix?: string;
 }
@@ -93,9 +95,10 @@ export function scoreDrivers(cards: Scorecard[]): ScoreDriver[] {
     for (const x of evaluated) {
       const lost = x.weight * (1 - earned(x.status));
       if (!lost) continue;
-      const d = by.get(x.id) ?? { id: x.id, title: x.title, points: 0, clusters: 0, fix: FIXABLE_CHECKS[x.id] };
+      const d = by.get(x.id) ?? { id: x.id, title: x.title, points: 0, clusters: 0, clusterKeys: [], fix: FIXABLE_CHECKS[x.id] };
       d.points += ((lost / all) * 100) / cards.length;
       d.clusters += 1;
+      d.clusterKeys.push(card.clusterKey);
       by.set(x.id, d);
     }
   }

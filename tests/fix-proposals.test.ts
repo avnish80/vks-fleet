@@ -53,6 +53,7 @@ describe('simulated score', () => {
     assert.equal(d[0].fix, 'Scale the control plane to 3');
     assert.equal(d[1].fix, undefined);
     assert.equal(d[0].clusters, 1);
+    assert.deepEqual(d[0].clusterKeys, ['k'], 'the clusters behind a reason, for its links');
   });
 });
 
