@@ -44,7 +44,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 - **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh):
 
   ```bash
-  VERSION=1.37.0
+  VERSION=1.38.0
   SUPERVISOR=10.0.0.2                 # your Supervisor's address
   VCENTER=vcenter.example.com         # the vCenter it belongs to
   kubectl create namespace vks-fleet

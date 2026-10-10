@@ -56,19 +56,22 @@ export const FIXABLE_CHECKS: Record<string, string> = {
 
 const earned = (status: string) => (status === 'pass' ? 1 : status === 'warn' ? 0.5 : 0);
 
-/** A cluster's score with every fixable check passing. Same arithmetic as the scorecard. */
-export function simulatedScore(card: Scorecard): number {
+/**
+ * A cluster's score with every fixable check passing (and, with `also`, the
+ * checks the recommended steps bring back). Same arithmetic as the scorecard.
+ */
+export function simulatedScore(card: Scorecard, also?: Set<string>): number {
   const evaluated = card.checks.filter(x => x.status !== 'unknown');
   const all = evaluated.reduce((n, x) => n + x.weight, 0);
   if (!all) return card.score;
-  const got = evaluated.reduce((n, x) => n + x.weight * (FIXABLE_CHECKS[x.id] ? 1 : earned(x.status)), 0);
+  const got = evaluated.reduce((n, x) => n + x.weight * (FIXABLE_CHECKS[x.id] || also?.has(x.id) ? 1 : earned(x.status)), 0);
   return Math.round((got / all) * 100);
 }
 
 /** The fleet score: the average of the clusters' scores, as shown or with fixes simulated. */
-export function fleetScore(cards: Scorecard[], simulate = false): number | undefined {
+export function fleetScore(cards: Scorecard[], simulate = false, also?: Set<string>): number | undefined {
   if (!cards.length) return undefined;
-  return Math.round(cards.reduce((n, c) => n + (simulate ? simulatedScore(c) : c.score), 0) / cards.length);
+  return Math.round(cards.reduce((n, c) => n + (simulate ? simulatedScore(c, also) : c.score), 0) / cards.length);
 }
 
 export interface ScoreDriver {
@@ -176,7 +179,16 @@ export function tileTitle(title: string, clusterName: string): string {
  * `simulate`, issues that have a fix are taken as fixed, so a tile shows what
  * would be left.
  */
-export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = false, short: (name: string) => string = n => n): WallTile[] {
+export function wallTiles(
+  clusters: FleetCluster[],
+  issues: Issue[],
+  simulate = false,
+  short: (name: string) => string = n => n,
+  /** With `simulate`: other issues taken as cleared too (the ones a recommended step would clear). */
+  alsoCleared?: (issue: Issue) => boolean,
+  /** The recommended step for an issue that has no fix, as a label. */
+  recommended?: (issue: Issue) => string | undefined
+): WallTile[] {
   const byCluster = new Map<string, Issue[]>();
   for (const i of issues) {
     if (!i.clusterKey || i.severity === 'info') continue;
@@ -184,7 +196,7 @@ export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = 
   }
   return clusters.map(c => {
     const open = (byCluster.get(c.key) ?? []).slice().sort((a, b) => urgency(a) - urgency(b));
-    const left = simulate ? open.filter(i => !issueFix(i, c)) : open;
+    const left = simulate ? open.filter(i => !issueFix(i, c) && !alsoCleared?.(i)) : open;
     const top = left[0];
     const base = { key: c.key, name: short(c.name), fullName: c.name, tenantId: c.tenantId, tenantName: c.tenantName, path: clusterPath(c) };
     const nodes = c.machines.length;
@@ -198,7 +210,7 @@ export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = 
         state: unwell ? ('warning' as const) : fixed ? ('fixed' as const) : ('healthy' as const),
         icon: unwell ? ('alert' as const) : ('ok' as const),
         line1: unwell ? `Reported ${c.health}` : fixed ? 'Fixed in simulation' : 'Healthy',
-        line2: fixed ? `${open.length} fix${open.length === 1 ? '' : 'es'} applied` : runs,
+        line2: fixed ? `${open.length} issue${open.length === 1 ? '' : 's'} cleared` : runs,
         more: 0,
       };
     }
@@ -208,7 +220,7 @@ export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = 
       state: top.severity === 'critical' ? ('critical' as const) : unwell || !isAdvisory(top) ? ('warning' as const) : ('advisory' as const),
       icon: iconFor(top),
       line1: tileTitle(top.title, c.name),
-      line2: fix ? `Fix ready: ${fix.label}` : 'Needs a decision',
+      line2: fix ? `Fix ready: ${fix.label}` : recommended?.(top) ? `Recommended: ${recommended(top)}` : 'Needs a decision',
       more: left.length - 1,
     };
   });

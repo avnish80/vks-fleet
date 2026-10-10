@@ -1,7 +1,8 @@
-import { Box, Button, FormControlLabel, Paper, Switch, Typography } from '@mui/material';
+import { Box, Button, Paper, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { FixCounts, FixProposal, ScoreDriver } from '../fixes';
+import { FixProposal, ScoreDriver } from '../fixes';
+import { IssueRecommendation, TriageCounts } from '../recommendations';
 import { HORIZON_DAYS, HorizonItem, inWords, NowItem } from '../fleetHero';
 
 const TONE = { error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
@@ -138,12 +139,15 @@ export function FixChip({ text, tone }: { text: string; tone: 'ready' | 'fixed' 
 export function NowList({
   items,
   fixByIssue = new Map(),
+  recByIssue = new Map(),
   simulate = false,
   lines = 2,
 }: {
   items: NowItem[];
   /** The fix the plugin has, by issue id. */
   fixByIssue?: Map<string, FixProposal>;
+  /** The recommended step for issues without a fix, by issue id. */
+  recByIssue?: Map<string, IssueRecommendation>;
   simulate?: boolean;
   /** Lines a title may take before it is cut. */
   lines?: number;
@@ -159,6 +163,7 @@ export function NowList({
     <Box sx={{ display: 'grid' }}>
       {items.map((i, k) => {
         const fix = fixByIssue.get(i.id);
+        const rec = fix ? undefined : recByIssue.get(i.id);
         const fixed = simulate && !!fix;
         return (
           <Box key={i.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', py: 0.75, borderTop: k ? 1 : 0, borderColor: 'divider' }}>
@@ -172,11 +177,15 @@ export function NowList({
                   {i.sub}
                 </Typography>
               )}
-              {fixed ? <FixChip text="Fixed in simulation" tone="fixed" /> : fix ? <FixChip text="Fix ready" tone="ready" /> : null}
+              {fixed ? <FixChip text="Fixed in simulation" tone="fixed" /> : fix ? <FixChip text="Fix ready" tone="ready" /> : rec ? <FixChip text="Recommended" tone="ready" /> : null}
             </Box>
             {fix && !fixed ? (
               <Button size="small" component={Link} to={fix.path} title={fix.label} sx={{ py: 0, flexShrink: 0 }}>
                 Fix…
+              </Button>
+            ) : rec ? (
+              <Button size="small" component={Link} to={rec.path} title={rec.why} sx={{ py: 0, flexShrink: 0 }}>
+                {rec.label}
               </Button>
             ) : i.investigate ? (
               <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
@@ -259,37 +268,69 @@ export function HorizonTimeline({ horizon, now = Date.now() }: { horizon: Horizo
   );
 }
 
-/** Simulate fixes: the switch, what it would do, and the score before and after. Nothing is sent anywhere. */
+/** As it is; with the fixes the plugin has; with the recommended steps done as well. */
+export type SimulateMode = 'off' | 'fixes' | 'recommended';
+
+const MODES: Array<{ mode: SimulateMode; label: string }> = [
+  { mode: 'off', label: 'As it is' },
+  { mode: 'fixes', label: 'With fixes' },
+  { mode: 'recommended', label: 'With fixes and recommendations' },
+];
+
+/**
+ * Simulate: the fleet as it is, with the fixes the plugin has, or with the
+ * recommended steps done as well, and the score for each. It only redraws the
+ * page: nothing is sent anywhere.
+ */
 export function SimulatePanel({
-  fixes,
-  simulate,
+  counts,
+  mode,
   score,
-  simulatedScore,
-  onSimulate,
+  fixedScore,
+  recommendedScore,
+  onMode,
 }: {
-  fixes: FixCounts;
-  simulate: boolean;
+  counts: TriageCounts;
+  mode: SimulateMode;
   /** The fleet score as it is. */
   score?: number;
-  /** The fleet score with every fixable check passing. */
-  simulatedScore?: number;
-  onSimulate: (on: boolean) => void;
+  /** With every fixable check passing. */
+  fixedScore?: number;
+  /** With the recommended steps done as well (upgrades and class changes are not counted). */
+  recommendedScore?: number;
+  onMode: (mode: SimulateMode) => void;
 }) {
-  const left = fixes.open - fixes.fixable;
-  const sentence = !fixes.open
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const left = mode === 'recommended' ? counts.decision : counts.open - counts.fixable;
+  const sentence = !counts.open
     ? 'No open issues need action.'
-    : !fixes.fixable
-    ? `None of the ${fixes.open} open issues has a one-click fix yet: each needs a decision.`
-    : simulate
-    ? `${fixes.fixable} fix${fixes.fixable === 1 ? '' : 'es'} simulated. ${left ? `${left} issue${left === 1 ? '' : 's'} left need${left === 1 ? 's' : ''} a decision.` : 'Nothing would be left.'} Nothing has been changed.`
-    : `${fixes.fixable} of ${fixes.open} open issues ${fixes.fixable === 1 ? 'has' : 'have'} a fix ready. Switch this on to see the fleet with those fixes applied; nothing is changed.`;
-  const moved = simulate && score !== undefined && simulatedScore !== undefined;
+    : mode === 'off'
+    ? `Of ${plural(counts.open, 'open issue', 'open issues')}: ${counts.fixable} with a fix ready, ${counts.recommended} with a recommended step, ${counts.decision} that need${counts.decision === 1 ? 's' : ''} a decision. Pick a view to see the fleet with them done; nothing is changed.`
+    : mode === 'fixes'
+    ? `${plural(counts.fixable, 'fix', 'fixes')} simulated. ${left ? `${plural(left, 'issue is', 'issues are')} left.` : 'Nothing would be left.'} Nothing has been changed.`
+    : `${plural(counts.fixable, 'fix', 'fixes')} and the recommended steps simulated (upgrades are not counted: each is its own project). ${left ? `${plural(left, 'issue needs', 'issues need')} a decision.` : 'Nothing would be left.'} Nothing has been changed.`;
+  const after = mode === 'recommended' ? recommendedScore : fixedScore;
+  const moved = mode !== 'off' && score !== undefined && after !== undefined;
   return (
     <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 3, rowGap: 1 }}>
-      <FormControlLabel
-        control={<Switch checked={simulate} disabled={!fixes.fixable && !simulate} onChange={e => onSimulate(e.target.checked)} />}
-        label={<Typography sx={{ fontWeight: 700 }}>Simulate fixes</Typography>}
-      />
+      <Box>
+        <Typography sx={{ fontWeight: 800, mb: 0.5 }}>Simulate</Typography>
+        <Box role="group" aria-label="Simulate" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {MODES.map(m => (
+            <Button
+              key={m.mode}
+              size="small"
+              variant={mode === m.mode ? 'contained' : 'outlined'}
+              aria-pressed={mode === m.mode}
+              disabled={m.mode === 'fixes' ? !counts.fixable : m.mode === 'recommended' ? !counts.fixable && !counts.recommended : false}
+              onClick={() => onMode(m.mode)}
+              sx={{ textTransform: 'none' }}
+            >
+              {m.label}
+            </Button>
+          ))}
+        </Box>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ flex: '1 1 320px' }}>
         {sentence}
       </Typography>
@@ -300,8 +341,8 @@ export function SimulatePanel({
             {score}
           </Box>
           {' → '}
-          <Box component="span" sx={{ color: scoreColour(simulatedScore) }}>
-            {simulatedScore}
+          <Box component="span" sx={{ color: scoreColour(after) }}>
+            {after}
           </Box>
         </Typography>
       )}

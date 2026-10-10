@@ -33,14 +33,16 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
-import { attentionByTenant, fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
+import { attentionByTenant, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
+import { recommendations, recommendationsByIssue, recommendedChecks, triage } from '../recommendations';
+import { RecommendationsCard } from './Recommendations';
 import { horizon, needsYouNow } from '../fleetHero';
 import { blockNumbers, compactNow, dashboardBlocks, demoBlockValue, FleetTab, headline, scoreLine, tabFromLocation } from '../dashboard';
 import { sinceLast, sinceLastText } from '../scoreHistory';
 import { formatBytes } from '../quantity';
 import { ClusterWall } from './ClusterWall';
 import { BlockGrid, ScoreHeader } from './Dashboard';
-import { card, HorizonTimeline, NowList, SimulatePanel } from './FleetHero';
+import { card, HorizonTimeline, NowList, SimulateMode, SimulatePanel } from './FleetHero';
 import { useScoreHistory } from './scoreHistoryStore';
 import { settingsStore } from '../settings/store';
 import { FleetDetails } from './FleetDetails';
@@ -114,7 +116,9 @@ export function FleetView() {
   const [exportOpen, setExportOpen] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
   // Simulate fixes: recomputes the picture only; nothing is sent anywhere.
-  const [simulate, setSimulate] = React.useState(false);
+  const [simulateMode, setSimulateMode] = React.useState<SimulateMode>('off');
+  const simulate = simulateMode !== 'off';
+  const simulateRecommended = simulateMode === 'recommended';
   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
 
   const multiSupervisor = config.supervisors.length > 1;
@@ -334,7 +338,7 @@ export function FleetView() {
 
   const shortCluster = shortener(tenantClusters.map(c => c.name));
   // One rule for "needs attention" everywhere on the page: the wall's (as things are, not simulated).
-  const tilesNow = wallTiles(tenantClusters, tenantIssues, false, shortCluster);
+  const tilesNow = wallTiles(tenantClusters, tenantIssues, false, shortCluster, undefined, i => recommendationsByIssue([i], clusterByKey).get(i.id)?.label);
   const visibleKeys = new Set(visible.map(c => c.key));
   const now = Date.now();
   const hostsOf = (supervisorId: string) => (supervisorHealth ?? []).find(x => x.supervisorId === supervisorId)?.nodes.filter(n => n.role === 'host').map(n => n.name);
@@ -365,7 +369,12 @@ export function FleetView() {
   const drivers = scoreDrivers(cards);
   const clusterLinks = new Map(tenantClusters.map(c => [c.key, { name: shortCluster(c.name), path: clusterDeepLink(c, { hash: 'checks' }) }]));
   const fixByIssue = fixesByIssue(tenantIssues, clusterByKey);
-  const fixes = fixCounts(tenantIssues, clusterByKey);
+  // Recommended steps: for issues without a guaranteed fix, and for gaps the score counts.
+  const recByIssue = recommendationsByIssue(tenantIssues, clusterByKey);
+  const recs = recommendations({ issues: tenantIssues, clusters: new Map(tenantClusters.map(c => [c.key, c])), cards, backups: backups ?? undefined, short: shortCluster });
+  const counts = triage(tenantIssues, clusterByKey);
+  const wall = (mode: SimulateMode) =>
+    wallTiles(tenantClusters, tenantIssues, mode !== 'off', shortCluster, mode === 'recommended' ? i => recByIssue.get(i.id)?.simulated === true : undefined, i => recByIssue.get(i.id)?.label);
 
   // The dashboard's blocks: each summarises what its own page computes.
   const canSeeSupervisor = !whoAmI || ['operator', 'readonly', 'unknown'].includes(whoAmI.persona);
@@ -452,6 +461,7 @@ export function FleetView() {
             blocks={blocks}
             top={compactNow(needsYouNow(tenantIssues, coming, now, 3), shortCluster)}
             fixByIssue={fixByIssue}
+            recByIssue={recByIssue}
             openCount={openCount}
             tiles={tilesNow}
             onIssues={() => goTab('issues')}
@@ -543,12 +553,15 @@ export function FleetView() {
           </Box>
           <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
             <Guard name="Simulate fixes">
-              <SimulatePanel fixes={fixes} simulate={simulate} score={score} simulatedScore={fleetScore(cards, true)} onSimulate={setSimulate} />
+              <SimulatePanel counts={counts} mode={simulateMode} score={score} fixedScore={fleetScore(cards, true)} recommendedScore={fleetScore(cards, true, recommendedChecks(recs))} onMode={setSimulateMode} />
               {simulate && (
                 <Paper variant="outlined" sx={card}>
-                  <ClusterWall tiles={wallTiles(tenantClusters, tenantIssues, true, shortCluster)} simulate compact />
+                  <ClusterWall tiles={wall(simulateMode)} simulate compact />
                 </Paper>
               )}
+            </Guard>
+            <Guard name="Recommendations">
+              <RecommendationsCard recs={recs} simulated={simulateRecommended} />
             </Guard>
             <Box id="next-30-days" sx={{ scrollMarginTop: 72 }}>
               <Guard name="Next 30 days">
@@ -569,6 +582,7 @@ export function FleetView() {
             open={findingsOpen}
             setOpen={setFindingsOpen}
             simulate={simulate}
+            simulateRecommended={simulateRecommended}
           />
         </>
       )}
@@ -604,6 +618,7 @@ function DashboardTab({
   blocks,
   top,
   fixByIssue,
+  recByIssue,
   openCount,
   tiles,
   onIssues,
@@ -620,6 +635,7 @@ function DashboardTab({
   blocks: ReturnType<typeof dashboardBlocks>;
   top: ReturnType<typeof needsYouNow>;
   fixByIssue: ReturnType<typeof fixesByIssue>;
+  recByIssue: ReturnType<typeof recommendationsByIssue>;
   /** Open issues that need action. */
   openCount: number;
   tiles: ReturnType<typeof wallTiles>;
@@ -638,7 +654,7 @@ function DashboardTab({
             {openCount ? `All ${openCount} issue${openCount === 1 ? '' : 's'} ›` : 'Issues ›'}
           </Button>
         </Box>
-        <NowList items={top} fixByIssue={fixByIssue} lines={1} />
+        <NowList items={top} fixByIssue={fixByIssue} recByIssue={recByIssue} lines={1} />
       </Paper>
       <BlockGrid blocks={blocks} history={stored} today={today} />
       <Paper variant="outlined" sx={{ ...card, py: 1.5 }}>
@@ -659,6 +675,7 @@ function IssuesSection({
   open,
   setOpen,
   simulate,
+  simulateRecommended,
 }: {
   silenced: Array<{ issue: ReturnType<typeof buildIssues>[number]; by: Silence }>;
   silences: Silence[];
@@ -670,6 +687,7 @@ function IssuesSection({
   open: boolean;
   setOpen: (v: boolean) => void;
   simulate: boolean;
+  simulateRecommended: boolean;
 }) {
   const counts = countIssues(issues);
   const shown = showInfo ? issues : issues.filter(x => x.severity !== 'info');
@@ -698,7 +716,7 @@ function IssuesSection({
       </Box>
       {open && shown.length > 0 && (
         <Guard name="Issues">
-          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={10} simulate={simulate} />
+          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={10} simulate={simulate} simulateRecommended={simulateRecommended} />
         </Guard>
       )}
       {silences.length > 0 && (

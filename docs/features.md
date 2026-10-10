@@ -48,9 +48,34 @@ Search is one keystroke away everywhere: **Ctrl+K**.
 
 **Clusters** has a filter box, *only clusters with problems*, **Export report**, and **Clusters at a glance**: one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured. Below it: versions in use when there is more than one, the activity heatmap, and the org cards. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
 
-**Issues** has what changed since you last looked, **Simulate fixes**, **the next 30 days** (a timeline and a list of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back), and the issues themselves, one line each until opened.
+**Issues** has what changed since you last looked, **Simulate**, **Do these first**, **the next 30 days** (a timeline and a list of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back), and the issues themselves, one line each until opened.
 
-**Simulate fixes** shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. The score is shown before and after, a wall shows each cluster as it would be, fixed issues are marked, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
+**Every open issue is in one of three states:**
+
+- **Fix ready:** the plugin has a guarded action that reliably clears it (unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level).
+- **Recommended:** the plugin has a specific next step, but it is a planned change or its outcome isn't certain. The step is on the issue's button, with why on hover.
+- **Needs a decision:** only you can judge it (RBAC grants, privileged workloads that belong to an app, vulnerabilities, quota, what vCenter reports). The plugin shows the evidence and a runbook.
+
+**Do these first** lists the recommended steps for the whole fleet, the same step for many clusters as one line, with what it would clear, the score points it would bring back (only where a best-practice check measures it), and how much it takes: **one click** (an action with a dry run), **guided** (a few steps on a page) or a **change window** (a planned change). Urgent ones come first (a critical issue, or something running out), then by score points and issues cleared. **Why** shows the reasoning and the clusters. Nothing is changed from the list: each step opens the action, page or runbook where it is done.
+
+| Recommended step | For | Takes |
+|---|---|---|
+| Upgrade Kubernetes | a version behind the newest release | Change window |
+| Move to the current cluster class | an older class | Change window |
+| Re-reconcile failing packages | a package that failed to reconcile | One click |
+| Update packages | newer package versions available | Guided |
+| Get backups running again | a failed or stale backup | Guided |
+| Install Velero and schedule backups | no backup tool in the cluster | Guided |
+| Set a default StorageClass | none set | Guided |
+| Add a default-deny network policy | namespaces without a network policy | Guided |
+| Replace the node | a node disk forecast to fill up | One click |
+| Expand volumes | a volume forecast to fill up | Change window |
+| Add node capacity | node memory forecast to run out, or a node above 90% | Change window |
+| Clean up leftovers | objects left by deleted clusters and failed service pods | One click |
+| Spread node pools across zones | one zone used where the Supervisor has several | Change window |
+| Turn on automatic node repair | no machine health check allowed to act | Guided |
+
+**Simulate** has three views: **As it is**; **With fixes**, the fleet after the fixes the plugin already has; and **With fixes and recommendations**, with the recommended steps done as well. The score is shown before and after, a wall shows each cluster as it would be, cleared issues and steps are marked, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade and a class change are recommended but never counted in Simulate: each is a project with its own planning.
 
 **Built for fleets.** Pages that cover every cluster show a **fleet roll-up first** (for example, the compliance controls failing across the fleet: one failing in 17 of 20 clusters is one problem to fix once), then **one compact row per cluster** with its counts, clusters needing attention first. Expanding a row shows its first rows, most important first; **Show all** opens the full table in a dialog. Long lists (nodes, namespaces, repositories, issues) have a **filter box and paging**. To see every page at scale, turn on demo mode and set **Demo fleet size** to 20 or 50 clusters.
 

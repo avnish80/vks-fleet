@@ -2,6 +2,19 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.38.0 (release candidate)
+
+Recommendations: the step the plugin suggests where it has no guaranteed fix.
+
+- **Three states for an issue:** *Fix ready* (a guarded action reliably clears it), *Recommended* (a specific next step that is a planned change, or whose outcome isn't certain), and *Needs a decision* (only you can judge it). The recommended step is the issue's button, with why on hover.
+- **Do these first**, on the Issues tab: the fleet's recommended steps, one line for the same step across clusters, with what it clears, the score points it brings back (only where a best-practice check measures it) and what it takes: one click, guided, or a change window. Urgent steps come first, then by effect. *Why* shows the reasoning and the clusters.
+- **Fourteen steps**, each leading to an action, page or runbook that already exists: upgrade Kubernetes, move to the current cluster class, re-reconcile or update packages, get backups running or install Velero, set a default StorageClass, add a default-deny network policy, replace a node whose disk is filling up, expand a volume, add node capacity, clean up leftovers, spread pools across zones, turn on automatic node repair. Nothing is ever applied from the list.
+- **Gaps without an issue are included:** a cluster with no backup tool, or a best-practice check that costs score points but raises no warning.
+- **Simulate has three views:** *As it is*, *With fixes*, and *With fixes and recommendations*. The score, the wall and the issues follow. Upgrades and class changes are recommended but never counted: each is a project of its own.
+- **The dashboard:** an item in *Needs you now* with a recommended step shows it, and a wall tile names it.
+- **Fixed:** the *Trend starts today* note no longer wraps onto three lines.
+- **Docs:** the install commands use this version.
+
 ## 1.37.0 (release candidate)
 
 - **Every dashboard block has its own trend:** a small line of its figure over the last 30 days, and how it moved since your last visit: ▲ or ▼ with the amount, green when that is the good direction (fewer clusters needing attention, a higher Supervisor score) and red when it isn't, with the change in words on hover. Figures with no good direction (vCPU in the fleet) show the move without a colour.

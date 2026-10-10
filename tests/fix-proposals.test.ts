@@ -78,7 +78,7 @@ describe('cluster wall', () => {
   test('simulated: fixable issues go, what is left stays', () => {
     const [ta, tb, th] = wallTiles([a, b, h], issues, true);
     assert.deepEqual([ta.state, ta.more], ['critical', 0]);
-    assert.deepEqual([tb.state, tb.line1, tb.line2], ['fixed', 'Fixed in simulation', '1 fix applied']);
+    assert.deepEqual([tb.state, tb.line1, tb.line2], ['fixed', 'Fixed in simulation', '1 issue cleared']);
     assert.equal(th.state, 'healthy');
   });
   test('counts, titles and icons', () => {

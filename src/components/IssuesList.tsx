@@ -13,6 +13,7 @@ import {
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { issueFix } from '../fixes';
+import { EFFORT_LABEL, issueRecommendation } from '../recommendations';
 import { leadsSomewhere } from '../links';
 import { diagnosisMarkdown } from '../issues';
 import { FleetCluster, Issue, RunbookStep } from '../types';
@@ -104,6 +105,7 @@ function IssueCard({
   supervisorName,
   showCluster,
   simulate = false,
+  simulateRecommended = false,
   defaultOpen = false,
 }: {
   issue: Issue;
@@ -111,12 +113,16 @@ function IssueCard({
   supervisorName?: string;
   showCluster: boolean;
   simulate?: boolean;
+  simulateRecommended?: boolean;
   defaultOpen?: boolean;
 }) {
   const tone = useTone();
   const [open, setOpen] = React.useState(defaultOpen);
   const fix = issue.severity === 'info' ? undefined : issueFix(issue, cluster);
-  const fixed = simulate && !!fix;
+  // No guaranteed fix, but a specific next step: recommended, never automatic.
+  const rec = issueRecommendation(issue, cluster);
+  const done = simulate && simulateRecommended && !!rec?.simulated;
+  const fixed = (simulate && !!fix) || done;
   const [copied, setCopied] = React.useState<'idle' | 'done' | 'manual'>('idle');
   const [showRunbook, setShowRunbook] = React.useState(false);
   const [silencing, setSilencing] = React.useState(false);
@@ -168,13 +174,17 @@ function IssueCard({
           )}
         </Box>
         {issue.severity !== 'info' && (
-          <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: fixed ? 'info.main' : fix ? 'text.primary' : 'warning.main', color: fixed ? 'info.main' : 'text.primary', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-            {fixed ? 'Fixed in simulation' : fix ? 'Fix ready' : 'Needs a decision'}
+          <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: fixed ? 'info.main' : fix ? 'text.primary' : rec ? 'primary.main' : 'warning.main', color: fixed ? 'info.main' : 'text.primary', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }} title={rec && !fixed ? `${EFFORT_LABEL[rec.effort]}. ${rec.why}` : undefined}>
+            {done ? 'Done in simulation' : fixed ? 'Fixed in simulation' : fix ? 'Fix ready' : rec ? 'Recommended' : 'Needs a decision'}
           </Box>
         )}
         {fix ? (
           <Button size="small" variant="contained" component={Link} to={fix.path} title="Opens the action with its checks and a dry run; nothing changes until you confirm">
             {fix.label}…
+          </Button>
+        ) : rec ? (
+          <Button size="small" variant="contained" component={Link} to={rec.path} title={`Recommended (${EFFORT_LABEL[rec.effort].toLowerCase()}): ${rec.why} Nothing changes until you confirm it there.`}>
+            {rec.label}
           </Button>
         ) : (
           primary && (
@@ -190,7 +200,7 @@ function IssueCard({
 
       {open && (
       <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        {fix && primary && (
+        {(fix || rec) && primary && (
           <Button size="small" variant="outlined" component={Link} to={primary.path}>
             {goTo(primary.label)}
           </Button>
@@ -289,6 +299,7 @@ export function IssuesList({
   showCluster = true,
   limit = 12,
   simulate = false,
+  simulateRecommended = false,
 }: {
   issues: Issue[];
   clusters: Map<string, FleetCluster>;
@@ -297,6 +308,8 @@ export function IssuesList({
   limit?: number;
   /** Show issues the plugin can fix as fixed (the fleet page's Simulate fixes). */
   simulate?: boolean;
+  /** With `simulate`: also show issues a recommended step would clear as done. */
+  simulateRecommended?: boolean;
 }) {
   const [count, setCount] = React.useState(limit);
   const [q, setQ] = React.useState('');
@@ -321,6 +334,7 @@ export function IssuesList({
           supervisorName={supervisorNames.get(i.supervisorId)}
           showCluster={showCluster}
           simulate={simulate}
+          simulateRecommended={simulateRecommended}
           defaultOpen={issues.length === 1}
         />
       ))}

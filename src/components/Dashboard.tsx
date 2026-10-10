@@ -138,11 +138,11 @@ function Trend({ points, today, score }: { points: ScorePoint[]; today: string; 
   const h = 44;
   if (points.length < 2) {
     return (
-      <Box sx={{ textAlign: 'right', maxWidth: 190 }}>
+      <Box sx={{ textAlign: 'right', maxWidth: 300 }}>
         <Typography variant="body2" color="text.secondary">
           Trend starts today
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap' }}>
           One point a day, kept in this browser.
         </Typography>
       </Box>
