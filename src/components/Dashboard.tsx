@@ -6,9 +6,9 @@
 import { Box, Paper, Typography, useTheme } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BlockTone, DashboardBlock } from '../dashboard';
+import { blockChange, BlockTone, DashboardBlock } from '../dashboard';
 import { ScoreDriver } from '../fixes';
-import { ScorePoint, sparkline, TREND_DAYS } from '../scoreHistory';
+import { blockSeries, ScorePoint, seriesLine, SeriesPoint, sparkline, TREND_DAYS } from '../scoreHistory';
 import { card, Drivers, Ring, scoreColour } from './FleetHero';
 
 /** Simple stroke glyphs (24×24), drawn for this plugin: one per block. */
@@ -31,7 +31,37 @@ function useBlockColour(): (t: BlockTone) => string {
 
 const TONE_WORD: Record<BlockTone, string> = { bad: 'Needs action', warn: 'Worth a look', ok: 'Fine', none: 'No status' };
 
-function Block({ block }: { block: DashboardBlock }) {
+/**
+ * A block's own trend: its figure over the last 30 days, and how it moved since
+ * the last visit. The line is neutral; only the change is coloured, and it is
+ * also an arrow and words, never colour alone.
+ */
+function BlockTrend({ block, series, today }: { block: DashboardBlock; series: SeriesPoint[]; today: string }) {
+  const colour = useBlockColour();
+  const change = blockChange(block, series, today);
+  const w = 72;
+  const h = 26;
+  const { line, last } = series.length >= 2 ? seriesLine(series, today, w, h, TREND_DAYS, block.unit === '%' || /Pct$|^network$|^supervisor$/.test(block.metric ?? '') ? 10 : 4, 3) : { line: '', last: undefined };
+  if (!line && !change) return null;
+  const tone = change?.verdict === 'better' ? colour('ok') : change?.verdict === 'worse' ? colour('bad') : undefined;
+  return (
+    <Box title={change ? `${change.text}. Trend over ${series.length} days, kept in this browser.` : `Trend over ${series.length} days, kept in this browser.`} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 'auto', flexShrink: 0, color: 'text.secondary' }}>
+      {change && change.delta !== 0 && (
+        <Typography component="span" aria-label={change.text} sx={{ fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: tone ?? 'text.secondary' }}>
+          {change.delta > 0 ? '▲' : '▼'} {Math.abs(change.delta)}
+        </Typography>
+      )}
+      {line && (
+        <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} aria-hidden="true" style={{ display: 'block' }}>
+          <polyline points={line} fill="none" stroke="currentColor" strokeOpacity={0.55} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+          {last && <circle cx={last.x} cy={last.y} r={2.5} fill={tone ?? 'currentColor'} />}
+        </svg>
+      )}
+    </Box>
+  );
+}
+
+function Block({ block, series, today }: { block: DashboardBlock; series: SeriesPoint[]; today: string }) {
   const colour = useBlockColour();
   return (
     <Box
@@ -67,13 +97,16 @@ function Block({ block }: { block: DashboardBlock }) {
           ›
         </Box>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
-        <Typography sx={{ fontSize: '1.7rem', fontWeight: 700, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{block.value}</Typography>
-        {block.unit && (
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {block.unit}
-          </Typography>
-        )}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0 }}>
+          <Typography sx={{ fontSize: '1.7rem', fontWeight: 700, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{block.value}</Typography>
+          {block.unit && (
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {block.unit}
+            </Typography>
+          )}
+        </Box>
+        <BlockTrend block={block} series={series} today={today} />
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
         <Box role="img" aria-label={TONE_WORD[block.tone]} sx={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, bgcolor: block.tone === 'none' ? 'transparent' : colour(block.tone), border: '1.5px solid', borderColor: colour(block.tone) }} />
@@ -85,12 +118,15 @@ function Block({ block }: { block: DashboardBlock }) {
   );
 }
 
-/** The blocks: four across on a wide screen, two on a narrow one. */
-export function BlockGrid({ blocks }: { blocks: DashboardBlock[] }) {
+/**
+ * The blocks: four across on a wide screen, two on a narrow one. `history`:
+ * this browser's daily points, from which each block draws its own trend.
+ */
+export function BlockGrid({ blocks, history = [], today = '' }: { blocks: DashboardBlock[]; history?: ScorePoint[]; today?: string }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5 }}>
       {blocks.map(b => (
-        <Block key={b.id} block={b} />
+        <Block key={b.id} block={b} series={today ? blockSeries(history, b.metric) : []} today={today} />
       ))}
     </Box>
   );

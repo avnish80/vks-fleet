@@ -35,7 +35,7 @@ import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
 import { attentionByTenant, fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
 import { horizon, needsYouNow } from '../fleetHero';
-import { blockNumbers, compactNow, dashboardBlocks, FleetTab, headline, scoreLine, tabFromLocation } from '../dashboard';
+import { blockNumbers, compactNow, dashboardBlocks, demoBlockValue, FleetTab, headline, scoreLine, tabFromLocation } from '../dashboard';
 import { sinceLast, sinceLastText } from '../scoreHistory';
 import { formatBytes } from '../quantity';
 import { ClusterWall } from './ClusterWall';
@@ -625,7 +625,8 @@ function DashboardTab({
   tiles: ReturnType<typeof wallTiles>;
   onIssues: () => void;
 }) {
-  const { today, points, stored } = useScoreHistory(scope, ready, score, blockNumbers(blocks));
+  const demoBlocks = (back: number) => Object.fromEntries(blocks.flatMap(b => (b.metric && demoBlockValue(b, back) !== undefined ? [[b.metric, demoBlockValue(b, back) as number]] : [])));
+  const { today, points, stored } = useScoreHistory(scope, ready, score, blockNumbers(blocks), demoBlocks);
   const since = score === undefined ? undefined : sinceLastText(sinceLast(stored, today, score));
   return (
     <Box sx={{ display: 'grid', gap: 1.5, px: 2, mb: 2 }}>
@@ -639,7 +640,7 @@ function DashboardTab({
         </Box>
         <NowList items={top} fixByIssue={fixByIssue} lines={1} />
       </Paper>
-      <BlockGrid blocks={blocks} />
+      <BlockGrid blocks={blocks} history={stored} today={today} />
       <Paper variant="outlined" sx={{ ...card, py: 1.5 }}>
         <ClusterWall tiles={tiles} simulate={false} compact />
       </Paper>

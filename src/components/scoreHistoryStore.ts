@@ -15,7 +15,14 @@ const useDemo = demoStore.useConfig();
  * `points` are the trend's points, oldest first; `stored` is everything this
  * browser has for the scope (for "since your last visit").
  */
-export function useScoreHistory(scope: string, ready: boolean, score: number | undefined, blocks: Record<string, number>): { today: string; points: ScorePoint[]; stored: ScorePoint[] } {
+export function useScoreHistory(
+  scope: string,
+  ready: boolean,
+  score: number | undefined,
+  blocks: Record<string, number>,
+  /** Demo mode: each block's number `back` days ago, for the made-up month. */
+  demoBlocks?: (back: number) => Record<string, number>
+): { today: string; points: ScorePoint[]; stored: ScorePoint[] } {
   const demo = useRawSettings().demo === true;
   const real = useReal();
   const made = useDemo();
@@ -32,6 +39,6 @@ export function useScoreHistory(scope: string, ready: boolean, score: number | u
 
   const stored = history[scope] ?? [];
   // The demo fleet comes with a month behind it, ending at today's score.
-  const shown = demo && score !== undefined ? demoHistory(score, today, stored) : stored;
+  const shown = demo && score !== undefined ? demoHistory(score, today, stored, undefined, demoBlocks) : stored;
   return { today, points: trendPoints(shown, today), stored: shown };
 }

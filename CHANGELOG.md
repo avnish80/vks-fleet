@@ -2,6 +2,13 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.37.0 (release candidate)
+
+- **Every dashboard block has its own trend:** a small line of its figure over the last 30 days, and how it moved since your last visit: ▲ or ▼ with the amount, green when that is the good direction (fewer clusters needing attention, a higher Supervisor score) and red when it isn't, with the change in words on hover. Figures with no good direction (vCPU in the fleet) show the move without a colour.
+- **From the history 1.36 started:** nothing new is stored. A block shows its trend from its second day in this browser; demo mode has a made-up month for every block.
+- **One trend per measure:** a block whose figure can change meaning (Capacity: time left, or the busiest node; Lifecycle: failing packages, or upgrades; Governance: baseline, or backups) keeps a separate history for each, so a line never mixes two. Those three start their trends with this version.
+- **Docs:** the install commands use this version.
+
 ## 1.36.0 (release candidate)
 
 The fleet page is now a health dashboard: one screen, where every part opens the page that owns the detail.

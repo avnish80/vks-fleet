@@ -9,6 +9,7 @@
 import { ScoreDriver, WallTile, iconFor, tileTitle } from './fixes';
 import { HorizonItem, inWords, NowItem } from './fleetHero';
 import { BASELINE_PATH, CAPACITY_PATH, FLEET_PATH, NETWORK_PATH, PACKAGES_PATH, SECURITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, UPGRADES_PATH } from './routes';
+import { SeriesPoint, seriesSince, TREND_DAYS } from './scoreHistory';
 import { Issue } from './types';
 
 export type FleetTab = 'dashboard' | 'clusters' | 'issues';
@@ -51,6 +52,14 @@ export interface DashboardBlock {
   path: string;
   /** The figure as a number, for the history (absent when there is none). */
   n?: number;
+  /**
+   * What the number measures, as the history's key. A block whose figure can
+   * change meaning (Capacity: days left, or the busiest node's use) has one
+   * key per meaning, so a trend never mixes them.
+   */
+  metric?: string;
+  /** Which way is good, when one is: fewer clusters needing attention (down), a higher score (up). */
+  better?: 'down' | 'up';
 }
 
 export interface BlocksInput {
@@ -111,6 +120,8 @@ function clustersBlock(tiles: WallTile[]): DashboardBlock {
     reason: !tiles.length ? 'No clusters yet' : attention ? `need${attention === 1 ? 's' : ''} attention${critical ? `, ${critical} critical` : ''}` : advisory ? `need attention; ${advisory} advisory only` : 'need attention',
     path: fleetTabPath('clusters'),
     n: attention,
+    metric: 'clusters',
+    better: 'down',
   };
 }
 
@@ -125,6 +136,8 @@ function supervisorBlock(s: BlocksInput['supervisor']): DashboardBlock {
     tone: s.staleControllers ? 'bad' : scoreTone(s.score),
     reason: s.staleControllers ? `${plural(s.staleControllers, 'controller', 'controllers')} not renewing` : 'Controllers renewing',
     n: s.score,
+    metric: 'supervisor',
+    better: 'up',
   };
 }
 
@@ -134,14 +147,14 @@ function capacityBlock(c: BlocksInput['capacity'], horizon: HorizonItem[], now: 
   const runsOut = horizon.find(h => h.kind === 'capacity');
   if (runsOut) {
     const left = inWords(runsOut.at, now).replace(/^in (about )?/, '');
-    return { ...base, value: left, unit: left === 'now' ? undefined : 'until full', tone: runsOut.tone === 'error' ? 'bad' : 'warn', reason: runsOut.text, n: Math.max(0, Math.round(((runsOut.at - now) / 86400e3) * 10) / 10) };
+    return { ...base, value: left, unit: left === 'now' ? undefined : 'until full', tone: runsOut.tone === 'error' ? 'bad' : 'warn', reason: runsOut.text, n: Math.max(0, Math.round(((runsOut.at - now) / 86400e3) * 10) / 10), metric: 'capacity.daysLeft', better: 'up' };
   }
   if (c.busiest) {
     const pct = c.busiest.pct;
-    return { ...base, value: `${pct}%`, unit: c.busiest.what, tone: pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok', reason: `Busiest node: ${c.busiest.cluster} ${c.busiest.node}`, n: pct };
+    return { ...base, value: `${pct}%`, unit: c.busiest.what, tone: pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok', reason: `Busiest node: ${c.busiest.cluster} ${c.busiest.node}`, n: pct, metric: 'capacity.busiestPct', better: 'down' };
   }
   if (!c.cpus) return { ...base, value: '—', tone: 'none', reason: 'No node capacity reported yet' };
-  return { ...base, value: String(c.cpus), unit: 'vCPU', tone: 'none', reason: `${c.memoryText} of node memory; sign in to clusters for usage`, n: c.cpus };
+  return { ...base, value: String(c.cpus), unit: 'vCPU', tone: 'none', reason: `${c.memoryText} of node memory; sign in to clusters for usage`, n: c.cpus, metric: 'capacity.cpus' };
 }
 
 /** "2 certificates expiring, 1 running out": what the next 30 days hold, by kind. */
@@ -164,17 +177,19 @@ function next30Block(horizon: HorizonItem[], now: number): DashboardBlock {
     reason: real.length ? `${horizonKinds(real)}; first ${inWords(real[0].at, now)}` : horizon.length ? `${horizonKinds(horizon)}; first ${inWords(horizon[0].at, now)}` : 'Nothing expires or runs out',
     path: fleetTabPath('issues', 'next-30-days'),
     n: real.length,
+    metric: 'next30',
+    better: 'down',
   };
 }
 
 function lifecycleBlock(l: BlocksInput['lifecycle']): DashboardBlock {
   const base = { id: 'lifecycle' as const, label: 'Lifecycle' };
-  if (l.failing) return { ...base, value: String(l.failing), tone: 'bad', reason: `${l.failing === 1 ? 'package' : 'packages'} failing to reconcile`, path: PACKAGES_PATH, n: l.failing };
-  if (l.upgrading) return { ...base, value: String(l.upgrading), tone: 'warn', reason: `${l.upgrading === 1 ? 'cluster' : 'clusters'} upgrading now`, path: UPGRADES_PATH, n: l.upgrading };
-  if (l.upgradable) return { ...base, value: String(l.upgradable), tone: 'none', reason: `${l.upgradable === 1 ? 'cluster' : 'clusters'} can be upgraded`, path: UPGRADES_PATH, n: l.upgradable };
-  if (l.drift) return { ...base, value: String(l.drift), tone: 'warn', reason: `${l.drift === 1 ? 'package' : 'packages'} at different versions`, path: PACKAGES_PATH, n: l.drift };
+  if (l.failing) return { ...base, value: String(l.failing), tone: 'bad', reason: `${l.failing === 1 ? 'package' : 'packages'} failing to reconcile`, path: PACKAGES_PATH, n: l.failing, metric: 'lifecycle.failing', better: 'down' };
+  if (l.upgrading) return { ...base, value: String(l.upgrading), tone: 'warn', reason: `${l.upgrading === 1 ? 'cluster' : 'clusters'} upgrading now`, path: UPGRADES_PATH, n: l.upgrading, metric: 'lifecycle.upgrading' };
+  if (l.upgradable) return { ...base, value: String(l.upgradable), tone: 'none', reason: `${l.upgradable === 1 ? 'cluster' : 'clusters'} can be upgraded`, path: UPGRADES_PATH, n: l.upgradable, metric: 'lifecycle.upgradable', better: 'down' };
+  if (l.drift) return { ...base, value: String(l.drift), tone: 'warn', reason: `${l.drift === 1 ? 'package' : 'packages'} at different versions`, path: PACKAGES_PATH, n: l.drift, metric: 'lifecycle.drift', better: 'down' };
   if (l.failing === undefined) return { ...base, value: '—', tone: 'none', reason: 'Sign in to clusters to read packages', path: PACKAGES_PATH };
-  return { ...base, value: '0', tone: 'ok', reason: 'Packages reconciled, versions current', path: PACKAGES_PATH, n: 0 };
+  return { ...base, value: '0', tone: 'ok', reason: 'Packages reconciled, versions current', path: PACKAGES_PATH, n: 0, metric: 'lifecycle.failing', better: 'down' };
 }
 
 /** Open security findings: posture, compliance and vulnerabilities (the issues the wall marks with the lock). */
@@ -193,6 +208,8 @@ function securityBlock(issues: Issue[]): DashboardBlock {
     reason: !open.length ? 'No open security findings' : critical ? `open ${open.length === 1 ? 'finding' : 'findings'}, ${critical} critical` : `open ${open.length === 1 ? 'finding' : 'findings'} (posture and compliance)`,
     path: SECURITY_ROUTE,
     n: open.length,
+    metric: 'security',
+    better: 'down',
   };
 }
 
@@ -201,16 +218,16 @@ function governanceBlock(g: BlocksInput['governance']): DashboardBlock {
   const without = g.backupsKnown - g.backedUp;
   const backups = !g.backupsKnown ? 'Sign in to clusters to read backups' : without ? `${plural(without, 'cluster', 'clusters')} without a backup` : 'Every cluster has a backup';
   if (g.baselinePct !== undefined) {
-    return { ...base, value: `${g.baselinePct}%`, unit: 'baseline', tone: without ? 'warn' : scoreTone(g.baselinePct), reason: backups, n: g.baselinePct };
+    return { ...base, value: `${g.baselinePct}%`, unit: 'baseline', tone: without ? 'warn' : scoreTone(g.baselinePct), reason: backups, n: g.baselinePct, metric: 'governance.baselinePct', better: 'up' };
   }
   if (!g.backupsKnown) return { ...base, value: '—', tone: 'none', reason: backups };
-  return { ...base, value: String(g.backedUp), unit: `of ${g.backupsKnown}`, tone: without ? 'warn' : 'ok', reason: g.backupsKnown === 1 ? 'cluster backed up' : 'clusters backed up', n: g.backedUp };
+  return { ...base, value: String(g.backedUp), unit: `of ${g.backupsKnown}`, tone: without ? 'warn' : 'ok', reason: g.backupsKnown === 1 ? 'cluster backed up' : 'clusters backed up', n: g.backedUp, metric: 'governance.backedUp', better: 'up' };
 }
 
 function networkBlock(subnet: BlocksInput['subnet']): DashboardBlock {
   const base = { id: 'network' as const, label: 'Network', path: NETWORK_PATH };
   if (!subnet) return { ...base, value: '—', tone: 'none', reason: 'No subnet usage reported' };
-  return { ...base, value: `${subnet.pct}%`, tone: subnet.pct >= 95 ? 'bad' : subnet.pct >= 85 ? 'warn' : 'ok', reason: `Fullest subnet: ${subnet.name}`, n: subnet.pct };
+  return { ...base, value: `${subnet.pct}%`, tone: subnet.pct >= 95 ? 'bad' : subnet.pct >= 85 ? 'warn' : 'ok', reason: `Fullest subnet: ${subnet.name}`, n: subnet.pct, metric: 'network', better: 'down' };
 }
 
 /** The eight blocks, in the order they are shown. */
@@ -227,9 +244,55 @@ export function dashboardBlocks(input: BlocksInput): DashboardBlock[] {
   ];
 }
 
-/** The blocks' numbers by id, for the day's history point. */
+/** The blocks' numbers by what they measure, for the day's history point. */
 export function blockNumbers(blocks: DashboardBlock[]): Record<string, number> {
-  return Object.fromEntries(blocks.filter(b => b.n !== undefined).map(b => [b.id, b.n as number]));
+  return Object.fromEntries(blocks.filter(b => b.n !== undefined && b.metric).map(b => [b.metric as string, b.n as number]));
+}
+
+export interface BlockChange {
+  /** The figure now minus the figure on the last earlier day it was recorded. */
+  delta: number;
+  /** How many days ago that was. */
+  days: number;
+  /** Whether the move is the good way, the bad way, or neither has a meaning. */
+  verdict: 'better' | 'worse' | 'neutral';
+  /** "2 fewer than yesterday": the change in words, for the tooltip and screen readers. */
+  text: string;
+}
+
+const tidy = (n: number) => String(Math.round(n * 10) / 10);
+
+/** How a block's figure moved since the last earlier day this browser recorded the same measure. */
+export function blockChange(block: DashboardBlock, series: SeriesPoint[], today: string): BlockChange | undefined {
+  if (block.n === undefined) return undefined;
+  const since = seriesSince(series, today, block.n);
+  if (!since) return undefined;
+  const when = since.days === 1 ? 'yesterday' : `${since.days} days ago`;
+  const delta = Math.round(since.delta * 10) / 10;
+  if (!delta) return { delta: 0, days: since.days, verdict: 'neutral', text: `Unchanged since your last visit ${when}` };
+  const verdict = !block.better ? 'neutral' : (delta < 0) === (block.better === 'down') ? 'better' : 'worse';
+  return { delta, days: since.days, verdict, text: `${delta > 0 ? 'Up' : 'Down'} ${tidy(Math.abs(delta))} since your last visit ${when} (was ${tidy(block.n - delta)})` };
+}
+
+/**
+ * Demo mode: what a block's figure was `back` days ago, so the demo's blocks
+ * have a month behind them. Deterministic. Most measures were a little worse
+ * and improved; time left until something fills up simply counts down.
+ */
+export function demoBlockValue(block: DashboardBlock, back: number): number | undefined {
+  if (block.n === undefined || !block.metric) return undefined;
+  const now = block.n;
+  if (!back) return now;
+  if (block.metric === 'capacity.daysLeft') return Math.round((now + back) * 10) / 10;
+  const pct = /Pct$|^network$|^supervisor$/.test(block.metric);
+  // How much worse it was a month ago: a few points for percentages, a few items for counts.
+  const span = pct ? 8 : Math.max(2, Math.round(now * 0.5));
+  // Small counts move in whole steps; larger figures also wobble a little from day to day.
+  const wobble = span < 4 || back < 3 ? 0 : [0, 1, 0, -1, 1, 0, 0][back % 7];
+  const recent = span >= 4 ? 1 : 0;
+  const worse = Math.max(recent, Math.round((back / (TREND_DAYS - 1)) * span)) + (back >= 12 && back <= 14 ? Math.ceil(span / 3) : 0) + wobble;
+  const was = block.better === 'up' ? now - worse : block.better === 'down' ? now + worse : now;
+  return Math.max(0, pct ? Math.min(100, was) : was);
 }
 
 /** The sentence at the top: the fleet in one line. */

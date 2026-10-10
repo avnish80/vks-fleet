@@ -1,8 +1,8 @@
 /** v1.36: the fleet dashboard's blocks, its tabs, and the score history kept in the browser. */
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { blockNumbers, BlocksInput, compactNow, dashboardBlocks, fleetTabPath, headline, scoreLine, tabFromLocation } from '../src/dashboard';
-import { daysBetween, dayOf, demoHistory, MAX_SCOPES, recordPoint, sinceLast, sinceLastText, sparkline, trendPoints } from '../src/scoreHistory';
+import { blockChange, blockNumbers, BlocksInput, compactNow, dashboardBlocks, demoBlockValue, fleetTabPath, headline, scoreLine, tabFromLocation } from '../src/dashboard';
+import { blockSeries, daysBetween, dayOf, demoHistory, MAX_SCOPES, recordPoint, seriesLine, seriesSince, sinceLast, sinceLastText, sparkline, trendPoints } from '../src/scoreHistory';
 
 const NOW = Date.UTC(2026, 9, 9);
 const tile = (state: string, o: any = {}): any => ({ key: state + Math.random(), name: 'c', fullName: 'c', tenantId: 't', tenantName: 'org1', state, icon: 'ok', line1: '', line2: '', more: 0, path: '/x', ...o });
@@ -93,7 +93,7 @@ describe('dashboard blocks', () => {
   });
   test('the numbers kept for the history leave out blocks without one', () => {
     const n = blockNumbers(dashboardBlocks(input({ supervisor: { visible: false, staleControllers: 0 }, subnet: undefined })));
-    assert.deepEqual(n, { clusters: 1, capacity: 26, next30: 0, lifecycle: 1, security: 2, governance: 0 });
+    assert.deepEqual(n, { clusters: 1, 'capacity.cpus': 26, next30: 0, 'lifecycle.failing': 1, security: 2, 'governance.backedUp': 0 });
   });
   test('the headline and the score line', () => {
     assert.equal(headline([tile('critical'), tile('advisory')]), '1 of 2 clusters needs attention');
@@ -210,5 +210,64 @@ describe('needs you now, on one line', () => {
       ['mnet: 1 package failing to reconcile: pinniped', undefined],
       ['checkout: node disk runs out on np-1', 'in 2 days'],
     ]);
+  });
+});
+
+/** v1.37: each block's own trend. */
+describe('block trends', () => {
+  const blocks = () => by(dashboardBlocks(input()));
+  test('a block whose figure can change meaning keeps one history per meaning', () => {
+    const busy = { cluster: 'c', node: 'n', pct: 62, what: 'memory' as const };
+    const pct = by(dashboardBlocks(input({ capacity: { cpus: 26, memoryText: '104 GiB', busiest: busy } }))).capacity;
+    const days = by(dashboardBlocks(input({ capacity: { cpus: 26, memoryText: '104 GiB', busiest: busy }, horizon: [{ at: NOW + 6 * 86400e3, kind: 'capacity', tone: 'warning', text: 'x' }] }))).capacity;
+    assert.deepEqual([pct.metric, pct.better, days.metric, days.better, blocks().capacity.metric, blocks().capacity.better], ['capacity.busiestPct', 'down', 'capacity.daysLeft', 'up', 'capacity.cpus', undefined]);
+    // A day recorded as "days left" is not part of the "busiest node" trend.
+    const history = [{ d: '2026-10-07', s: 70, b: { 'capacity.daysLeft': 6 } }, { d: '2026-10-08', s: 70, b: { 'capacity.busiestPct': 58 } }, { d: '2026-10-09', s: 71, b: { 'capacity.busiestPct': 62 } }];
+    assert.deepEqual(blockSeries(history, pct.metric), [{ d: '2026-10-08', v: 58 }, { d: '2026-10-09', v: 62 }]);
+    assert.deepEqual(blockSeries(history, undefined), []);
+    assert.deepEqual(blockSeries(undefined, 'clusters'), []);
+    // Points written by 1.36 (keyed by block id) still feed the blocks whose meaning never changes.
+    assert.deepEqual(blockSeries([{ d: '2026-10-09', s: 71, b: { clusters: 1, capacity: 26 } }], blocks().clusters.metric), [{ d: '2026-10-09', v: 1 }]);
+  });
+  test('the change since the last visit, and whether it is the good way', () => {
+    const series = [{ d: '2026-10-06', v: 3 }, { d: '2026-10-09', v: 1 }];
+    assert.deepEqual(seriesSince(series, '2026-10-09', 1), { delta: -2, days: 3 });
+    const c = blockChange(blocks().clusters, series, '2026-10-09')!;
+    assert.deepEqual([c.delta, c.days, c.verdict, c.text], [-2, 3, 'better', 'Down 2 since your last visit 3 days ago (was 3)']);
+    const sup = blockChange(blocks().supervisor, [{ d: '2026-10-08', v: 84 }], '2026-10-09')!;
+    assert.deepEqual([sup.delta, sup.verdict, sup.text], [-14, 'worse', 'Down 14 since your last visit yesterday (was 84)']);
+    // vCPU in the fleet has no good direction.
+    assert.equal(blockChange(blocks().capacity, [{ d: '2026-10-08', v: 20 }], '2026-10-09')!.verdict, 'neutral');
+    const same = blockChange(blocks().clusters, [{ d: '2026-10-08', v: 1 }], '2026-10-09')!;
+    assert.deepEqual([same.delta, same.verdict, same.text], [0, 'neutral', 'Unchanged since your last visit yesterday']);
+    // Today's own point is not an earlier visit; a block without a number has no change.
+    assert.equal(blockChange(blocks().clusters, [{ d: '2026-10-09', v: 4 }], '2026-10-09'), undefined);
+    assert.equal(blockChange(by(dashboardBlocks(input({ subnet: undefined }))).network, series, '2026-10-09'), undefined);
+  });
+  test('demo: every block has a month behind it that ends at today\'s figure', () => {
+    const all = dashboardBlocks(input({ capacity: { cpus: 26, memoryText: '104 GiB' }, horizon: [{ at: NOW + 2 * 86400e3, kind: 'capacity', tone: 'error', text: 'x' }] }));
+    const demo = demoHistory(69, '2026-10-09', [], undefined, back => Object.fromEntries(all.flatMap(b => (b.metric && demoBlockValue(b, back) !== undefined ? [[b.metric, demoBlockValue(b, back) as number]] : []))));
+    assert.equal(demo.length, 30);
+    for (const b of all) {
+      const series = blockSeries(demo, b.metric);
+      assert.equal(series.length, 30, b.id);
+      assert.equal(series[29].v, b.n, b.id);
+      assert.ok(series.every(p => p.v >= 0), b.id);
+    }
+    const b = by(all);
+    // Time left counts down a day per day; counts were higher a month ago; scores lower.
+    assert.equal(blockSeries(demo, 'capacity.daysLeft')[28].v, 3);
+    assert.ok(blockSeries(demo, 'security')[0].v > b.security.n!);
+    assert.ok(blockSeries(demo, 'supervisor')[0].v < b.supervisor.n!);
+    assert.ok(blockSeries(demo, 'network').every(p => p.v <= 100));
+    assert.equal(demoBlockValue(by(dashboardBlocks(input({ subnet: undefined }))).network, 5), undefined);
+  });
+  test('a block\'s line stays in its box; small counts are not exaggerated', () => {
+    const flat = seriesLine([{ d: '2026-10-08', v: 2 }, { d: '2026-10-09', v: 2 }], '2026-10-09', 72, 26, 30, 4, 3);
+    assert.deepEqual(flat.line.split(' ').map(p => Number(p.split(',')[1])), [13, 13]);
+    const step = seriesLine([{ d: '2026-10-08', v: 2 }, { d: '2026-10-09', v: 3 }], '2026-10-09', 72, 26, 30, 4, 3);
+    const ys = step.line.split(' ').map(p => Number(p.split(',')[1]));
+    assert.ok(ys[0] > ys[1] && ys[0] - ys[1] < 8, 'a change of one is a small step');
+    assert.equal(seriesLine([{ d: '2026-08-01', v: 2 }], '2026-10-09', 72, 26).line, '');
   });
 });

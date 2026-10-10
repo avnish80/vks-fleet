@@ -12,7 +12,7 @@ export interface ScorePoint {
   d: string;
   /** Fleet score that day (the last value seen). */
   s: number;
-  /** Each dashboard block's number that day, by block id. */
+  /** Each dashboard block's number that day, by what it measures (see DashboardBlock.metric). */
   b?: Record<string, number>;
 }
 
@@ -94,7 +94,7 @@ export function sinceLastText(since: SinceLast | undefined): string | undefined 
  * visible on the first day. Deterministic (no randomness), and a real point
  * from this browser replaces the made-up one for its day.
  */
-export function demoHistory(score: number, today: string, stored: ScorePoint[] = [], days = TREND_DAYS): ScorePoint[] {
+export function demoHistory(score: number, today: string, stored: ScorePoint[] = [], days = TREND_DAYS, blocks?: (back: number) => Record<string, number>): ScorePoint[] {
   const [y, m, d] = today.split('-').map(Number);
   const real = new Map(stored.map(p => [p.d, p]));
   const out: ScorePoint[] = [];
@@ -110,21 +110,48 @@ export function demoHistory(score: number, today: string, stored: ScorePoint[] =
     const climb = back === 0 ? 0 : 2 + Math.round((back / (days - 1)) * 7);
     const dip = back >= 17 && back <= 19 ? 6 : back >= 7 && back <= 8 ? 4 : 0;
     const wobble = back < 3 ? 0 : [0, 1, 0, -1, 1, 0, -1][back % 7];
-    out.push({ d: day, s: Math.max(0, Math.min(100, score - climb - dip + wobble)) });
+    out.push({ d: day, s: Math.max(0, Math.min(100, score - climb - dip + wobble)), ...(blocks ? { b: blocks(back) } : {}) });
   }
   return out;
 }
 
+/** One measure over time: a day and its value. */
+export interface SeriesPoint {
+  d: string;
+  v: number;
+}
+
+/** The fleet score as a series. */
+export const scoreSeries = (points: ScorePoint[]): SeriesPoint[] => points.map(p => ({ d: p.d, v: p.s }));
+
+/** One block's measure as a series: the days it was recorded with that meaning. */
+export function blockSeries(points: ScorePoint[] | undefined, metric: string | undefined): SeriesPoint[] {
+  if (!metric) return [];
+  return (points ?? []).filter(p => typeof p.b?.[metric] === 'number').map(p => ({ d: p.d, v: p.b![metric] }));
+}
+
+/** The change in a series since its last earlier day. */
+export function seriesSince(series: SeriesPoint[], today: string, current: number): SinceLast | undefined {
+  const earlier = series.filter(p => daysBetween(p.d, today) > 0);
+  const last = earlier[earlier.length - 1];
+  return last ? { delta: current - last.v, days: daysBetween(last.d, today) } : undefined;
+}
+
+/** An SVG polyline for a series: x by day, y by value. `minSpan`: the smallest range drawn, so a flat line sits mid-height and small moves aren't exaggerated. */
+export function seriesLine(series: SeriesPoint[], today: string, width: number, height: number, days = TREND_DAYS, minSpan = 10, pad = 4): { line: string; last?: { x: number; y: number } } {
+  const shown = series.filter(p => daysBetween(p.d, today) >= 0 && daysBetween(p.d, today) < days);
+  if (!shown.length) return { line: '' };
+  const lo = Math.min(...shown.map(p => p.v));
+  const hi = Math.max(...shown.map(p => p.v));
+  const span = Math.max(hi - lo, minSpan);
+  const mid = (hi + lo) / 2;
+  const x = (p: SeriesPoint) => pad + ((days - 1 - daysBetween(p.d, today)) / (days - 1)) * (width - 2 * pad);
+  const y = (p: SeriesPoint) => pad + (1 - (p.v - (mid - span / 2)) / span) * (height - 2 * pad);
+  const xy = shown.map(p => ({ x: Math.round(x(p) * 10) / 10, y: Math.round(y(p) * 10) / 10 }));
+  return { line: xy.map(p => `${p.x},${p.y}`).join(' '), last: xy[xy.length - 1] };
+}
+
 /** An SVG polyline for a score series: x by day, y by score (padded so a flat line sits mid-height). */
 export function sparkline(points: ScorePoint[], today: string, width: number, height: number, days = TREND_DAYS): { line: string; last?: { x: number; y: number } } {
-  if (!points.length) return { line: '' };
-  const lo = Math.min(...points.map(p => p.s));
-  const hi = Math.max(...points.map(p => p.s));
-  const span = Math.max(hi - lo, 10);
-  const mid = (hi + lo) / 2;
-  const pad = 4;
-  const x = (p: ScorePoint) => pad + ((days - 1 - daysBetween(p.d, today)) / (days - 1)) * (width - 2 * pad);
-  const y = (p: ScorePoint) => pad + (1 - (p.s - (mid - span / 2)) / span) * (height - 2 * pad);
-  const xy = points.map(p => ({ x: Math.round(x(p) * 10) / 10, y: Math.round(y(p) * 10) / 10 }));
-  return { line: xy.map(p => `${p.x},${p.y}`).join(' '), last: xy[xy.length - 1] };
+  return seriesLine(scoreSeries(points), today, width, height, days);
 }
