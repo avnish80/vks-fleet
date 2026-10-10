@@ -2,6 +2,21 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.36.0 (release candidate)
+
+The fleet page is now a health dashboard: one screen, where every part opens the page that owns the detail.
+
+- **Three tabs:** *Dashboard*, *Clusters* and *Issues*, each with its own address (`?tab=clusters`, `?tab=issues`). Older links to a section or a cluster filter open the tab that section moved to.
+- **Dashboard:** the fleet score beside the fleet in one sentence (clusters needing attention, how the score moved since your last visit, the check that costs the most points); the three most urgent items of *Needs you now*, one line each; eight blocks; and a compact cluster wall.
+- **Eight blocks**, each one number, a status dot and one line of reason, opening its page: Clusters, Supervisor, Capacity (how long until something fills up, otherwise the busiest node), Next 30 days, Lifecycle, Security, Governance (baseline and backups) and Network (the fullest subnet). A block shows `—` when the account can't read what it needs.
+- **Score trend:** the fleet score over the last 30 days, kept in the browser only: one point a day, for 90 days, per Supervisor filter and org. Nothing is stored on a server; another browser starts its own history, and a new install shows *Trend starts today* until its second day. Demo mode comes with a made-up month.
+- **What holds the score down** opens from the score instead of taking the top of the page.
+- **Clusters tab:** the filter, *only clusters with problems*, **Export report**, *Clusters at a glance*, the activity heatmap and the org cards.
+- **Issues tab:** what changed since you last looked, **Simulate fixes** (with the score before and after, and a wall of the fleet as it would be), the next 30 days as a timeline and a list with links, and the issues, open by default.
+- **Gone from the fleet page**, because their own pages already show them: busiest nodes (Capacity & cost), subnet usage (Network), packages at different versions (Lifecycle), and the summary sentence that repeated the counts.
+- **Plugin description:** Headlamp's plugin list says what the plugin is instead of *Your Headlamp plugin*.
+- **Docs:** the install commands use this version.
+
 ## 1.35.2 (release candidate)
 
 - **The score's reasons open:** click a line under *What holds the score down* for the clusters where that check isn't passing; each one links to that cluster's checks, with how to fix it, and the fix is named when the plugin has one. *Show all* lists the smaller reasons too.

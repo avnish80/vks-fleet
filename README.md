@@ -6,7 +6,7 @@
 >
 > **A personal open-source project.** Not affiliated with, endorsed by, or supported by Broadcom or VMware. Product names are used only to describe what it works with (see [NOTICE](NOTICE)). [Apache 2.0](LICENSE).
 
-![The fleet page: fleet score, what needs you now, the next 30 days, and the orgs](docs/images/fleet.png)
+![The fleet dashboard: the fleet score and its trend, what needs you now, eight blocks that each open their page, and the cluster wall](docs/images/fleet.png)
 
 **Try it in two minutes without a lab:** install the plugin, open *VKS fleet*, and choose **Try the demo**: a fictional fleet with realistic problems, where nothing is ever changed.
 
@@ -14,7 +14,7 @@
 
 Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, each cluster's API and its Prometheus. vks-fleet reads all of them through their public APIs (Cluster API, VM Operator, NSX VPC, Carvel, Prometheus, and vCenter through a small collector) and follows the way an operator works:
 
-**Observe.** The fleet page opens with a fleet score, **Needs you now** and **the next 30 days**, then one row per cluster with health, issues, best-practice score, baseline, backup, certificates, version and nodes. **Supervisor health** shows the platform itself: its controllers, services, control-plane VM and hosts, with vCenter's own view and 24 hours of utilisation. [Features](docs/features.md) · [The Supervisor](docs/supervisor.md)
+**Observe.** The fleet page opens on a one-screen **dashboard**: the fleet score with its 30-day trend, **Needs you now**, and eight blocks (clusters, Supervisor, capacity, the next 30 days, lifecycle, security, governance, network), each one number that opens the page behind it, above a wall with a tile per cluster. Its **Clusters** tab compares clusters row by row (health, issues, best-practice score, baseline, backup, certificates, version and nodes); its **Issues** tab lists what to do. **Supervisor health** shows the platform itself: its controllers, services, control-plane VM and hosts, with vCenter's own view and 24 hours of utilisation. [Features](docs/features.md) · [The Supervisor](docs/supervisor.md)
 
 ![Supervisor health: hosts, what runs where, and what esx-01 failing would take down](docs/images/supervisor.png)
 
@@ -44,7 +44,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 - **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh):
 
   ```bash
-  VERSION=1.35.2
+  VERSION=1.36.0
   SUPERVISOR=10.0.0.2                 # your Supervisor's address
   VCENTER=vcenter.example.com         # the vCenter it belongs to
   kubectl create namespace vks-fleet

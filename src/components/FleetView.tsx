@@ -8,7 +8,10 @@ import {
   DialogTitle,
   FormControlLabel,
   MenuItem,
+  Paper,
   Switch,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -30,12 +33,18 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
 import { supervisorHealthIssues } from '../supervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
 import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
-import { attentionByTenant, attentionCount, fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
-import { glance, horizon, needsYouNow } from '../fleetHero';
-import { FleetHero } from './FleetHero';
+import { attentionByTenant, fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
+import { horizon, needsYouNow } from '../fleetHero';
+import { blockNumbers, compactNow, dashboardBlocks, FleetTab, headline, scoreLine, tabFromLocation } from '../dashboard';
+import { sinceLast, sinceLastText } from '../scoreHistory';
+import { formatBytes } from '../quantity';
+import { ClusterWall } from './ClusterWall';
+import { BlockGrid, ScoreHeader } from './Dashboard';
+import { card, HorizonTimeline, NowList, SimulatePanel } from './FleetHero';
+import { useScoreHistory } from './scoreHistoryStore';
 import { settingsStore } from '../settings/store';
 import { FleetDetails } from './FleetDetails';
-import { shortener } from '../names';
+import { shortener, shortNode } from '../names';
 import { useScannerReports } from '../useScannerReports';
 import { useComplianceStore } from './complianceStore';
 import { OrgCards, OrgSummary } from './OrgCards';
@@ -53,29 +62,11 @@ import { compliance, evaluateBaseline, profileFor } from '../baseline';
 import { fleetTotals, needsAttention, rollupByTenant } from '../summary';
 import { FleetCluster, Health, supervisorLabel } from '../types';
 import { useWorkloadHealth } from '../useWorkload';
-import { capacityText, SupervisorBanners } from './common';
+import { SupervisorBanners } from './common';
 import { IssuesList } from './IssuesList';
 
 const ALL = '__all__';
 
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
-/** `attention`: clusters needing attention as the page counts them (issues included), not only the Supervisor's view. */
-function summarySentence(clusters: FleetCluster[], attention?: number): string {
-  const t = { ...fleetTotals(clusters), ...(attention === undefined ? {} : { attention }) };
-  const first = `${plural(t.clusters, 'cluster', 'clusters')} across ${plural(t.tenants, 'tenant', 'tenants')}.`;
-  const parts: string[] = [];
-  if (t.attention) parts.push(`${t.attention} ${t.attention === 1 ? 'needs' : 'need'} attention`);
-  if (t.upgrading) parts.push(`${t.upgrading} ${t.upgrading === 1 ? 'is' : 'are'} upgrading`);
-  if (t.upgradable) parts.push(`${t.upgradable} can be upgraded`);
-  const capacity = t.cpus ? ` Nodes use ${capacityText(t)} of memory.`.replace(' vCPU, ', ' vCPU and ') : '';
-  if (!parts.length) return `${first} Nothing needs attention.${capacity}`;
-  const text = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
-  return `${first} ${text.charAt(0).toUpperCase()}${text.slice(1)}.${capacity}`;
-}
 
 export function FleetView() {
   const { config, results, refreshing, refresh, inventory, limits, orgQuotas, all, inventoryAll, org } = useFleetData();
@@ -103,8 +94,23 @@ export function FleetView() {
   };
   const setSupervisorFilter = (id: string) => setParams({ supervisor: id === ALL ? undefined : id, tenant: undefined });
   const setAttentionOnly = (b: boolean) => setParams({ attention: b ? '1' : undefined });
-  const jump = (id: string) =>
-    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  // Dashboard, Clusters, Issues: the tab lives in the address, so links and the back button work.
+  const tab = tabFromLocation(location.search, location.hash);
+  const goTab = (next: FleetTab) => {
+    const p = new URLSearchParams(location.search);
+    if (next === 'dashboard') p.delete('tab');
+    else p.set('tab', next);
+    // Cluster filters belong to the Clusters tab; they don't follow to the others.
+    if (next !== 'clusters') for (const k of ['health', 'version', 'attention', 'upgradable']) p.delete(k);
+    const qs = p.toString();
+    history.push(`${FLEET_PATH}${qs ? `?${qs}` : ''}`);
+  };
+  // A link to a section (the dashboard's "Next 30 days" block) scrolls to it once the tab has drawn.
+  React.useEffect(() => {
+    if (!location.hash) return undefined;
+    const t = window.setTimeout(() => document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+    return () => window.clearTimeout(t);
+  }, [location.hash, tab]);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [showInfo, setShowInfo] = React.useState(false);
   // Simulate fixes: recomputes the picture only; nothing is sent anywhere.
@@ -232,8 +238,8 @@ export function FleetView() {
   const silences = activeSilences(config.silences);
   const { active: tenantIssues, silenced } = partitionIssues(tenantIssuesAll, silences);
   const findingCounts = countIssues(tenantIssues);
-  // Collapsed by default; open by default only when something is critical.
-  const findingsOpen = findingsToggled ?? findingCounts.critical + findingCounts.warning > 0;
+  // The Issues tab is where the list lives: open unless it was hidden.
+  const findingsOpen = findingsToggled ?? true;
   const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
   const scores = tenantClusters.map(c => ({
     cluster: c,
@@ -275,9 +281,6 @@ export function FleetView() {
   const actions = [
     <Button key="search" size="small" variant="outlined" component={Link} to={SEARCH_ROUTE}>
       Search the fleet
-    </Button>,
-    <Button key="export" size="small" variant="outlined" onClick={() => setExportOpen(true)}>
-      Export report
     </Button>,
     <Button key="refresh" variant="contained" size="small" onClick={refresh} disabled={refreshing}>
       {refreshing ? 'Refreshing' : 'Refresh'}
@@ -332,54 +335,90 @@ export function FleetView() {
   const shortCluster = shortener(tenantClusters.map(c => c.name));
   // One rule for "needs attention" everywhere on the page: the wall's (as things are, not simulated).
   const tilesNow = wallTiles(tenantClusters, tenantIssues, false, shortCluster);
-  const attention = attentionCount(tilesNow);
   const visibleKeys = new Set(visible.map(c => c.key));
+  const now = Date.now();
+  const hostsOf = (supervisorId: string) => (supervisorHealth ?? []).find(x => x.supervisorId === supervisorId)?.nodes.filter(n => n.role === 'host').map(n => n.name);
   const coming = horizon({
-              now: new Date(),
-              clusters: tenantClusters,
-              forecasts: (observability ?? []).filter(o => tenantClusters.some(c => c.key === o.clusterKey)).map(o => ({ clusterName: o.clusterName, clusterKey: o.clusterKey, forecasts: o.forecasts })),
-              supervisorDisks: vcenter?.status
-                ? (all ?? []).flatMap(r => {
-                    const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length, (supervisorHealth ?? []).find(x => x.supervisorId === r.supervisor.id)?.nodes.filter(n => n.role === 'host').map(n => n.name));
-                    return v
-                      ? entitiesFor(vcenter.status!.metrics, v.id)
-                          .filter(e => e.kind === 'vm')
-                          .map(e => ({ supervisor: r.supervisor.displayName ?? r.supervisor.id, vm: e.name, seconds: diskForecast(vcenter.status!.metrics, e.name) ?? Infinity }))
-                          .filter(d => Number.isFinite(d.seconds))
-                      : [];
-                  })
-                : [],
-              silences,
-              short: shortCluster,
-              certificates: (scans ?? []).flatMap(sc =>
-                sc.security.filter(f => f.kind === 'cert' && f.expires).map(f => ({ clusterName: sc.clusterName, clusterKey: sc.clusterKey, name: f.objects[0], expires: f.expires! }))
-              ),
-            });
+    now: new Date(now),
+    clusters: tenantClusters,
+    forecasts: (observability ?? []).filter(o => tenantClusters.some(c => c.key === o.clusterKey)).map(o => ({ clusterName: o.clusterName, clusterKey: o.clusterKey, forecasts: o.forecasts })),
+    supervisorDisks: vcenter?.status
+      ? (all ?? []).flatMap(r => {
+          const v = matchSupervisor(vcenter.status!, r.supervisor, (all ?? []).length, hostsOf(r.supervisor.id));
+          return v
+            ? entitiesFor(vcenter.status!.metrics, v.id)
+                .filter(e => e.kind === 'vm')
+                .map(e => ({ supervisor: r.supervisor.displayName ?? r.supervisor.id, vm: e.name, seconds: diskForecast(vcenter.status!.metrics, e.name) ?? Infinity }))
+                .filter(d => Number.isFinite(d.seconds))
+            : [];
+        })
+      : [],
+    silences,
+    short: shortCluster,
+    certificates: (scans ?? []).flatMap(sc =>
+      sc.security.filter(f => f.kind === 'cert' && f.expires).map(f => ({ clusterName: sc.clusterName, clusterKey: sc.clusterKey, name: f.objects[0], expires: f.expires! }))
+    ),
+  });
+
+  const cards = scores.map(x => x.card);
+  const score = fleetScore(cards);
+  const drivers = scoreDrivers(cards);
+  const clusterLinks = new Map(tenantClusters.map(c => [c.key, { name: shortCluster(c.name), path: clusterDeepLink(c, { hash: 'checks' }) }]));
+  const fixByIssue = fixesByIssue(tenantIssues, clusterByKey);
+  const fixes = fixCounts(tenantIssues, clusterByKey);
+
+  // The dashboard's blocks: each summarises what its own page computes.
+  const canSeeSupervisor = !whoAmI || ['operator', 'readonly', 'unknown'].includes(whoAmI.persona);
+  // The same score as Supervisor health shows: with vCenter's findings when the collector has data.
+  const supervisorScores = (supervisorHealth ?? []).map(h => {
+    const r = (all ?? []).find(x => x.supervisor.id === h.supervisorId);
+    const v = r && vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, (all ?? []).length, hostsOf(h.supervisorId)) : undefined;
+    return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
+  });
+  const busiest = tenantClusters
+    .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, pct: Math.max(n.cpuPct, n.memPct), what: n.memPct >= n.cpuPct ? ('memory' as const) : ('CPU' as const) })))
+    .sort((x, y) => y.pct - x.pct)[0];
+  const totals = fleetTotals(tenantClusters);
+  const fullest = (inventory ? Array.from(inventory.values()).flatMap(i => i.subnets) : [])
+    .filter(sn => sn.capacity > 0)
+    .map(sn => ({ name: sn.name, pct: Math.round((sn.used / sn.capacity) * 100) }))
+    .sort((x, y) => y.pct - x.pct)[0];
+  const backupList = backups ? tenantClusters.map(c => backups.get(c.key)).filter((x): x is NonNullable<typeof x> => !!x && !x.error) : [];
+  const blocks = dashboardBlocks({
+    tiles: tilesNow,
+    supervisor: { visible: canSeeSupervisor, score: supervisorScores.length ? Math.min(...supervisorScores) : undefined, staleControllers: (supervisorHealth ?? []).reduce((n, h) => n + h.leases.filter(l => l.state === 'stale').length, 0) },
+    capacity: {
+      busiest: busiest ? { cluster: shortCluster(busiest.cluster.name), node: shortNode(busiest.cluster.name, busiest.node), pct: busiest.pct, what: busiest.what } : undefined,
+      cpus: totals.cpus,
+      memoryText: formatBytes(totals.memoryBytes),
+    },
+    horizon: coming,
+    now,
+    lifecycle: { failing: packageStats?.failing, drift: packageStats?.drift.length, upgrading: totals.upgrading, upgradable: totals.upgradable },
+    issues: tenantIssues,
+    governance: {
+      baselinePct: baselineRows.length ? Math.round(baselineRows.reduce((n, r) => n + r.pct, 0) / baselineRows.length) : undefined,
+      backupsKnown: backupList.length,
+      backedUp: backupList.filter(x => !x.missing && !!x.lastSuccess).length,
+    },
+    subnet: fullest,
+  });
+  // The score depends on packages and scans: the day's point is recorded once they've arrived.
+  const ready = inventory !== null && (packageTargets.length === 0 || (packages !== null && scans !== null));
+  const openCount = findingCounts.critical + findingCounts.warning;
 
   return (
     <>
       <SectionBox title="VKS fleet" headerProps={{ actions }}>
         <SupervisorBanners results={results} />
-        <Typography sx={{ mb: 2 }}>
-          {summarySentence(allClusters, attention)}
-        </Typography>
-
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-          <TextField
-            size="small"
-            label="Filter clusters or namespaces"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 2, rowGap: 1, borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={tab} onChange={(_e: unknown, v: FleetTab) => goTab(v)} sx={{ flex: '1 1 auto', minWidth: 0 }}>
+            <Tab label="Dashboard" value="dashboard" sx={{ textTransform: 'none', fontWeight: 600 }} />
+            <Tab label={`Clusters (${tenantClusters.length})`} value="clusters" sx={{ textTransform: 'none', fontWeight: 600 }} />
+            <Tab label={`Issues (${openCount})`} value="issues" sx={{ textTransform: 'none', fontWeight: 600 }} />
+          </Tabs>
           {multiSupervisor && (
-            <TextField
-              select
-              size="small"
-              label="Supervisor"
-              value={supervisorFilter}
-              onChange={e => setSupervisorFilter(e.target.value)}
-              sx={{ minWidth: 200 }}
-            >
+            <TextField select size="small" label="Supervisor" value={supervisorFilter} onChange={e => setSupervisorFilter(e.target.value)} sx={{ minWidth: 200, mb: 0.5 }}>
               <MenuItem value={ALL}>All Supervisors</MenuItem>
               {config.supervisors.map(s => (
                 <MenuItem key={s.id} value={s.id}>
@@ -388,103 +427,9 @@ export function FleetView() {
               ))}
             </TextField>
           )}
-          <FormControlLabel
-            control={<Switch checked={attentionOnly} onChange={e => setAttentionOnly(e.target.checked)} />}
-            label="Only clusters with problems or upgrades in progress"
-          />
         </Box>
       </SectionBox>
 
-      {allClusters.length > 0 && (
-        <Guard name="Fleet at a glance">
-          <FleetHero
-            glance={{
-              ...glance(
-              tenantClusters,
-              scores.map(x => x.card.score),
-              tenantIssues,
-              // The same score as Supervisor health shows: with vCenter's findings when the collector has data.
-              (supervisorHealth ?? []).map(h => {
-                const r = (all ?? []).find(x => x.supervisor.id === h.supervisorId);
-                const v = r && vcenter?.status ? matchSupervisor(vcenter.status, r.supervisor, (all ?? []).length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
-                return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
-              })
-              ),
-              attention,
-            }}
-            top={needsYouNow(tenantIssues, coming, Date.now(), 6)}
-            horizon={coming}
-            onScore={() => jump('scorecard')}
-            tiles={wallTiles(visible, tenantIssues, simulate, shortCluster)}
-            drivers={scoreDrivers(scores.map(x => x.card))}
-            clusterLinks={new Map(tenantClusters.map(c => [c.key, { name: shortCluster(c.name), path: clusterDeepLink(c, { hash: 'checks' }) }]))}
-            fixes={fixCounts(tenantIssues, clusterByKey)}
-            fixByIssue={fixesByIssue(tenantIssues, clusterByKey)}
-            simulate={simulate}
-            simulatedScore={fleetScore(scores.map(x => x.card), true)}
-            onSimulate={setSimulate}
-          />
-        </Guard>
-      )}
-
-      <Guard name="Org cards">
-        <OrgCards attention={attentionByTenant(tilesNow)} />
-        <OrgSummary />
-      </Guard>
-      {allClusters.length > 0 && (
-        <Box sx={{ px: 2 }}>
-          <SinceLastVisit
-          issues={tenantIssues}
-            ready={results !== null && inventory !== null && (packageTargets.length === 0 || (packages !== null && scans !== null))}
-          />
-        </Box>
-      )}
-      {allClusters.length > 0 && (
-        <Guard name="Overview">
-        <FleetDetails
-          rows={tenantClusters.filter(c => visibleKeys.has(c.key)).map(c => ({
-            cluster: c,
-            contextName: workload.byKey.get(c.key)?.contextName,
-            score: scores.find(x => x.cluster.key === c.key)?.card.score,
-            baseline: baselineRows.find(x => x.cluster.key === c.key)?.pct,
-            backup: backups?.get(c.key),
-            issues: tenantIssues.filter(i => i.clusterKey === c.key),
-          }))}
-          busiest={tenantClusters
-            .flatMap(c => (workload.byKey.get(c.key)?.utilisation?.nodes ?? []).map(n => ({ cluster: c, node: n.name, cpuPct: n.cpuPct, memPct: n.memPct })))
-            .sort((a, b) => Math.max(b.cpuPct, b.memPct) - Math.max(a.cpuPct, a.memPct))}
-          subnets={inventory ? Array.from(inventory.values()).flatMap(i => i.subnets).filter(s => s.capacity > 0) : undefined}
-          packageDrift={packageStats?.drift}
-          supervisors={multiSupervisor && supervisorFilter === ALL ? results.map(r => ({ id: r.supervisor.id, name: supervisorLabel(r.supervisor), clusters: r.clusters })) : undefined}
-          onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
-        />
-        </Guard>
-      )}
-
-
-      <Box id="clusters" sx={{ scrollMarginTop: 72 }} />
-      {(healthFilter || versionFilter || attentionOnly || upgradableOnly) && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1, px: 1 }}>
-          <Typography variant="body2">
-            Showing{' '}
-            {[
-              healthFilter && `${healthFilter} clusters`,
-              versionFilter && `clusters on ${versionFilter}`,
-              attentionOnly && 'clusters with problems or upgrades in progress',
-              upgradableOnly && 'clusters with an upgrade available',
-            ]
-              .filter(Boolean)
-              .join(', ')}{' '}
-            ({visible.length}).
-          </Typography>
-          <Button
-            size="small"
-            onClick={() => setParams({ health: undefined, version: undefined, attention: undefined, upgradable: undefined })}
-          >
-            Clear filters
-          </Button>
-        </Box>
-      )}
       {allClusters.length === 0 && !results.some(r => r.error) && (
         <SectionBox title="Clusters">
           <Typography>
@@ -494,35 +439,139 @@ export function FleetView() {
         </SectionBox>
       )}
 
-      {allClusters.length > 0 && visible.length === 0 && (
-        <SectionBox title="Clusters">
-          <Typography>No clusters match these filters.</Typography>
-        </SectionBox>
+      {tab === 'dashboard' && allClusters.length > 0 && (
+        <Guard name="Dashboard">
+          <DashboardTab
+            scope={`${supervisorFilter}|${org}`}
+            ready={ready}
+            score={score}
+            headline={headline(tilesNow)}
+            line={since => scoreLine(score, since, drivers)}
+            drivers={drivers}
+            clusterLinks={clusterLinks}
+            blocks={blocks}
+            top={compactNow(needsYouNow(tenantIssues, coming, now, 3), shortCluster)}
+            fixByIssue={fixByIssue}
+            openCount={openCount}
+            tiles={tilesNow}
+            onIssues={() => goTab('issues')}
+          />
+        </Guard>
       )}
 
-      {rollups
-        .filter(r => !r.tenantNamed || r.unmapped)
-        .map(r => (
-          <Typography key={r.tenantId} variant="body2" color="text.secondary" sx={{ px: 2, mb: 1 }}>
-            {!r.tenantNamed
-              ? `Org ${r.tenantId} has no name yet. Name it under Settings → Plugins → vks-fleet, where each Supervisor lists its org IDs.`
-              : `Some namespaces in ${r.tenantName} have no tenant label, so they're shown under their namespace name.`}
+      {tab === 'clusters' && (
+        <>
+          {allClusters.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', px: 2, mb: 2 }}>
+              <TextField size="small" label="Filter clusters or namespaces" value={search} onChange={e => setSearch(e.target.value)} />
+              <FormControlLabel
+                control={<Switch checked={attentionOnly} onChange={e => setAttentionOnly(e.target.checked)} />}
+                label="Only clusters with problems or upgrades in progress"
+              />
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" variant="outlined" onClick={() => setExportOpen(true)}>
+                Export report
+              </Button>
+            </Box>
+          )}
+          {(healthFilter || versionFilter || attentionOnly || upgradableOnly) && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1, px: 2 }}>
+              <Typography variant="body2">
+                Showing{' '}
+                {[
+                  healthFilter && `${healthFilter} clusters`,
+                  versionFilter && `clusters on ${versionFilter}`,
+                  attentionOnly && 'clusters with problems or upgrades in progress',
+                  upgradableOnly && 'clusters with an upgrade available',
+                ]
+                  .filter(Boolean)
+                  .join(', ')}{' '}
+                ({visible.length}).
+              </Typography>
+              <Button size="small" onClick={() => setParams({ health: undefined, version: undefined, attention: undefined, upgradable: undefined })}>
+                Clear filters
+              </Button>
+            </Box>
+          )}
+          {allClusters.length > 0 && visible.length === 0 && (
+            <SectionBox title="Clusters">
+              <Typography>No clusters match these filters.</Typography>
+            </SectionBox>
+          )}
+          {allClusters.length > 0 && visible.length > 0 && (
+            <Guard name="Clusters">
+              <FleetDetails
+                rows={tenantClusters
+                  .filter(c => visibleKeys.has(c.key))
+                  .map(c => ({
+                    cluster: c,
+                    contextName: workload.byKey.get(c.key)?.contextName,
+                    score: scores.find(x => x.cluster.key === c.key)?.card.score,
+                    baseline: baselineRows.find(x => x.cluster.key === c.key)?.pct,
+                    backup: backups?.get(c.key),
+                    issues: tenantIssues.filter(i => i.clusterKey === c.key),
+                  }))}
+                supervisors={multiSupervisor && supervisorFilter === ALL ? results.map(r => ({ id: r.supervisor.id, name: supervisorLabel(r.supervisor), clusters: r.clusters })) : undefined}
+                onSupervisor={multiSupervisor ? setSupervisorFilter : undefined}
+              />
+            </Guard>
+          )}
+          <Guard name="Org cards">
+            <OrgCards attention={attentionByTenant(tilesNow)} />
+            <OrgSummary />
+          </Guard>
+          {rollups
+            .filter(r => !r.tenantNamed || r.unmapped)
+            .map(r => (
+              <Typography key={r.tenantId} variant="body2" color="text.secondary" sx={{ px: 2, mb: 1 }}>
+                {!r.tenantNamed
+                  ? `Org ${r.tenantId} has no name yet. Name it under Settings → Plugins → vks-fleet, where each Supervisor lists its org IDs.`
+                  : `Some namespaces in ${r.tenantName} have no tenant label, so they're shown under their namespace name.`}
+              </Typography>
+            ))}
+          <Typography variant="body2" color="text.secondary" sx={{ px: 2, mb: 2 }}>
+            Capacity per cluster is on <Link to="/vks-fleet/capacity">Capacity &amp; cost</Link>; subnets on <Link to="/vks-fleet/network">Network</Link>; packages on{' '}
+            <Link to="/vks-fleet/packages">Lifecycle</Link>.
           </Typography>
-        ))}
+        </>
+      )}
 
-      <Box id="issues" sx={{ scrollMarginTop: 72 }} />
-      <IssuesSection
-        silenced={silenced}
-        silences={silences}
-        issues={tenantIssues}
-        clusters={clusterByKey}
-        supervisorNames={supervisorNames}
-        showInfo={showInfo}
-        setShowInfo={setShowInfo}
-        open={findingsOpen}
-        setOpen={setFindingsOpen}
-        simulate={simulate}
-      />
+      {tab === 'issues' && allClusters.length > 0 && (
+        <>
+          <Box sx={{ px: 2 }}>
+            <SinceLastVisit issues={tenantIssues} ready={ready} />
+          </Box>
+          <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
+            <Guard name="Simulate fixes">
+              <SimulatePanel fixes={fixes} simulate={simulate} score={score} simulatedScore={fleetScore(cards, true)} onSimulate={setSimulate} />
+              {simulate && (
+                <Paper variant="outlined" sx={card}>
+                  <ClusterWall tiles={wallTiles(tenantClusters, tenantIssues, true, shortCluster)} simulate compact />
+                </Paper>
+              )}
+            </Guard>
+            <Box id="next-30-days" sx={{ scrollMarginTop: 72 }}>
+              <Guard name="Next 30 days">
+                <Paper variant="outlined" sx={card}>
+                  <HorizonTimeline horizon={coming} now={now} />
+                </Paper>
+              </Guard>
+            </Box>
+          </Box>
+          <IssuesSection
+            silenced={silenced}
+            silences={silences}
+            issues={tenantIssues}
+            clusters={clusterByKey}
+            supervisorNames={supervisorNames}
+            showInfo={showInfo}
+            setShowInfo={setShowInfo}
+            open={findingsOpen}
+            setOpen={setFindingsOpen}
+            simulate={simulate}
+          />
+        </>
+      )}
 
       {exportOpen && (
         <ExportDialog
@@ -536,12 +585,65 @@ export function FleetView() {
           })}
         />
       )}
-
-      <Typography variant="body2" color="text.secondary" sx={{ px: 2, mb: 2 }}>
-        Capacity per cluster is on <Link to="/vks-fleet/capacity">Capacity &amp; cost</Link>; Supervisor services on{' '}
-        <Link to="/vks-fleet/supervisor-health">Supervisor health</Link>.
-      </Typography>
     </>
+  );
+}
+
+/**
+ * The dashboard tab: the score with its trend, what needs you now, the eight
+ * blocks and the wall. One screen; every part opens the page behind it.
+ */
+function DashboardTab({
+  scope,
+  ready,
+  score,
+  headline: title,
+  line,
+  drivers,
+  clusterLinks,
+  blocks,
+  top,
+  fixByIssue,
+  openCount,
+  tiles,
+  onIssues,
+}: {
+  /** Supervisor filter and org: each combination has its own history. */
+  scope: string;
+  ready: boolean;
+  score?: number;
+  headline: string;
+  /** The line under the headline, given how the score moved since the last visit. */
+  line: (since?: string) => string;
+  drivers: ReturnType<typeof scoreDrivers>;
+  clusterLinks: Map<string, { name: string; path: string }>;
+  blocks: ReturnType<typeof dashboardBlocks>;
+  top: ReturnType<typeof needsYouNow>;
+  fixByIssue: ReturnType<typeof fixesByIssue>;
+  /** Open issues that need action. */
+  openCount: number;
+  tiles: ReturnType<typeof wallTiles>;
+  onIssues: () => void;
+}) {
+  const { today, points, stored } = useScoreHistory(scope, ready, score, blockNumbers(blocks));
+  const since = score === undefined ? undefined : sinceLastText(sinceLast(stored, today, score));
+  return (
+    <Box sx={{ display: 'grid', gap: 1.5, px: 2, mb: 2 }}>
+      <ScoreHeader score={score} headline={title} line={line(since)} points={points} today={today} drivers={drivers} clusterLinks={clusterLinks} />
+      <Paper variant="outlined" sx={{ ...card, py: 1.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+          <Typography sx={{ fontWeight: 800, flex: 1 }}>Needs you now</Typography>
+          <Button size="small" onClick={onIssues} sx={{ py: 0 }}>
+            {openCount ? `All ${openCount} issue${openCount === 1 ? '' : 's'} ›` : 'Issues ›'}
+          </Button>
+        </Box>
+        <NowList items={top} fixByIssue={fixByIssue} lines={1} />
+      </Paper>
+      <BlockGrid blocks={blocks} />
+      <Paper variant="outlined" sx={{ ...card, py: 1.5 }}>
+        <ClusterWall tiles={tiles} simulate={false} compact />
+      </Paper>
+    </Box>
   );
 }
 

@@ -41,6 +41,8 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             npm pkg set version="${GITHUB_REF_NAME#v}"
           fi
+          # What Headlamp's plugin list shows (the scaffold's default is "Your Headlamp plugin").
+          npm pkg set description="Operations and reliability for vSphere Kubernetes Service (VKS) fleets: health, investigation, capacity forecasts and change planning across Supervisors and their clusters."
           npm install
 
       # Unit and end-to-end tests (Node's test runner via tsx). Blocking: a

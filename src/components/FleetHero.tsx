@@ -1,36 +1,38 @@
 import { Box, Button, FormControlLabel, Paper, Switch, Typography } from '@mui/material';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { FixCounts, FixProposal, ScoreDriver, WallTile } from '../fixes';
-import { Glance, HORIZON_DAYS, HorizonItem, inWords, NowItem } from '../fleetHero';
-import { ClusterWall, FleetMark } from './ClusterWall';
+import { FixCounts, FixProposal, ScoreDriver } from '../fixes';
+import { HORIZON_DAYS, HorizonItem, inWords, NowItem } from '../fleetHero';
 
 const TONE = { error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
 const SEV = { critical: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
-const scoreColour = (s?: number) => (s === undefined ? '#94a3b8' : s >= 90 ? '#10b981' : s >= 70 ? '#f59e0b' : '#ef4444');
+export const scoreColour = (s?: number) => (s === undefined ? '#94a3b8' : s >= 90 ? '#10b981' : s >= 70 ? '#f59e0b' : '#ef4444');
 
-function Ring({ score }: { score?: number }) {
+/** The fleet score as a ring. */
+export function Ring({ score, size = 120, caption = true }: { score?: number; size?: number; caption?: boolean }) {
   const r = 46;
   const len = 2 * Math.PI * r;
   const pct = score === undefined ? 0 : Math.max(0, Math.min(100, score)) / 100;
   return (
-    <svg viewBox="0 0 120 120" width={120} height={120} role="img" aria-label={`Fleet health ${score ?? 'unknown'}`}>
+    <svg viewBox="0 0 120 120" width={size} height={size} role="img" aria-label={`Fleet score ${score ?? 'unknown'}`}>
       <circle cx={60} cy={60} r={r} fill="none" stroke="currentColor" strokeOpacity={0.1} strokeWidth={11} />
       <circle cx={60} cy={60} r={r} fill="none" stroke={scoreColour(score)} strokeWidth={11} strokeLinecap="round" strokeDasharray={`${len * pct} ${len}`} transform="rotate(-90 60 60)" style={{ transition: 'stroke-dasharray 600ms ease, stroke 600ms ease' }} />
-      <text x={60} y={60} textAnchor="middle" dominantBaseline="central" fontSize={30} fontWeight={800} fill="currentColor">
+      <text x={60} y={60} textAnchor="middle" dominantBaseline="central" fontSize={caption ? 30 : 36} fontWeight={800} fill="currentColor">
         {score ?? '—'}
       </text>
-      <text x={60} y={86} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.6}>
-        fleet score
-      </text>
+      {caption && (
+        <text x={60} y={86} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.6}>
+          fleet score
+        </text>
+      )}
     </svg>
   );
 }
 
-const card = { p: 2, borderRadius: 3, display: 'flex', flexDirection: 'column' as const };
+export const card = { p: 2, borderRadius: 3, display: 'flex', flexDirection: 'column' as const };
 
 /** What holds the score down: one bar per check, sized by the points it costs. A row opens the clusters behind it. */
-function Drivers({ drivers, simulate, clusterLinks }: { drivers: ScoreDriver[]; simulate: boolean; clusterLinks: Map<string, { name: string; path: string }> }) {
+export function Drivers({ drivers, simulate, clusterLinks }: { drivers: ScoreDriver[]; simulate: boolean; clusterLinks: Map<string, { name: string; path: string }> }) {
   const [open, setOpen] = React.useState<string | null>(null);
   const [all, setAll] = React.useState(false);
   const shown = all ? drivers : drivers.slice(0, 5);
@@ -123,7 +125,7 @@ function Drivers({ drivers, simulate, clusterLinks }: { drivers: ScoreDriver[]; 
   );
 }
 
-function FixChip({ text, tone }: { text: string; tone: 'ready' | 'fixed' | 'decision' }) {
+export function FixChip({ text, tone }: { text: string; tone: 'ready' | 'fixed' | 'decision' }) {
   const colour = tone === 'fixed' ? 'info.main' : tone === 'ready' ? 'text.primary' : 'warning.main';
   return (
     <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: colour, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: tone === 'fixed' ? 'info.main' : 'text.primary' }}>
@@ -132,39 +134,68 @@ function FixChip({ text, tone }: { text: string; tone: 'ready' | 'fixed' | 'deci
   );
 }
 
-export function FleetHero({
-  glance,
-  top,
-  horizon,
-  now = Date.now(),
-  onScore,
-  tiles = [],
-  drivers = [],
-  clusterLinks = new Map(),
-  fixes = { open: 0, fixable: 0 },
+/** What needs you now: one line per item, with the action that fits it (the fix, Investigate, or the page). */
+export function NowList({
+  items,
   fixByIssue = new Map(),
   simulate = false,
-  simulatedScore,
-  onSimulate,
+  lines = 2,
 }: {
-  glance: Glance;
-  top: NowItem[];
-  horizon: HorizonItem[];
-  now?: number;
-  onScore?: () => void;
-  /** One tile per cluster. */
-  tiles?: WallTile[];
-  drivers?: ScoreDriver[];
-  /** Name and checks page of each cluster, by key, for the links behind a score reason. */
-  clusterLinks?: Map<string, { name: string; path: string }>;
-  fixes?: FixCounts;
+  items: NowItem[];
   /** The fix the plugin has, by issue id. */
   fixByIssue?: Map<string, FixProposal>;
   simulate?: boolean;
-  /** The fleet score with every fixable check passing. */
-  simulatedScore?: number;
-  onSimulate?: (on: boolean) => void;
+  /** Lines a title may take before it is cut. */
+  lines?: number;
 }) {
+  if (!items.length) {
+    return (
+      <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 700 }}>
+        Nothing needs you right now.
+      </Typography>
+    );
+  }
+  return (
+    <Box sx={{ display: 'grid' }}>
+      {items.map((i, k) => {
+        const fix = fixByIssue.get(i.id);
+        const fixed = simulate && !!fix;
+        return (
+          <Box key={i.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', py: 0.75, borderTop: k ? 1 : 0, borderColor: 'divider' }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: fixed ? TONE.info : SEV[i.severity], mt: 0.6, flexShrink: 0 }} />
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.25, alignItems: 'baseline' }}>
+              <Typography variant="body2" title={i.title} sx={{ fontWeight: 700, display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden', textDecoration: fixed ? 'line-through' : 'none', color: fixed ? 'text.secondary' : 'text.primary' }}>
+                {i.title}
+              </Typography>
+              {i.sub && (
+                <Typography variant="caption" color="text.secondary">
+                  {i.sub}
+                </Typography>
+              )}
+              {fixed ? <FixChip text="Fixed in simulation" tone="fixed" /> : fix ? <FixChip text="Fix ready" tone="ready" /> : null}
+            </Box>
+            {fix && !fixed ? (
+              <Button size="small" component={Link} to={fix.path} title={fix.label} sx={{ py: 0, flexShrink: 0 }}>
+                Fix…
+              </Button>
+            ) : i.investigate ? (
+              <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
+                Investigate
+              </Button>
+            ) : i.path ? (
+              <Button size="small" component={Link} to={i.path} sx={{ py: 0, flexShrink: 0 }}>
+                Open
+              </Button>
+            ) : null}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** The next 30 days as a line: a dot for each thing that expires or runs out. */
+export function HorizonTimeline({ horizon, now = Date.now() }: { horizon: HorizonItem[]; now?: number }) {
   const days = HORIZON_DAYS;
   const x = (t: number) => 14 + Math.max(0, Math.min(1, (t - now) / (days * 86400e3))) * 572;
   // Stagger dots that would overlap.
@@ -175,7 +206,75 @@ export function FleetHero({
     while (placed.some(p => p.row === row && Math.abs(p.cx - cx) < 18)) row += 1;
     placed.push({ item, cx, row: Math.min(row, 2) });
   }
-  const score = simulate && simulatedScore !== undefined ? simulatedScore : glance.score;
+  return (
+    <>
+      <Typography sx={{ fontWeight: 800, mb: 0.5 }}>Next {days} days</Typography>
+      <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
+        <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
+        {[0, 7, 14, 21, 28].map(d => (
+          <g key={d}>
+            <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
+            <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
+              {d === 0 ? 'today' : `${d / 7} wk`}
+            </text>
+          </g>
+        ))}
+        {placed.map(({ item, cx, row }, k) => (
+          <g key={k}>
+            <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
+            <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
+              <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
+            </circle>
+          </g>
+        ))}
+      </svg>
+      {horizon.length === 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Nothing expires or runs out in the next {days} days, as far as the fleet can see.
+        </Typography>
+      )}
+      {horizon.length > 0 && (
+        <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5 }}>
+          {horizon.slice(0, 8).map((h, k) => (
+            <li key={k}>
+              <Typography variant="body2">
+                <Box component="span" sx={{ fontWeight: 700, color: TONE[h.tone] }}>
+                  {inWords(h.at, now)}
+                </Box>
+                {': '}
+                {h.path ? <Link to={h.path}>{h.text}</Link> : h.text}
+              </Typography>
+            </li>
+          ))}
+          {horizon.length > 8 && (
+            <li>
+              <Typography variant="body2" color="text.secondary">
+                and {horizon.length - 8} more: hover a dot for what it is.
+              </Typography>
+            </li>
+          )}
+        </Box>
+      )}
+    </>
+  );
+}
+
+/** Simulate fixes: the switch, what it would do, and the score before and after. Nothing is sent anywhere. */
+export function SimulatePanel({
+  fixes,
+  simulate,
+  score,
+  simulatedScore,
+  onSimulate,
+}: {
+  fixes: FixCounts;
+  simulate: boolean;
+  /** The fleet score as it is. */
+  score?: number;
+  /** The fleet score with every fixable check passing. */
+  simulatedScore?: number;
+  onSimulate: (on: boolean) => void;
+}) {
   const left = fixes.open - fixes.fixable;
   const sentence = !fixes.open
     ? 'No open issues need action.'
@@ -183,151 +282,29 @@ export function FleetHero({
     ? `None of the ${fixes.open} open issues has a one-click fix yet: each needs a decision.`
     : simulate
     ? `${fixes.fixable} fix${fixes.fixable === 1 ? '' : 'es'} simulated. ${left ? `${left} issue${left === 1 ? '' : 's'} left need${left === 1 ? 's' : ''} a decision.` : 'Nothing would be left.'} Nothing has been changed.`
-    : `${fixes.fixable} of ${fixes.open} open issues ${fixes.fixable === 1 ? 'has' : 'have'} a fix ready.`;
-  // A small fleet leaves the wall short: the timeline goes under it. A large one keeps it beside the wall.
-  const timelineLeft = tiles.length <= 8;
-  const timeline = (
-    <>
-          <Typography sx={{ fontWeight: 800, mt: timelineLeft ? 0 : 2, mb: 0.5 }}>Next {days} days</Typography>
-          <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
-            <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
-            {[0, 7, 14, 21, 28].map(d => (
-              <g key={d}>
-                <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
-                <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
-                  {d === 0 ? 'today' : `${d / 7} wk`}
-                </text>
-              </g>
-            ))}
-            {placed.map(({ item, cx, row }, k) => (
-              <g key={k}>
-                <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
-                <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
-                  <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
-                </circle>
-              </g>
-            ))}
-          </svg>
-          {horizon.length === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Nothing expires or runs out in the next {days} days, as far as the fleet can see.
-            </Typography>
-          )}
-          {horizon.length > 0 && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-              {horizon.length === 1 ? `1 item expires or runs out, ${inWords(horizon[0].at, now)}.` : `${horizon.length} items expire or run out; the first ${inWords(horizon[0].at, now)}.`} Hover a dot for what it is.
-            </Typography>
-          )}
-    </>
-  );
+    : `${fixes.fixable} of ${fixes.open} open issues ${fixes.fixable === 1 ? 'has' : 'have'} a fix ready. Switch this on to see the fleet with those fixes applied; nothing is changed.`;
+  const moved = simulate && score !== undefined && simulatedScore !== undefined;
   return (
-    <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
-      <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Box role="button" onClick={onScore} title="The average best-practice score of the clusters: click for each cluster's" sx={{ cursor: onScore ? 'pointer' : 'default' }}>
-            <Ring score={score} />
+    <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 3, rowGap: 1 }}>
+      <FormControlLabel
+        control={<Switch checked={simulate} disabled={!fixes.fixable && !simulate} onChange={e => onSimulate(e.target.checked)} />}
+        label={<Typography sx={{ fontWeight: 700 }}>Simulate fixes</Typography>}
+      />
+      <Typography variant="body2" color="text.secondary" sx={{ flex: '1 1 320px' }}>
+        {sentence}
+      </Typography>
+      {moved && (
+        <Typography sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+          Fleet score{' '}
+          <Box component="span" sx={{ color: scoreColour(score) }}>
+            {score}
           </Box>
-          <Box sx={{ display: 'grid', gap: 0.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <FleetMark size={28} />
-              <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1 }}>{glance.clusters}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                clusters
-              </Typography>
-            </Box>
-            <Typography variant="body2" sx={{ fontWeight: 700, color: glance.attention ? 'warning.main' : 'success.main' }}>
-              {glance.attention ? `${glance.attention} need${glance.attention === 1 ? 's' : ''} attention` : 'none need attention'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              <Box component="span" sx={{ color: glance.critical ? 'error.main' : undefined, fontWeight: glance.critical ? 700 : 400 }}>
-                {glance.critical} critical
-              </Box>{' '}
-              · {glance.warnings} warnings
-            </Typography>
-            {glance.supervisorScore !== undefined && (
-              <Typography variant="body2" component={Link} to="/vks-fleet/supervisor-health" sx={{ color: scoreColour(glance.supervisorScore), fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                Supervisor {glance.supervisorScore}/100 ›
-              </Typography>
-            )}
+          {' → '}
+          <Box component="span" sx={{ color: scoreColour(simulatedScore) }}>
+            {simulatedScore}
           </Box>
-        </Box>
-        <Box sx={{ flex: '1 1 340px', minWidth: 0 }}>
-          <Drivers drivers={drivers} simulate={simulate} clusterLinks={clusterLinks} />
-        </Box>
-        <Box sx={{ flex: '0 1 260px', display: 'grid', gap: 0.5 }}>
-          {onSimulate && (
-            <FormControlLabel
-              control={<Switch checked={simulate} disabled={!fixes.fixable && !simulate} onChange={e => onSimulate(e.target.checked)} />}
-              label={<Typography sx={{ fontWeight: 700 }}>Simulate fixes</Typography>}
-            />
-          )}
-          <Typography variant="body2" color="text.secondary">
-            {sentence}
-          </Typography>
-        </Box>
-      </Paper>
-
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.8fr) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
-        <Box sx={{ display: 'grid', gap: 2 }}>
-          <Paper variant="outlined" sx={card}>
-            <ClusterWall tiles={tiles} simulate={simulate} />
-          </Paper>
-          {timelineLeft && (
-            <Paper variant="outlined" sx={card}>
-              {timeline}
-            </Paper>
-          )}
-        </Box>
-
-        <Paper variant="outlined" sx={card}>
-          <Typography sx={{ fontWeight: 800, mb: 1 }}>Needs you now</Typography>
-          {top.length ? (
-            <Box sx={{ display: 'grid' }}>
-              {top.map(i => {
-                const fix = fixByIssue.get(i.id);
-                const fixed = simulate && !!fix;
-                return (
-                  <Box key={i.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', py: 1, borderTop: 1, borderColor: 'divider' }}>
-                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: fixed ? TONE.info : SEV[i.severity], mt: 0.6, flexShrink: 0 }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textDecoration: fixed ? 'line-through' : 'none', color: fixed ? 'text.secondary' : 'text.primary' }}>
-                        {i.title}
-                      </Typography>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mt: 0.25 }}>
-                        {i.sub && (
-                          <Typography variant="caption" color="text.secondary">
-                            {i.sub}
-                          </Typography>
-                        )}
-                        {fixed ? <FixChip text="Fixed in simulation" tone="fixed" /> : fix ? <FixChip text="Fix ready" tone="ready" /> : null}
-                      </Box>
-                    </Box>
-                    {fix && !fixed ? (
-                      <Button size="small" component={Link} to={fix.path} title={fix.label} sx={{ py: 0, flexShrink: 0 }}>
-                        Fix…
-                      </Button>
-                    ) : i.investigate ? (
-                      <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
-                        Investigate
-                      </Button>
-                    ) : i.path ? (
-                      <Button size="small" component={Link} to={i.path} sx={{ py: 0, flexShrink: 0 }}>
-                        Open
-                      </Button>
-                    ) : null}
-                  </Box>
-                );
-              })}
-            </Box>
-          ) : (
-            <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 700 }}>
-              Nothing needs you right now.
-            </Typography>
-          )}
-
-          {!timelineLeft && timeline}
-        </Paper>
-      </Box>
-    </Box>
+        </Typography>
+      )}
+    </Paper>
   );
 }

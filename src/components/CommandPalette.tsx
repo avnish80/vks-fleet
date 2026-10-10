@@ -31,7 +31,9 @@ import {
 
 
 const PAGES: Array<[string, string]> = [
-  ['Fleet overview', FLEET_PATH],
+  ['Fleet dashboard', FLEET_PATH],
+  ['Fleet: clusters', `${FLEET_PATH}?tab=clusters`],
+  ['Fleet: issues', `${FLEET_PATH}?tab=issues`],
   ['Search', SEARCH_ROUTE],
   ['Namespaces', NAMESPACE_BASE],
   ['Compute: nodes (machines)', MACHINES_PATH],

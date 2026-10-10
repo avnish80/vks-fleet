@@ -128,6 +128,8 @@ export interface NowItem {
   severity: 'critical' | 'warning' | 'info';
   path?: string;
   investigate?: { clusterKey: string; node?: string };
+  /** The cluster an issue belongs to (its full name), when it has one. */
+  clusterName?: string;
 }
 
 /**
@@ -170,6 +172,7 @@ export function needsYouNow(issues: Issue[], coming: HorizonItem[] = [], now = D
       severity: i.severity,
       path: i.primary?.path,
       investigate: i.clusterKey ? { clusterKey: i.clusterKey, node: i.affected.nodes[0] } : undefined,
+      clusterName: i.clusterName,
     }));
   const urgentSorted = urgent.sort((a, b) => rank[a.severity] - rank[b.severity]);
   return [...urgentSorted, ...rest].slice(0, n);

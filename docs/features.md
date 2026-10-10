@@ -8,7 +8,7 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 | Entry | What's in it |
 |---|---|
-| **VKS fleet** | The fleet page: fleet score, needs you now, the next 30 days; org cards, clusters at a glance, activity, clusters, issues |
+| **VKS fleet** | The fleet page. **Dashboard:** fleet score and trend, needs you now, eight blocks, the cluster wall · **Clusters:** clusters at a glance, activity, org cards · **Issues:** simulate fixes, the next 30 days, issues |
 | **Supervisor health** | The platform itself: controllers, services, placement, hosts, vCenter's view |
 | **Namespaces** | Per-org namespaces, quotas, VMs, networks; New VM… and New cluster… |
 | **Compute** | Nodes (machines) · VMs |
@@ -23,15 +23,34 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 
 Search is one keystroke away everywhere: **Ctrl+K**.
 
-**The fleet page** is built so that the fleet itself is the picture. It opens with:
+**The fleet page** has three tabs. Each has its own address (`?tab=clusters`, `?tab=issues`), so a link or the back button lands on the same one.
 
-- **The fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health) beside **what holds the score down**: the best-practice checks that cost the most points across the fleet, largest first. Click one for the clusters where it isn't passing; each links to that cluster's checks.
-- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue. A tile names that issue, says **Fix ready** (with the fix) or **Needs a decision**, counts the cluster's other issues, and opens the cluster. Tiles shrink when the fleet is large. A filled tile **needs attention**: a critical issue, a warning about something failing or running out, or a cluster the Supervisor doesn't report healthy. A dashed outline is **advisory only**: nothing is failing, but posture or hygiene findings are open (a missing Pod Security level, an older version, a single control plane, scanner, policy and compliance findings). The score card, the org cards and the sentence at the top count *needs attention* the same way.
-- **Needs you now:** up to six items, time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings; each with Fix…, Investigate or Open. Beside or under the wall, **the next 30 days**: a timeline of what expires or runs out (control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
+**Dashboard** is one screen that says how the fleet is, with every part opening the page that owns the detail:
 
-**Simulate fixes** (the switch beside the score) shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. Fixed tiles, score reasons and issues are marked, the score moves, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
+- **The fleet score** (a ring with the average cluster score) beside the fleet in one sentence: how many clusters need attention, how the score moved since your last visit, and the check that costs it the most points. Click the score for **what holds the score down**: the best-practice checks that cost the most points across the fleet, largest first, each opening the clusters where it isn't passing.
+- **The trend:** the score over the last 30 days. It is kept **in this browser only**, one point a day, for 90 days, per Supervisor filter and org: nothing is stored on a server, another browser (or another person on a shared Headlamp) starts its own history, and a new install shows *Trend starts today* until there is a second day. Demo mode comes with a made-up month.
+- **Needs you now:** the three most urgent items, one line each, time-bound problems first (something running out within a week, a certificate within two), then critical issues, then warnings; each with Fix…, Investigate or Open, and a link to all the issues.
+- **Eight blocks**, each one number, a status dot and one line of reason:
 
-Below it: the org cards; **Clusters at a glance**, one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured (clicking the fleet score opens it); cards only where there's something to show (busiest nodes, subnet usage, and version or package drift when there is some); the activity heatmap; and the issues. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
+  | Block | Shows | Opens |
+  |---|---|---|
+  | Clusters | how many need attention, of how many | the Clusters tab |
+  | Supervisor | its health score, and whether its controllers are renewing | Supervisor health |
+  | Capacity | how long until something fills up; otherwise the busiest node | Capacity & cost |
+  | Next 30 days | what expires or runs out, by kind | the timeline on the Issues tab |
+  | Lifecycle | packages failing to reconcile, then upgrades, then version drift | Lifecycle |
+  | Security | open posture, compliance and vulnerability findings | Security |
+  | Governance | the match against your baseline, and clusters without a backup | Governance |
+  | Network | the fullest subnet | Network |
+
+  A red dot means something is failing or about to; amber is worth a look; green is fine; an empty dot means there is no judgement to make (or nothing to read yet). A block shows `—` when this account can't read what it needs.
+- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue, which it names; a tile opens its cluster. A filled tile **needs attention**: a critical issue, a warning about something failing or running out, or a cluster the Supervisor doesn't report healthy. A dashed outline is **advisory only**: nothing is failing, but posture or hygiene findings are open (a missing Pod Security level, an older version, a single control plane, scanner, policy and compliance findings). The sentence at the top, the Clusters block and the org cards count *needs attention* the same way.
+
+**Clusters** has a filter box, *only clusters with problems*, **Export report**, and **Clusters at a glance**: one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured. Below it: versions in use when there is more than one, the activity heatmap, and the org cards. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
+
+**Issues** has what changed since you last looked, **Simulate fixes**, **the next 30 days** (a timeline and a list of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back), and the issues themselves, one line each until opened.
+
+**Simulate fixes** shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. The score is shown before and after, a wall shows each cluster as it would be, fixed issues are marked, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
 
 **Built for fleets.** Pages that cover every cluster show a **fleet roll-up first** (for example, the compliance controls failing across the fleet: one failing in 17 of 20 clusters is one problem to fix once), then **one compact row per cluster** with its counts, clusters needing attention first. Expanding a row shows its first rows, most important first; **Show all** opens the full table in a dialog. Long lists (nodes, namespaces, repositories, issues) have a **filter box and paging**. To see every page at scale, turn on demo mode and set **Demo fleet size** to 20 or 50 clusters.
 
@@ -39,9 +58,9 @@ The plugin follows Headlamp's theme, light or dark: every colour comes from the 
 
 ## What it shows
 
-**Everything leads to the data behind it:** the fleet score opens *Clusters at a glance*; each item in *Needs you now* opens Investigate (or Supervisor health); the dots on the 30-day timeline name what they are; a cluster's name opens its page; busiest nodes open the node, and subnets the namespace's network; a cell in the activity heatmap opens that cluster's timeline for that day.
+**Everything leads to the data behind it:** the fleet score opens what holds it down; each dashboard block opens its page; each item in *Needs you now* opens Investigate (or Supervisor health); the 30-day timeline lists what each dot is, with a link; a cluster's name or tile opens its page; a cell in the activity heatmap opens that cluster's timeline for that day.
 
-Filters live in the URL (the search box, *only clusters with problems*, the org), so a filtered view can be shared.
+Tabs and filters live in the URL (the tab, *only clusters with problems*, the org), so a view can be shared.
 
 The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
 
@@ -95,7 +114,7 @@ Cluster page links take `?focus=<row>&action=<dialog>&pool=<pool>#<section>`, so
 - namespace quotas over 80%
 - Supervisor services with failing pods
 
-**Fleet page:** every VKS cluster appears twice, each time for a different question: on the wall, grouped by org (VCFA organization by default), for *what's wrong and where*; and in *Clusters at a glance*, one row each, for comparing them:
+**Fleet page:** every VKS cluster appears twice, each time for a different question: on the dashboard's wall, grouped by org (VCFA organization by default), for *what's wrong and where*; and in *Clusters at a glance* on the Clusters tab, one row each, for comparing them:
 
 - health, including problems the Supervisor can see, such as a machine stuck deleting
 - open issues, best-practice score, baseline, backup and certificates
@@ -205,7 +224,7 @@ New issues, each with a runbook:
 - storage quotas over 85%
 - Supervisor nodes not ready
 
-**Search** covers VMs (name, IP, image) and VIPs. For an IP it also names the subnet containing it, and whose VPC that is. The fleet page adds a **Subnet usage** card.
+**Search** covers VMs (name, IP, image) and VIPs. For an IP it also names the subnet containing it, and whose VPC that is. The dashboard's **Network** block shows the fullest subnet and opens the Network page.
 
 VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other networking, the rest still works and the network sections say so. Everything reads through the same routing as the clusters, so VCF Automation tenants see their org's namespaces.
 
@@ -218,7 +237,7 @@ VPC networking (NSX VPCs, as in VCF 9) is supported. On Supervisors using other 
 **Working with the fleet day to day:**
 
 - **Ctrl+K (⌘K)** on any VKS fleet page opens a command palette: jump to any page, cluster, VM (by name or IP) or namespace, or search the fleet.
-- **Since your last visit:** a banner on the fleet page lists issues that are new and ones that were resolved since you last marked them as seen.
+- **Since your last visit:** the dashboard says how the fleet score moved since the last day you opened it, and a banner on the Issues tab lists issues that are new and ones that were resolved since you last marked them as seen.
 - **Desktop notifications:** an opt-in browser notification for each new critical issue while the fleet page is open.
 - **Silences:** mute one issue ("Silence…" on any issue card) or a whole cluster ("Maintenance…" on its page), for anything from an hour to 90 days, with a reason. Silenced issues move out of the counts but stay listed under "Silences", where they can be ended early. Silences live with the plugin settings, so an administrator can preset them.
 - **A sign-in helper** on every page that reads inside clusters: which clusters can't be read (never signed in, or expired) and the exact login commands, with a single copy.
@@ -428,4 +447,4 @@ What one open browser tab costs:
 - **Remembered lookups:** a resource type that isn't installed (answering "not found") isn't asked for again for 10 minutes, and the API version that answered is tried first. Named objects are always fetched, and newly installed tools show up within 10 minutes. On repeat refreshes this cut the Supervisor inventory from about 61 requests to 8.
 - **Hidden tabs don't poll.** Refreshes pause and catch up when the tab is shown again. A failed refresh keeps the last good data.
 - **Diagnostics** (bottom of Settings) shows requests, errors, average and slowest times and the last error, per cluster, since the tab was opened. Use it to judge load, or to spot a slow or failing cluster.
-- **A failing section doesn't blank the page.** Each page, and the fleet page's org cards, *Clusters at a glance* and issues, show what failed with **Try again** and **Copy details** (for a bug report); the rest keeps working.
+- **A failing section doesn't blank the page.** Each page, and the fleet page's dashboard, org cards, *Clusters at a glance* and issues, show what failed with **Try again** and **Copy details** (for a bug report); the rest keeps working.

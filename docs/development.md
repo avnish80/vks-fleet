@@ -140,7 +140,9 @@ src/
   scannerIssues.ts      Issues from scanner reports
   components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
   preflight.ts          Change impact analysis: checks, capacity during and after, blast radius, verdict
-  fleetHero.ts          The fleet page's hero band: at a glance, needs you now, the next 30 days
+  fleetHero.ts          Needs you now and the next 30 days
+  dashboard.ts          The fleet dashboard: its eight blocks, headline, tabs and their addresses
+  scoreHistory.ts       The fleet score over time, kept in the browser: daily points, trend, since the last visit
   hostmap.ts            The Supervisor by host, and what a host failure takes down
   explain.ts            Walk-down across layers (pod → node → Machine → VM → host → namespace → Supervisor), host patterns
   incident.ts           Incident timeline, summary with a suggested trigger, post-mortem draft

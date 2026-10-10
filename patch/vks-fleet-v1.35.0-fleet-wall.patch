@@ -1,0 +1,1206 @@
+From 9a88c0239d86f8a285fb0545de3398a2b845403b Mon Sep 17 00:00:00 2001
+From: avnish80 <avnish80@gmail.com>
+Date: Mon, 5 Oct 2026 11:58:09 +0800
+Subject: [PATCH] v1.35.0: fleet page rebuilt around a cluster wall, score
+ reasons, Simulate fixes, one-line issues
+
+- Cluster wall: one tile per cluster, grouped by org, coloured by its worst
+  open issue, with Fix ready / Needs a decision.
+- What holds the score down: the checks that cost the fleet score the most.
+- Simulate fixes: redraws the wall, score and issues as they would be after
+  the fixes the plugin already has. Nothing is sent anywhere.
+- Issues are one line each until opened; Needs you now and Next 30 days
+  share a card.
+- vks-fleet mark, issue icons, and the unmodified Kubernetes icon from the
+  CNCF artwork repository (see NOTICE).
+- Fix: an issue's button could read "Go to Go to it".
+
+New pure module src/fixes.ts with tests/fix-proposals.test.ts.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01VsA7Bf4NyBbhg4RJGoEQ6a
+---
+ CHANGELOG.md                   |  13 ++
+ NOTICE                         |   7 +
+ docs/features.md               |  10 +-
+ src/assets/kubernetesIcon.ts   |  10 +
+ src/components/ClusterWall.tsx | 161 ++++++++++++++++
+ src/components/FleetHero.tsx   | 323 ++++++++++++++++++++++-----------
+ src/components/FleetView.tsx   |  17 +-
+ src/components/IssuesList.tsx  |  61 ++++++-
+ src/fixes.ts                   | 212 ++++++++++++++++++++++
+ tests/fix-proposals.test.ts    |  90 +++++++++
+ 10 files changed, 784 insertions(+), 120 deletions(-)
+ create mode 100644 src/assets/kubernetesIcon.ts
+ create mode 100644 src/components/ClusterWall.tsx
+ create mode 100644 src/fixes.ts
+ create mode 100644 tests/fix-proposals.test.ts
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 92a4cfd..34fb225 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,19 @@
+ 
+ Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
+ 
++## 1.35.0 (release candidate)
++
++The fleet page, rebuilt around the fleet itself:
++
++- **Cluster wall:** every cluster is a tile, grouped by org and coloured by its worst open issue, naming that issue and whether a fix is ready. Tiles shrink for large fleets; a tile opens its cluster.
++- **The score explains itself:** next to the fleet score, *What holds the score down* lists the best-practice checks that cost the most points across the fleet, and which of them the plugin can fix.
++- **Simulate fixes:** a switch that shows the fleet as it would be after the fixes the plugin already has (unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, a control plane of 3, a Pod Security level). The wall, the score and the issues update together. It only redraws the page: nothing is sent anywhere. Upgrades and package re-reconciles aren't counted as fixes.
++- **Fix ready / Needs a decision** on every issue, in *Needs you now* and in the issues list; where a fix exists, its button opens the existing action with its checks and dry run.
++- **Issues are one line each** until opened (**Details**), so a long list fits a screen; the cause, evidence, runbook, Investigate, Silence and Copy diagnosis are inside. A list of one opens by default.
++- ***Needs you now* and *Next 30 days* share one card:** up to six items with their timing, and the timeline below without the repeated list.
++- **Marks:** a vks-fleet mark, an icon per kind of issue, and the Kubernetes icon on cluster tiles (unmodified, from the CNCF artwork repository; see NOTICE).
++- **Fixed:** an issue's button could read *Go to Go to it*.
++
+ ## 1.34.2 (release candidate)
+ 
+ From the clean-install retest on VCF 9.1 (which passed: restricted Pod Security, verified TLS, Headlamp trusting the CA, with no manual steps):
+diff --git a/NOTICE b/NOTICE
+index 200bff8..0bf2e21 100644
+--- a/NOTICE
++++ b/NOTICE
+@@ -10,3 +10,10 @@ its subsidiaries. Kubernetes is a registered trademark of the Linux
+ Foundation. Headlamp is a Cloud Native Computing Foundation project. Other
+ names may be trademarks of their respective owners. They are used here only
+ to describe what this software works with.
++
++The Kubernetes icon (src/assets/kubernetesIcon.ts) is the unmodified icon from
++the CNCF artwork repository (https://github.com/cncf/artwork). It is a
++trademark of the Linux Foundation, used only to mark Kubernetes clusters in
++line with the Foundation's trademark usage guidelines
++(https://www.linuxfoundation.org/legal/trademark-usage), and is not covered by
++this project's licence.
+diff --git a/docs/features.md b/docs/features.md
+index 43edcba..a348473 100644
+--- a/docs/features.md
++++ b/docs/features.md
+@@ -23,7 +23,13 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used
+ 
+ Search is one keystroke away everywhere: **Ctrl+K**.
+ 
+-**The fleet page** is built so that every number appears once. It opens with three things: **the fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health), **Needs you now** (the top three issues, critical first and then by how much they touch, each with Investigate), and **the next 30 days** (a timeline of what expires or runs out: control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back). *Needs you now* puts time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings.
++**The fleet page** is built so that the fleet itself is the picture. It opens with:
++
++- **The fleet score** (a ring with the average cluster score, clusters needing attention, critical and warning counts, and the Supervisor's health) beside **what holds the score down**: the best-practice checks that cost the most points across the fleet, largest first, each with the number of clusters behind it.
++- **The cluster wall:** one tile per cluster, grouped by org and coloured by its worst open issue. A tile names that issue, says **Fix ready** (with the fix) or **Needs a decision**, counts the cluster's other issues, and opens the cluster. Tiles shrink when the fleet is large.
++- **Needs you now:** up to six items, time-bound problems first (something running out within a week, a certificate within two), grouped per cluster, then critical issues, then warnings; each with Fix…, Investigate or Open. Under it, **the next 30 days**: a timeline of what expires or runs out (control-plane certificates, disks and volumes filling up from Prometheus forecasts, the Supervisor's control-plane disk, and silences or waivers that end and bring their issue back).
++
++**Simulate fixes** (the switch beside the score) shows the fleet as it would be after the fixes the plugin already has: unblocking or replacing a stuck or powered-off node, resuming a paused cluster, clearing leftover timeouts, turning on certificate rotation, scaling a control plane to 3, setting a Pod Security level. Fixed tiles, score reasons and issues are marked, the score moves, and what's left is what needs a decision. It only redraws the page; nothing is sent to any cluster. An upgrade is a planned change and a package re-reconcile may not help, so neither counts as a fix.
+ 
+ Below it: the org cards; **Clusters at a glance**, one row per cluster, worst first, with health, issues, best-practice score, baseline, backup, certificates, version and nodes, each coloured (clicking the fleet score opens it); cards only where there's something to show (busiest nodes, subnet usage, and version or package drift when there is some); the activity heatmap; and the issues. Names are shortened when clusters share a prefix (`kubernetes-cluster-a1b2` shows as `a1b2`, nodes without their cluster's prefix), with the full name on hover.
+ 
+@@ -39,7 +45,7 @@ Filters live in the URL (the search box, *only clusters with problems*, the org)
+ 
+ The charts are plain SVG and CSS coloured from Headlamp's theme: no chart library, light and dark mode both work, and animations respect reduced-motion settings.
+ 
+-**Issues:** findings and signals folded into problems with a cause. Each issue shows the evidence, what it affects (clusters, tenants, nodes, pods), what to do, and links to the right pages, plus **Copy diagnosis**: a Markdown write-up for a ticket, a chat or an AI assistant. Rules built from real incidents:
++**Issues:** findings and signals folded into problems with a cause. Each issue is one line (severity, title, where, **Fix ready** or **Needs a decision**, and its main button) until **Details** opens it. Opened, an issue shows the evidence, what it affects (clusters, tenants, nodes, pods), what to do, and links to the right pages, plus **Copy diagnosis**: a Markdown write-up for a ticket, a chat or an AI assistant. Rules built from real incidents:
+ 
+ - a node whose pod networking fails, with the CNI error and the pods stuck there (critical when platform pods such as DNS or sign-in are hit)
+ - a deletion stuck for more than 30 minutes, with the pool's timeouts and the pods on the node
+diff --git a/src/assets/kubernetesIcon.ts b/src/assets/kubernetesIcon.ts
+new file mode 100644
+index 0000000..b1ccf01
+--- /dev/null
++++ b/src/assets/kubernetesIcon.ts
+@@ -0,0 +1,10 @@
++/**
++ * The Kubernetes icon, unmodified, from the CNCF artwork repository
++ * (github.com/cncf/artwork, projects/kubernetes/icon/color/kubernetes-icon-color.svg).
++ * Kubernetes is a registered trademark of The Linux Foundation; the icon is used
++ * here only to mark Kubernetes clusters, under the Foundation's trademark usage
++ * guidelines (https://www.linuxfoundation.org/legal/trademark-usage). See NOTICE.
++ *
++ * Kept as a data URI so the plugin stays a single file with no asset loader.
++ */
++export const KUBERNETES_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHJvbGU9ImltZyIgdmlld0JveD0iLTAuMTcgMC4wOCAyMzAuMTAgMjIzLjM1Ij48ZGVmcz48c3R5bGU+LmNscy0xe2ZpbGw6I2ZmZn0uY2xzLTJ7ZmlsbDojMzI2Y2U1fTwvc3R5bGU+PC9kZWZzPjxwYXRoIGQ9Ik0xMzQuMzU4IDEyNi40NjZhMy41OSAzLjU5IDAgMCAwLS44NTUtLjA2NSAzLjY4NSAzLjY4NSAwIDAgMC0xLjQyNS4zNyAzLjcyNSAzLjcyNSAwIDAgMC0xLjgwMyA0LjgyNWwtLjAyNi4wMzcgOC41MjggMjAuNjAzYTQzLjUzIDQzLjUzIDAgMCAwIDE3LjU5NS0yMi4xMDJsLTIxLjk3Ni0zLjcxNHptLTM0LjE5NCAyLjkyYTMuNzIgMy43MiAwIDAgMC0zLjU2OC0yLjg5NCAzLjY1NiAzLjY1NiAwIDAgMC0uNzMzLjA2NWwtLjAzNy0uMDQ1LTIxLjc4NSAzLjY5OGE0My42OTUgNDMuNjk1IDAgMCAwIDE3LjU0IDIxLjk0Nmw4LjQ0Mi0yMC40LS4wNjYtLjA4YTMuNjgzIDMuNjgzIDAgMCAwIC4yMDctMi4yOXptMTguMjQ1IDhhMy43MTggMy43MTggMCAwIDAtNi41NTcuMDA4aC0uMDE4bC0xMC43MTMgMTkuMzcyYTQzLjYzNyA0My42MzcgMCAwIDAgMjMuODE1IDEuMjI1cTIuMTk3LS41IDQuMjkyLTEuMmwtMTAuNzM4LTE5LjQwNnptMzMuOTE0LTQ1bC0xNi40ODMgMTQuNzUzLjAwOS4wNDdhMy43MjUgMy43MjUgMCAwIDAgMS40NiA2LjM5NWwuMDIuMDg5IDIxLjM1IDYuMTVhNDQuMjc4IDQ0LjI3OCAwIDAgMC02LjM1Ni0yNy40MzJ6TTEyMS43IDk0LjAzOWEzLjcyNSAzLjcyNSAwIDAgMCA1LjkxMyAyLjg0bC4wNjUuMDI3IDE4LjAzNi0xMi43ODhhNDMuODUgNDMuODUgMCAwIDAtMjUuMjg3LTEyLjE5bDEuMjUzIDIyLjEwNXptLTE5LjEgMi45MjFhMy43MiAzLjcyIDAgMCAwIDUuOTA0LTIuODVsLjA5Mi0uMDQzIDEuMjUzLTIyLjE0YTQ0LjY4MiA0NC42ODIgMCAwIDAtNC41MDEuNzc2IDQzLjQ2NyA0My40NjcgMCAwIDAtMjAuOTM3IDExLjQwOWwxOC4xNTQgMTIuODY5em0tOS42NzggMTYuNzI5YTMuNzIgMy43MiAwIDAgMCAxLjQ2Mi02LjM5NmwuMDE4LS4wODgtMTYuNTc0LTE0LjgyNGE0My40NTQgNDMuNDU0IDAgMCAwLTYuMTY4IDI3LjUxbDIxLjI0NS02LjEzem0xNi4wOTggNi41MTJsNi4xMTQgMi45NCA2LjA5Ni0yLjkzNCAxLjUxNC02LjU4MS00LjIxOS01LjI3NmgtNi43OWwtNC4yMzEgNS4yNjh6IiBjbGFzcz0iY2xzLTIiLz48cGF0aCBkPSJNMjE2LjIwOCAxMzMuMTY3bC0xNy40MjItNzUuNjc1YTEzLjYwMiAxMy42MDIgMCAwIDAtNy4yOTMtOS4wNzNsLTcwLjUyMS0zMy42N2ExMy41ODkgMTMuNTg5IDAgMCAwLTExLjcwNSAwTDM4Ljc2IDQ4LjQzN2ExMy41OTggMTMuNTk4IDAgMCAwLTcuMjk1IDkuMDcybC0xNy4zOTQgNzUuNjczYTEzLjMxNSAxMy4zMTUgMCAwIDAtLjAwNCA1LjgxIDEzLjUwNiAxMy41MDYgMCAwIDAgLjQ5MSAxLjcxOCAxMy4xIDEzLjEgMCAwIDAgMS4zNDMgMi43MjZjLjIzOS4zNjUuNDkxLjcyLjc2NSAxLjA2NGw0OC44MDQgNjAuNjc4Yy4yMTMuMjY0LjQ0OC41MDUuNjgxLjc1YTEzLjQyMyAxMy40MjMgMCAwIDAgMi41NzQgMi4xMzMgMTMuOTI0IDEzLjkyNCAwIDAgMCAzLjg1NyAxLjY3NyAxMy4yOTggMTMuMjk4IDAgMCAwIDMuNDMuNDczaC43NTlsNzcuNTA0LS4wMThhMTIuOTkzIDEyLjk5MyAwIDAgMCAxLjQxLS4wODMgMTMuNDcgMTMuNDcgMCAwIDAgMS45ODktLjM3OCAxMy44NzIgMTMuODcyIDAgMCAwIDEuMzgxLS40NDJjLjM1My0uMTM1LjcwNS0uMjcgMS4wNDUtLjQzM2ExMy45NDEgMTMuOTQxIDAgMCAwIDEuNDc5LS44MjIgMTMuMzAzIDEzLjMwMyAwIDAgMCAzLjIzNy0yLjg2NWwxLjQ4OC0xLjg1IDQ3LjI5OS01OC44NGExMy4xODUgMTMuMTg1IDAgMCAwIDIuMTA4LTMuNzg1IDEzLjY3IDEzLjY3IDAgMCAwIC41LTEuNzI0IDEzLjI4MiAxMy4yODIgMCAwIDAtLjAwNC01Ljgxem0tNzMuMTQ3IDI5LjQzMmExNC41MTYgMTQuNTE2IDAgMCAwIC43MDMgMS43MDMgMy4zMTQgMy4zMTQgMCAwIDAtLjMyNyAyLjQ5IDM5LjM3MiAzOS4zNzIgMCAwIDAgMy43NDIgNi43IDM1LjA2IDM1LjA2IDAgMCAxIDIuMjYzIDMuMzY0Yy4xNy4zMTUuMzkyLjgwMy41NTMgMS4xMzZhNC4yNCA0LjI0IDAgMSAxLTcuNjMgMy42MDdjLS4xNjEtLjMzLS4zODUtLjc3LS41MjItMS4wODJhMzUuMjc1IDM1LjI3NSAwIDAgMS0xLjIyNS0zLjg2OCAzOS4zMDUgMzkuMzA1IDAgMCAwLTIuODk2LTcuMDk3IDMuMzM1IDMuMzM1IDAgMCAwLTIuMTU0LTEuMzA3Yy0uMTM1LS4yMzMtLjYzNS0xLjE1LS45MDMtMS42MjNhNTQuNjE3IDU0LjYxNyAwIDAgMS0zOC45NDgtLjFsLS45NTUgMS43M2EzLjQyOSAzLjQyOSAwIDAgMC0xLjgxOS44ODcgMjkuNTE3IDI5LjUxNyAwIDAgMC0zLjI2OCA3LjU4MiAzNC45IDM0LjkgMCAwIDEtMS4yMTggMy44NjhjLS4xMzUuMzEtLjM2MS43NDQtLjUyMiAxLjA3M3YuMDA5bC0uMDA3LjAwOGE0LjIzOCA0LjIzOCAwIDEgMS03LjYxOS0zLjYxNmMuMTU5LS4zMzUuMzcyLS44Mi41NC0xLjEzNWEzNS4xNzcgMzUuMTc3IDAgMCAxIDIuMjYyLTMuMzczIDQxLjIyOCA0MS4yMjggMCAwIDAgMy44Mi02Ljg2NiA0LjE4OCA0LjE4OCAwIDAgMC0uMzc2LTIuMzg3bC43NjgtMS44NGE1NC45MjIgNTQuOTIyIDAgMCAxLTI0LjMzOC0zMC4zODdsLTEuODM5LjMxM2E0LjY4IDQuNjggMCAwIDAtMi40MjgtLjg1NSAzOS41MjQgMzkuNTI0IDAgMCAwLTcuMzU2IDIuMTY1IDM1LjU4OSAzNS41ODkgMCAwIDEtMy43ODcgMS40NWMtLjMwNS4wODQtLjc0NS4xNjgtMS4wOTMuMjQ0LS4wMjguMDEtLjA1Mi4wMjItLjA4LjAyOWEuNjA1LjYwNSAwIDAgMS0uMDY1LjAwNiA0LjIzNiA0LjIzNiAwIDEgMS0xLjg3NC04LjIyNGwuMDYxLS4wMTUuMDM3LS4wMWMuMzUzLS4wODMuODA1LS4yIDEuMTI3LS4yNjJhMzUuMjcgMzUuMjcgMCAwIDEgNC4wNS0uMzI2IDM5LjM4OCAzOS4zODggMCAwIDAgNy41NjQtMS4yNDIgNS44MzUgNS44MzUgMCAwIDAgMS44MTQtMS44M2wxLjc2Ny0uNTE2YTU0LjYxMyA1NC42MTMgMCAwIDEgOC42MTMtMzguMDczbC0xLjM1My0xLjIwNmE0LjY4OCA0LjY4OCAwIDAgMC0uODQ4LTIuNDM2IDM5LjM2NiAzOS4zNjYgMCAwIDAtNi4yNzctNC40MSAzNS4yNSAzNS4yNSAwIDAgMS0zLjQ5OS0yLjA0NmMtLjI1Ni0uMTkxLS41OTYtLjQ3OC0uODc0LS43MDRsLS4wNjMtLjA0NGE0LjQ3MyA0LjQ3MyAwIDAgMS0xLjAzOC02LjIyMiA0LjA2NiA0LjA2NiAwIDAgMSAzLjM2My0xLjQ4OCA1LjAzIDUuMDMgMCAwIDEgMi45NDIgMS4xMWMuMjg3LjIyNS42OC41MjYuOTM1Ljc0NWEzNS4yNTMgMzUuMjUzIDAgMCAxIDIuNzggMi45NSAzOS4zODMgMzkuMzgzIDAgMCAwIDUuNjkgNS4xNDIgMy4zMzMgMy4zMzMgMCAwIDAgMi41MDcuMjQzcS43NTQuNTUgMS41MjIgMS4wODJBNTQuMjg5IDU0LjI4OSAwIDAgMSAxMDIuODYgNjEuODlhNTUuMDUyIDU1LjA1MiAwIDAgMSA3LjYzLTEuMTczbC4xLTEuNzg0YTQuNiA0LjYgMCAwIDAgMS4zNy0yLjE4NCAzOS40NzYgMzkuNDc2IDAgMCAwLS40Ny03LjY1NCAzNS40NjYgMzUuNDY2IDAgMCAxLS41NzYtNC4wMTRjLS4wMTEtLjMwNy4wMDYtLjczMS4wMS0xLjA4MSAwLS4wNC0uMDEtLjA4LS4wMS0uMTE4YTQuMjQyIDQuMjQyIDAgMSAxIDguNDQxLS4wMDRjMCAuMzcuMDIyLjg2LjAwOSAxLjJhMzUuMTA5IDM1LjEwOSAwIDAgMS0uNTc5IDQuMDEzIDM5LjUzMyAzOS41MzMgMCAwIDAtLjQ3OCA3LjY1NiAzLjM0NCAzLjM0NCAwIDAgMCAxLjM3OSAyLjExYy4wMTUuMzA1LjA2NSAxLjMyMy4xMDIgMS44ODRhNTUuMzA5IDU1LjMwOSAwIDAgMSAzNS4wMzIgMTYuOTI3bDEuNjA2LTEuMTQ3YTQuNjkgNC42OSAwIDAgMCAyLjU2LS4yNzggMzkuNTMyIDM5LjUzMiAwIDAgMCA1LjY5LTUuMTQ4IDM1LjAwNCAzNS4wMDQgMCAwIDEgMi43ODctMi45NWMuMjU5LS4yMjIuNjUtLjUyLjkzNi0uNzQ2YTQuMjQyIDQuMjQyIDAgMSAxIDUuMjU4IDYuNTk4Yy0uMjgzLjIyOS0uNjU3LjU0OC0uOTI5Ljc1YTM1LjA5NSAzNS4wOTUgMCAwIDEtMy41MDcgMi4wNDYgMzkuNDk1IDM5LjQ5NSAwIDAgMC02LjI3NyA0LjQxIDMuMzM3IDMuMzM3IDAgMCAwLS43OTIgMi4zOWMtLjIzNS4yMTYtMS4wNi45NDctMS40OTcgMS4zNDNhNTQuODM3IDU0LjgzNyAwIDAgMSA4Ljc5MiAzNy45ODNsMS43MDQuNDk2YTQuNzQ1IDQuNzQ1IDAgMCAwIDEuODIgMS44MyAzOS40NjQgMzkuNDY0IDAgMCAwIDcuNTY4IDEuMjQ2IDM1LjY0IDM1LjY0IDAgMCAxIDQuMDQ2LjMyNGMuMzU1LjA2NS44NjguMjA3IDEuMjMuMjlhNC4yMzYgNC4yMzYgMCAxIDEtMS44NzggOC4yMjNsLS4wNjEtLjAwOGMtLjAyOC0uMDA3LS4wNTQtLjAyMi0uMDgzLS4wMy0uMzQ4LS4wNzUtLjc4NS0uMTUxLTEuMDktLjIzMWEzNS4xNCAzNS4xNCAwIDAgMS0zLjc4NS0xLjQ2MiAzOS40NzcgMzkuNDc3IDAgMCAwLTcuMzYzLTIuMTY1IDMuMzM3IDMuMzM3IDAgMCAwLTIuMzYyLjg3N3EtLjktLjE3MS0xLjgwNC0uMzE2YTU0LjkyIDU0LjkyIDAgMCAxLTI0LjMyOCAzMC42MDV6IiBjbGFzcz0iY2xzLTIiLz48cGF0aCBkPSJNMjI1LjQwNyAxMzUuMTA3TDIwNi40IDUyLjU0N2ExNC44MzggMTQuODM4IDAgMCAwLTcuOTU4LTkuOWwtNzYuOTM1LTM2LjczYTE0LjgyNSAxNC44MjUgMCAwIDAtMTIuNzcxIDBMMzEuODA4IDQyLjY2OWExNC44MzggMTQuODM4IDAgMCAwLTcuOTYxIDkuODk1TDQuODczIDEzNS4xMjlhMTQuNjY4IDE0LjY2OCAwIDAgMCAxLjk5NSAxMS4xODVjLjI2MS40LjUzOC43ODguODM4IDEuMTYybDUzLjI0NiA2Ni4yMDVhMTQuOTggMTQuOTggMCAwIDAgMTEuNDk5IDUuNDg3bDg1LjM4Ny0uMDJhMTQuOTg2IDE0Ljk4NiAwIDAgMCAxMS41LTUuNDhsNTMuMjI3LTY2LjIxMWExNC43MiAxNC43MiAwIDAgMCAyLjg0Mi0xMi4zNDd6bS05LjE5NyAzLjg2NmExMy42NzcgMTMuNjc3IDAgMCAxLS40OTggMS43MjMgMTMuMTg0IDEzLjE4NCAwIDAgMS0yLjExIDMuNzg2bC00Ny4yOTkgNTguODM4LTEuNDg2IDEuODUyYTEzLjMwNSAxMy4zMDUgMCAwIDEtMy4yNCAyLjg2NSAxMy45NDUgMTMuOTQ1IDAgMCAxLTEuNDc0LjgyMnEtLjUxMy4yMzctMS4wNDUuNDNhMTMuODczIDEzLjg3MyAwIDAgMS0xLjM4My40NDUgMTMuNDczIDEzLjQ3MyAwIDAgMS0xLjk4OS4zNzkgMTIuOTg4IDEyLjk4OCAwIDAgMS0xLjQxLjA4MmwtNzcuNTA0LjAxOGgtLjc2YTEzLjI5OCAxMy4yOTggMCAwIDEtMy40MjktLjQ3MiAxMy45MjUgMTMuOTI1IDAgMCAxLTMuODU1LTEuNjc5IDEzLjQyNCAxMy40MjQgMCAwIDEtMi41NzYtMi4xMzJjLS4yMzMtLjI0Ni0uNDY4LS40ODctLjY4LS43NWwtNDguODA1LTYwLjY3OXEtLjQwOC0uNTE0LS43NjUtMS4wNjZhMTMuMTAyIDEzLjEwMiAwIDAgMS0xLjM0My0yLjcyNiAxMy41MDUgMTMuNTA1IDAgMCAxLS40OTEtMS43MTkgMTMuMzE1IDEzLjMxNSAwIDAgMSAuMDA0LTUuODA5bDE3LjM5NC03NS42NzVhMTMuNTk4IDEzLjU5OCAwIDAgMSA3LjI5NS05LjA3bDcwLjUwOC0zMy42ODVhMTMuNTg5IDEzLjU4OSAwIDAgMSAxMS43MDUgMGw3MC41MTkgMzMuNjdhMTMuNjAyIDEzLjYwMiAwIDAgMSA3LjI5MyA5LjA3M2wxNy40MjIgNzUuNjc0YTEzLjI4MiAxMy4yODIgMCAwIDEgLjAwMiA1LjgwN3oiIGNsYXNzPSJjbHMtMSIvPjxwYXRoIGQ9Ik0xODUuODE0IDEyNy4xMDZjLS4zNi0uMDgzLS44NzQtLjIyNS0xLjIyNy0uMjlhMzUuNjQyIDM1LjY0MiAwIDAgMC00LjA0Ni0uMzI2IDM5LjQ2NCAzOS40NjQgMCAwIDEtNy41Ny0xLjI0MiA0Ljc0NSA0Ljc0NSAwIDAgMS0xLjgyLTEuODMybC0xLjcwNC0uNDk2YTU0LjgzNyA1NC44MzcgMCAwIDAtOC43OS0zNy45ODNjLjQzNi0uMzk2IDEuMjYyLTEuMTI3IDEuNDk1LTEuMzQyYTMuMzM4IDMuMzM4IDAgMCAxIC43OTItMi4zOSAzOS40OTUgMzkuNDk1IDAgMCAxIDYuMjc3LTQuNDEgMzUuMDk1IDM1LjA5NSAwIDAgMCAzLjUwNy0yLjA0NmMuMjcyLS4yMDIuNjQ0LS41MjIuOTI5LS43NWE0LjI0MiA0LjI0MiAwIDEgMC01LjI1Ni02LjZjLS4yODguMjI3LS42OC41MjUtLjkzNi43NDdhMzUuMDA0IDM1LjAwNCAwIDAgMC0yLjc4OSAyLjk1IDM5LjUzMyAzOS41MzMgMCAwIDEtNS42OSA1LjE0OCA0LjY5IDQuNjkgMCAwIDEtMi41Ni4yNzhsLTEuNjA2IDEuMTQ3YTU1LjMwOSA1NS4zMDkgMCAwIDAtMzUuMDMyLTE2LjkyN2MtLjAzOS0uNTYxLS4wODctMS41NzctLjEwMi0xLjg4NGEzLjM0NCAzLjM0NCAwIDAgMS0xLjM3Ny0yLjExIDM5LjUzMyAzOS41MzMgMCAwIDEgLjQ3OC03LjY1NiAzNS4xMTIgMzUuMTEyIDAgMCAwIC41NzUtNC4wMTJjLjAxMy0uMzQtLjAwNy0uODM0LS4wMDctMS4yMDFhNC4yNDIgNC4yNDIgMCAxIDAtOC40NDEuMDA0YzAgLjA0LjAwOS4wNzguMDEuMTE4LS4wMDQuMzUtLjAyMS43NzQtLjAxIDEuMDhhMzUuNDc2IDM1LjQ3NiAwIDAgMCAuNTc2IDQuMDE1IDM5LjQ3NSAzOS40NzUgMCAwIDEgLjQ3IDcuNjU0IDQuNjAxIDQuNjAxIDAgMCAxLTEuMzcgMi4xODJsLS4xIDEuNzg2YTU1LjA1MiA1NS4wNTIgMCAwIDAtNy42MyAxLjE3MyA1NC4yODkgNTQuMjg5IDAgMCAwLTI3LjU3NCAxNS43NTRxLS43Ny0uNTMxLTEuNTI2LTEuMDgyYTMuMzMzIDMuMzMzIDAgMCAxLTIuNTA2LS4yNDMgMzkuMzgzIDM5LjM4MyAwIDAgMS01LjY5LTUuMTQxIDM1LjI1NSAzNS4yNTUgMCAwIDAtMi43NzctMi45NWMtLjI1Ny0uMjItLjY1LS41Mi0uOTM4LS43NWE1LjAzIDUuMDMgMCAwIDAtMi45NDItMS4xMSA0LjA2NiA0LjA2NiAwIDAgMC0zLjM2MyAxLjQ5IDQuNDczIDQuNDczIDAgMCAwIDEuMDM4IDYuMjIybC4wNjUuMDQ2Yy4yNzYuMjI2LjYxNi41MTUuODcyLjcwMmEzNS4yNTYgMzUuMjU2IDAgMCAwIDMuNDk5IDIuMDQ4IDM5LjM2NyAzOS4zNjcgMCAwIDEgNi4yNzYgNC40MTIgNC42OSA0LjY5IDAgMCAxIC44NDkgMi40MzRsMS4zNTEgMS4yMDhhNTQuNjEzIDU0LjYxMyAwIDAgMC04LjYxMSAzOC4wNzNsLTEuNzY3LjUxNGE1LjgzNSA1LjgzNSAwIDAgMS0xLjgxNCAxLjgyNyAzOS4zOSAzOS4zOSAwIDAgMS03LjU2NSAxLjI0NyAzNS4yNjYgMzUuMjY2IDAgMCAwLTQuMDQ5LjMyNmMtLjMyNC4wNi0uNzc0LjE3NC0xLjEyNy4yNjJsLS4wMzcuMDA4LS4wNi4wMThhNC4yMzYgNC4yMzYgMCAxIDAgMS44NzUgOC4yMjRsLjA2My0uMDFjLjAyOC0uMDA2LjA1Mi0uMDIuMDgtLjAyNS4zNDgtLjA4Ljc4Ni0uMTYzIDEuMDkyLS4yNDZhMzUuNTkgMzUuNTkgMCAwIDAgMy43ODYtMS40NTEgMzkuNTI3IDM5LjUyNyAwIDAgMSA3LjM1OC0yLjE2NSA0LjY4IDQuNjggMCAwIDEgMi40MjYuODU3bDEuODQtLjMxNWE1NC45MjIgNTQuOTIyIDAgMCAwIDI0LjM0IDMwLjM4N2wtLjc2OSAxLjg0YTQuMTg4IDQuMTg4IDAgMCAxIC4zNzcgMi4zODcgNDEuMjI4IDQxLjIyOCAwIDAgMS0zLjgyIDYuODY0IDM1LjE4MyAzNS4xODMgMCAwIDAtMi4yNjMgMy4zNzJjLS4xNjguMzE4LS4zODEuODA1LS41NDIgMS4xMzhhNC4yMzggNC4yMzggMCAxIDAgNy42MjEgMy42MTZsLjAwNy0uMDA4di0uMDFjLjE2LS4zMy4zODctLjc2My41MjItMS4wNzJhMzQuOTAzIDM0LjkwMyAwIDAgMCAxLjIxOC0zLjg2OCAyOS41MTcgMjkuNTE3IDAgMCAxIDMuMjY4LTcuNTgyIDMuNDMgMy40MyAwIDAgMSAxLjgxOS0uODg4bC45NTctMS43M2E1NC42MTcgNTQuNjE3IDAgMCAwIDM4Ljk0Ni4wOTljLjI2OC40NzguNzY4IDEuMzkyLjkgMS42MjNhMy4zMzUgMy4zMzUgMCAwIDEgMi4xNTUgMS4zMSAzOS4zMDYgMzkuMzA2IDAgMCAxIDIuODk4IDcuMDk2IDM1LjI3NSAzNS4yNzUgMCAwIDAgMS4yMjUgMy44NjhjLjEzNy4zMTIuMzYuNzUuNTIyIDEuMDgyYTQuMjQgNC4yNCAwIDEgMCA3LjYzLTMuNjA3Yy0uMTYxLS4zMzMtLjM4My0uODItLjU1LTEuMTM2YTM1LjA2IDM1LjA2IDAgMCAwLTIuMjYzLTMuMzY0IDM5LjM3MiAzOS4zNzIgMCAwIDEtMy43NDItNi43IDMuMzE0IDMuMzE0IDAgMCAxIC4zMjQtMi40OSAxNC41MTkgMTQuNTE5IDAgMCAxLS43MDMtMS43MDMgNTQuOTIgNTQuOTIgMCAwIDAgMjQuMzI4LTMwLjYwNWMuNTQ2LjA4NyAxLjQ5Ny4yNTMgMS44MDYuMzE2YTMuMzM3IDMuMzM3IDAgMCAxIDIuMzYtLjg3NyAzOS40NzYgMzkuNDc2IDAgMCAxIDcuMzYgMi4xNjUgMzUuMTM1IDM1LjEzNSAwIDAgMCAzLjc4OCAxLjQ2MmMuMzA1LjA4Ljc0LjE1NiAxLjA5LjIzMy4wMjkuMDA4LjA1NS4wMi4wODMuMDI4bC4wNi4wMDlhNC4yMzYgNC4yMzYgMCAxIDAgMS44NzgtOC4yMjR6bS00MC4xLTQyLjk4N2wtMTguMDM3IDEyLjc4Ny0uMDYzLS4wM2EzLjcyMyAzLjcyMyAwIDAgMS01LjkxMy0yLjgzOGwtLjAyLS4wMS0xLjI1My0yMi4xMDNhNDMuODUgNDMuODUgMCAwIDEgMjUuMjg1IDEyLjE5NHptLTMzLjk3OCAyNC4yMjhoNi43ODhsNC4yMiA1LjI3Ni0xLjUxMyA2LjU4LTYuMDk2IDIuOTM0LTYuMTE0LTIuOTQtMS41MTYtNi41ODN6bS02LjM4Ni0zNS42NDhhNDQuNjcyIDQ0LjY3MiAwIDAgMSA0LjUwMy0uNzc0bC0xLjI1NSAyMi4xMzctLjA5Mi4wNDRhMy43MiAzLjcyIDAgMCAxLTUuOTA0IDIuODUybC0uMDM1LjAyLTE4LjE1NC0xMi44NzJhNDMuNDY3IDQzLjQ2NyAwIDAgMSAyMC45MzctMTEuNDA3em0tMjcuNTIgMTkuNjhsMTYuNTc0IDE0LjgyNC0uMDE4LjA5YTMuNzIgMy43MiAwIDAgMS0xLjQ2MiA2LjM5NWwtLjAxNy4wNzItMjEuMjQ1IDYuMTNhNDMuNDU0IDQzLjQ1NCAwIDAgMSA2LjE2OC0yNy41MXptMjIuMTkxIDM5LjM4bC04LjQ0MSAyMC4zOTdhNDMuNjk2IDQzLjY5NiAwIDAgMS0xNy41MzYtMjEuOTQ4bDIxLjc4My0zLjcuMDM3LjA0OWEzLjY1NSAzLjY1NSAwIDAgMSAuNzMtLjA2NSAzLjcyIDMuNzIgMCAwIDEgMy4zNjQgNS4xODV6bTI0LjkxNiAyNi4yM2E0My42MzcgNDMuNjM3IDAgMCAxLTIzLjgxNS0xLjIyM2wxMC43MTMtMTkuMzcyaC4wMThhMy43MjUgMy43MjUgMCAwIDEgNi41NTctLjAwNmguMDhsMTAuNzQgMTkuNDA0cS0yLjA5MS42OTgtNC4yOTMgMS4xOTl6bTEzLjg0MS01Ljc1MWwtOC41MjgtMjAuNjA1LjAyNi0uMDM3YTMuNzI1IDMuNzI1IDAgMCAxIDEuODAzLTQuODIzIDMuNjg1IDMuNjg1IDAgMCAxIDEuNDI1LS4zNyAzLjU5IDMuNTkgMCAwIDEgLjg1NS4wNjNsLjAzNy0uMDQ2IDIxLjk3NyAzLjcxNGE0My41MyA0My41MyAwIDAgMS0xNy41OTUgMjIuMTA1em0xOS45MDMtMzIuNDJsLTIxLjM1Mi02LjE1LS4wMi0uMDlhMy43MjUgMy43MjUgMCAwIDEtMS40Ni02LjM5NWwtLjAwOC0uMDQzIDE2LjQ4Mi0xNC43NTFhNDQuMjc5IDQ0LjI3OSAwIDAgMSA2LjM1NyAyNy40M3oiIGNsYXNzPSJjbHMtMSIvPjwvc3ZnPg==';
+diff --git a/src/components/ClusterWall.tsx b/src/components/ClusterWall.tsx
+new file mode 100644
+index 0000000..0bc2330
+--- /dev/null
++++ b/src/components/ClusterWall.tsx
+@@ -0,0 +1,161 @@
++/**
++ * The cluster wall: every cluster as one tile, grouped by org, coloured by its
++ * worst open issue. The fleet itself is the picture; a tile opens its cluster.
++ */
++import { alpha, Box, Typography, useTheme } from '@mui/material';
++import React from 'react';
++import { Link } from 'react-router-dom';
++import { KUBERNETES_ICON } from '../assets/kubernetesIcon';
++import { TileIcon, TileState, WallTile } from '../fixes';
++
++/** Simple stroke glyphs (24×24), drawn for this plugin. */
++const GLYPHS: Record<TileIcon, string> = {
++  storage: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3v12c0 1.7-3.6 3-8 3s-8-1.3-8-3V6z M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3 M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
++  memory: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4',
++  network: 'M12 3v6 M5 21v-4h14v4 M12 9v8 M9 3h6v6H9z M2 21h6 M16 21h6',
++  node: 'M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01',
++  certificate: 'M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z M9 12l2 2 4-4',
++  lifecycle: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16V8 M8.5 11.5L12 8l3.5 3.5',
++  security: 'M6 11h12v9H6z M8 11V8a4 4 0 0 1 8 0v3',
++  alert: 'M12 4l9 16H3L12 4z M12 10v4 M12 17h.01',
++  ok: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12l3 3 5-6',
++};
++
++export function Glyph({ icon, size = 20 }: { icon: TileIcon; size?: number }) {
++  return (
++    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
++      <path d={GLYPHS[icon]} />
++    </svg>
++  );
++}
++
++/** The plugin's own mark: a small wall of tiles. */
++export function FleetMark({ size = 40 }: { size?: number }) {
++  const theme: any = useTheme();
++  const main = theme.palette?.primary?.main ?? '#0E4F66';
++  const on = theme.palette?.primary?.contrastText ?? '#ffffff';
++  const warn = theme.palette?.warning?.main ?? '#f59e0b';
++  const cells = [0, 1, 2].flatMap(r => [0, 1, 2].map(c => ({ r, c })));
++  return (
++    <svg viewBox="0 0 52 52" width={size} height={size} role="img" aria-label="vks-fleet" style={{ flexShrink: 0 }}>
++      <rect width={52} height={52} rx={12} fill={main} />
++      {cells.map(({ r, c }) => (
++        <rect key={`${r}${c}`} x={10 + c * 12} y={10 + r * 12} width={8} height={8} rx={2} fill={r === 1 && c === 1 ? warn : on} fillOpacity={(r === 0 && c === 2) || (r === 2 && c === 0) ? 0.55 : 1} />
++      ))}
++    </svg>
++  );
++}
++
++/** The Kubernetes icon on a neutral disc, so it reads on any tile colour. */
++export function KubernetesIcon({ size = 18 }: { size?: number }) {
++  return (
++    <Box sx={{ width: size + 6, height: size + 6, borderRadius: '50%', bgcolor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
++      <img src={KUBERNETES_ICON} alt="" width={size} height={size} />
++    </Box>
++  );
++}
++
++export function useTileLook(): (s: TileState) => { bg: string; border: string; fg: string; sub: string } {
++  const theme: any = useTheme();
++  const p = theme.palette ?? {};
++  const text = p.text?.primary ?? '#111827';
++  const muted = p.text?.secondary ?? '#6b7280';
++  return (s: TileState) => {
++    if (s === 'critical') return { bg: p.error?.main ?? '#d32f2f', border: p.error?.main ?? '#d32f2f', fg: p.error?.contrastText ?? '#ffffff', sub: p.error?.contrastText ?? '#ffffff' };
++    if (s === 'warning') return { bg: alpha(p.warning?.main ?? '#ed6c02', 0.16), border: p.warning?.main ?? '#ed6c02', fg: text, sub: text };
++    if (s === 'fixed') return { bg: alpha(p.info?.main ?? '#0288d1', 0.14), border: p.info?.main ?? '#0288d1', fg: text, sub: text };
++    return { bg: 'transparent', border: p.divider ?? 'rgba(0,0,0,0.12)', fg: muted, sub: muted };
++  };
++}
++
++const LEGEND: Array<{ state: TileState; label: string }> = [
++  { state: 'critical', label: 'Critical' },
++  { state: 'warning', label: 'Warning' },
++  { state: 'fixed', label: 'Fixed in simulation' },
++  { state: 'healthy', label: 'Healthy' },
++];
++
++function Tile({ tile }: { tile: WallTile }) {
++  const look = useTileLook()(tile.state);
++  return (
++    <Box
++      component={Link}
++      to={tile.path}
++      title={`${tile.fullName}: ${tile.line1}`}
++      sx={{
++        display: 'flex',
++        flexDirection: 'column',
++        gap: 0.75,
++        minHeight: 112,
++        p: 1.5,
++        borderRadius: 2,
++        border: '1.5px solid',
++        borderColor: look.border,
++        bgcolor: look.bg,
++        color: look.fg,
++        textDecoration: 'none',
++        transition: 'background-color 240ms ease, border-color 240ms ease, color 240ms ease',
++        '&:hover': { boxShadow: 3 },
++        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
++      }}
++    >
++      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
++        <KubernetesIcon />
++        <Typography sx={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, wordBreak: 'break-all', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{tile.name}</Typography>
++        <Glyph icon={tile.icon} />
++      </Box>
++      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{tile.line1}</Typography>
++      <Typography sx={{ mt: 'auto', fontSize: '0.78rem', lineHeight: 1.3, color: look.sub }}>
++        {tile.line2}
++        {tile.more > 0 ? ` · ${tile.more} more` : ''}
++      </Typography>
++    </Box>
++  );
++}
++
++export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: boolean }) {
++  const look = useTileLook();
++  const groups = new Map<string, WallTile[]>();
++  for (const t of tiles) groups.set(t.tenantId, [...(groups.get(t.tenantId) ?? []), t]);
++  const rank: Record<TileState, number> = { critical: 0, warning: 1, fixed: 2, healthy: 3 };
++  const ordered = Array.from(groups.values()).sort((a, b) => a[0].tenantName.localeCompare(b[0].tenantName));
++  // Many clusters: smaller tiles, so the whole fleet still fits one screen.
++  const min = tiles.length > 36 ? 132 : 168;
++  return (
++    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
++      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center', justifyContent: 'space-between' }}>
++        <Typography sx={{ fontWeight: 800 }}>Clusters</Typography>
++        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
++          {LEGEND.filter(l => l.state !== 'fixed' || simulate).map(l => (
++            <Box key={l.state} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
++              <Box sx={{ width: 12, height: 12, borderRadius: '3px', border: '1px solid', borderColor: look(l.state).border, bgcolor: look(l.state).bg }} />
++              <Typography variant="caption" color="text.secondary">
++                {l.label}
++              </Typography>
++            </Box>
++          ))}
++        </Box>
++      </Box>
++      {ordered.map(group => (
++        <Box key={group[0].tenantId} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
++          {ordered.length > 1 && (
++            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
++              <Typography sx={{ fontWeight: 700, fontSize: '0.95rem' }}>{group[0].tenantName}</Typography>
++              <Typography variant="caption" color="text.secondary">
++                {group.length} cluster{group.length === 1 ? '' : 's'}
++              </Typography>
++            </Box>
++          )}
++          <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))`, gap: 1.5 }}>
++            {group
++              .slice()
++              .sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name))
++              .map(t => (
++                <Tile key={t.key} tile={t} />
++              ))}
++          </Box>
++        </Box>
++      ))}
++    </Box>
++  );
++}
+diff --git a/src/components/FleetHero.tsx b/src/components/FleetHero.tsx
+index 871876b..986ff03 100644
+--- a/src/components/FleetHero.tsx
++++ b/src/components/FleetHero.tsx
+@@ -1,7 +1,9 @@
+-import { Box, Button, Paper, Typography } from '@mui/material';
++import { Box, Button, FormControlLabel, Paper, Switch, Typography } from '@mui/material';
+ import React from 'react';
+ import { Link } from 'react-router-dom';
++import { FixCounts, FixProposal, ScoreDriver, WallTile } from '../fixes';
+ import { Glance, HORIZON_DAYS, HorizonItem, inWords, NowItem } from '../fleetHero';
++import { ClusterWall, FleetMark } from './ClusterWall';
+ 
+ const TONE = { error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
+ const SEV = { critical: '#ef4444', warning: '#f59e0b', info: '#3b82f6' } as const;
+@@ -14,7 +16,7 @@ function Ring({ score }: { score?: number }) {
+   return (
+     <svg viewBox="0 0 120 120" width={120} height={120} role="img" aria-label={`Fleet health ${score ?? 'unknown'}`}>
+       <circle cx={60} cy={60} r={r} fill="none" stroke="currentColor" strokeOpacity={0.1} strokeWidth={11} />
+-      <circle cx={60} cy={60} r={r} fill="none" stroke={scoreColour(score)} strokeWidth={11} strokeLinecap="round" strokeDasharray={`${len * pct} ${len}`} transform="rotate(-90 60 60)" />
++      <circle cx={60} cy={60} r={r} fill="none" stroke={scoreColour(score)} strokeWidth={11} strokeLinecap="round" strokeDasharray={`${len * pct} ${len}`} transform="rotate(-90 60 60)" style={{ transition: 'stroke-dasharray 600ms ease, stroke 600ms ease' }} />
+       <text x={60} y={60} textAnchor="middle" dominantBaseline="central" fontSize={30} fontWeight={800} fill="currentColor">
+         {score ?? '—'}
+       </text>
+@@ -25,9 +27,88 @@ function Ring({ score }: { score?: number }) {
+   );
+ }
+ 
+-const card = { p: 2, borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column' as const };
++const card = { p: 2, borderRadius: 3, display: 'flex', flexDirection: 'column' as const };
+ 
+-export function FleetHero({ glance, top, horizon, now = Date.now(), onScore }: { glance: Glance; top: NowItem[]; horizon: HorizonItem[]; now?: number; onScore?: () => void }) {
++/** What holds the score down: one bar per check, sized by the points it costs. */
++function Drivers({ drivers, simulate }: { drivers: ScoreDriver[]; simulate: boolean }) {
++  const shown = drivers.slice(0, 5);
++  const max = Math.max(...shown.map(d => d.points), 1);
++  if (!shown.length) {
++    return (
++      <Typography variant="body2" color="text.secondary">
++        Every best-practice check that could run is passing.
++      </Typography>
++    );
++  }
++  return (
++    <Box sx={{ display: 'grid', gap: 0.75 }}>
++      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
++        What holds the score down
++      </Typography>
++      {shown.map(d => {
++        const gone = simulate && !!d.fix;
++        return (
++          <Box key={d.id} title={`${d.clusters} cluster${d.clusters === 1 ? '' : 's'}${d.fix ? `. Fix: ${d.fix}` : ''}`} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr) 52px', gap: 1.5, alignItems: 'center' }}>
++            <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: gone ? 'text.secondary' : 'text.primary', textDecoration: gone ? 'line-through' : 'none' }}>
++              {d.title}
++            </Typography>
++            <Box sx={{ height: 10 }}>
++              <Box sx={{ height: 10, width: `${Math.max(6, (d.points / max) * 100)}%`, borderRadius: '3px', border: '1px solid', borderColor: gone ? 'info.main' : 'warning.main', bgcolor: gone ? 'transparent' : 'warning.main', transition: 'background-color 240ms ease' }} />
++            </Box>
++            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 700, color: gone ? 'info.main' : 'text.primary', textAlign: 'right' }}>
++              {gone ? 'fixed' : `−${d.points}`}
++            </Typography>
++          </Box>
++        );
++      })}
++      {drivers.length > shown.length && (
++        <Typography variant="caption" color="text.secondary">
++          and {drivers.length - shown.length} smaller ones
++        </Typography>
++      )}
++    </Box>
++  );
++}
++
++function FixChip({ text, tone }: { text: string; tone: 'ready' | 'fixed' | 'decision' }) {
++  const colour = tone === 'fixed' ? 'info.main' : tone === 'ready' ? 'text.primary' : 'warning.main';
++  return (
++    <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: colour, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: tone === 'fixed' ? 'info.main' : 'text.primary' }}>
++      {text}
++    </Box>
++  );
++}
++
++export function FleetHero({
++  glance,
++  top,
++  horizon,
++  now = Date.now(),
++  onScore,
++  tiles = [],
++  drivers = [],
++  fixes = { open: 0, fixable: 0 },
++  fixByIssue = new Map(),
++  simulate = false,
++  simulatedScore,
++  onSimulate,
++}: {
++  glance: Glance;
++  top: NowItem[];
++  horizon: HorizonItem[];
++  now?: number;
++  onScore?: () => void;
++  /** One tile per cluster. */
++  tiles?: WallTile[];
++  drivers?: ScoreDriver[];
++  fixes?: FixCounts;
++  /** The fix the plugin has, by issue id. */
++  fixByIssue?: Map<string, FixProposal>;
++  simulate?: boolean;
++  /** The fleet score with every fixable check passing. */
++  simulatedScore?: number;
++  onSimulate?: (on: boolean) => void;
++}) {
+   const days = HORIZON_DAYS;
+   const x = (t: number) => 14 + Math.max(0, Math.min(1, (t - now) / (days * 86400e3))) * 572;
+   // Stagger dots that would overlap.
+@@ -38,119 +119,145 @@ export function FleetHero({ glance, top, horizon, now = Date.now(), onScore }: {
+     while (placed.some(p => p.row === row && Math.abs(p.cx - cx) < 18)) row += 1;
+     placed.push({ item, cx, row: Math.min(row, 2) });
+   }
++  const score = simulate && simulatedScore !== undefined ? simulatedScore : glance.score;
++  const left = fixes.open - fixes.fixable;
++  const sentence = !fixes.open
++    ? 'No open issues need action.'
++    : !fixes.fixable
++    ? `None of the ${fixes.open} open issues has a one-click fix yet: each needs a decision.`
++    : simulate
++    ? `${fixes.fixable} fix${fixes.fixable === 1 ? '' : 'es'} simulated. ${left ? `${left} issue${left === 1 ? '' : 's'} left need${left === 1 ? 's' : ''} a decision.` : 'Nothing would be left.'} Nothing has been changed.`
++    : `${fixes.fixable} of ${fixes.open} open issues ${fixes.fixable === 1 ? 'has' : 'have'} a fix ready.`;
+   return (
+-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr', xl: '0.9fr 1.3fr 1.6fr' }, gap: 2, px: 2, mb: 2 }}>
+-      <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+-        <Box role="button" onClick={onScore} title="The average best-practice score of the clusters: click for each cluster's" sx={{ cursor: onScore ? 'pointer' : 'default' }}>
+-          <Ring score={glance.score} />
++    <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
++      <Paper variant="outlined" sx={{ ...card, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 3 }}>
++        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
++          <Box role="button" onClick={onScore} title="The average best-practice score of the clusters: click for each cluster's" sx={{ cursor: onScore ? 'pointer' : 'default' }}>
++            <Ring score={score} />
++          </Box>
++          <Box sx={{ display: 'grid', gap: 0.5 }}>
++            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
++              <FleetMark size={28} />
++              <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1 }}>{glance.clusters}</Typography>
++              <Typography variant="body2" color="text.secondary">
++                clusters
++              </Typography>
++            </Box>
++            <Typography variant="body2" sx={{ fontWeight: 700, color: glance.attention ? 'warning.main' : 'success.main' }}>
++              {glance.attention ? `${glance.attention} need${glance.attention === 1 ? 's' : ''} attention` : 'all healthy'}
++            </Typography>
++            <Typography variant="body2" color="text.secondary">
++              <Box component="span" sx={{ color: glance.critical ? 'error.main' : undefined, fontWeight: glance.critical ? 700 : 400 }}>
++                {glance.critical} critical
++              </Box>{' '}
++              · {glance.warnings} warnings
++            </Typography>
++            {glance.supervisorScore !== undefined && (
++              <Typography variant="body2" component={Link} to="/vks-fleet/supervisor-health" sx={{ color: scoreColour(glance.supervisorScore), fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
++                Supervisor {glance.supervisorScore}/100 ›
++              </Typography>
++            )}
++          </Box>
+         </Box>
+-        <Box sx={{ display: 'grid', gap: 0.5 }}>
+-          <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1 }}>{glance.clusters}</Typography>
+-          <Typography variant="body2" color="text.secondary" sx={{ mt: -0.25 }}>
+-            clusters
+-          </Typography>
+-          <Typography variant="body2" sx={{ fontWeight: 700, color: glance.attention ? 'warning.main' : 'success.main' }}>
+-            {glance.attention ? `${glance.attention} need${glance.attention === 1 ? 's' : ''} attention` : 'all healthy'}
+-          </Typography>
++        <Box sx={{ flex: '1 1 340px', minWidth: 0 }}>
++          <Drivers drivers={drivers} simulate={simulate} />
++        </Box>
++        <Box sx={{ flex: '0 1 260px', display: 'grid', gap: 0.5 }}>
++          {onSimulate && (
++            <FormControlLabel
++              control={<Switch checked={simulate} disabled={!fixes.fixable && !simulate} onChange={e => onSimulate(e.target.checked)} />}
++              label={<Typography sx={{ fontWeight: 700 }}>Simulate fixes</Typography>}
++            />
++          )}
+           <Typography variant="body2" color="text.secondary">
+-            <Box component="span" sx={{ color: glance.critical ? 'error.main' : undefined, fontWeight: glance.critical ? 700 : 400 }}>
+-              {glance.critical} critical
+-            </Box>{' '}
+-            · {glance.warnings} warnings
++            {sentence}
+           </Typography>
+-          {glance.supervisorScore !== undefined && (
+-            <Typography variant="body2" component={Link} to="/vks-fleet/supervisor-health" sx={{ color: scoreColour(glance.supervisorScore), fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+-              Supervisor {glance.supervisorScore}/100 ›
+-            </Typography>
+-          )}
+         </Box>
+       </Paper>
+ 
+-      <Paper variant="outlined" sx={card}>
+-        <Typography sx={{ fontWeight: 800, mb: 1 }}>Needs you now</Typography>
+-        {top.length ? (
+-          <Box sx={{ display: 'grid', gap: 1.25 }}>
+-            {top.map(i => (
+-              <Box key={i.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+-                <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: SEV[i.severity], mt: 0.6, flexShrink: 0 }} />
+-                <Box sx={{ flex: 1, minWidth: 0 }}>
+-                  <Typography variant="body2" sx={{ fontWeight: 700, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+-                    {i.title}
+-                  </Typography>
+-                  {i.sub && (
+-                    <Typography variant="caption" color="text.secondary">
+-                      {i.sub}
+-                    </Typography>
+-                  )}
+-                </Box>
+-                {i.investigate ? (
+-                  <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
+-                    Investigate
+-                  </Button>
+-                ) : i.path ? (
+-                  <Button size="small" component={Link} to={i.path} sx={{ py: 0, flexShrink: 0 }}>
+-                    Open
+-                  </Button>
+-                ) : null}
+-              </Box>
+-            ))}
+-          </Box>
+-        ) : (
+-          <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 700 }}>
+-            ✓ Nothing needs you right now.
+-          </Typography>
+-        )}
+-      </Paper>
++      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.8fr) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
++        <Paper variant="outlined" sx={card}>
++          <ClusterWall tiles={tiles} simulate={simulate} />
++        </Paper>
++
++        <Paper variant="outlined" sx={card}>
++          <Typography sx={{ fontWeight: 800, mb: 1 }}>Needs you now</Typography>
++          {top.length ? (
++            <Box sx={{ display: 'grid' }}>
++              {top.map(i => {
++                const fix = fixByIssue.get(i.id);
++                const fixed = simulate && !!fix;
++                return (
++                  <Box key={i.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', py: 1, borderTop: 1, borderColor: 'divider' }}>
++                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: fixed ? TONE.info : SEV[i.severity], mt: 0.6, flexShrink: 0 }} />
++                    <Box sx={{ flex: 1, minWidth: 0 }}>
++                      <Typography variant="body2" sx={{ fontWeight: 700, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textDecoration: fixed ? 'line-through' : 'none', color: fixed ? 'text.secondary' : 'text.primary' }}>
++                        {i.title}
++                      </Typography>
++                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mt: 0.25 }}>
++                        {i.sub && (
++                          <Typography variant="caption" color="text.secondary">
++                            {i.sub}
++                          </Typography>
++                        )}
++                        {fixed ? <FixChip text="Fixed in simulation" tone="fixed" /> : fix ? <FixChip text="Fix ready" tone="ready" /> : null}
++                      </Box>
++                    </Box>
++                    {fix && !fixed ? (
++                      <Button size="small" component={Link} to={fix.path} title={fix.label} sx={{ py: 0, flexShrink: 0 }}>
++                        Fix…
++                      </Button>
++                    ) : i.investigate ? (
++                      <Button size="small" component={Link} to={`/vks-fleet/investigate?cluster=${encodeURIComponent(i.investigate.clusterKey)}${i.investigate.node ? `&node=${encodeURIComponent(i.investigate.node)}` : ''}`} sx={{ py: 0, flexShrink: 0 }}>
++                        Investigate
++                      </Button>
++                    ) : i.path ? (
++                      <Button size="small" component={Link} to={i.path} sx={{ py: 0, flexShrink: 0 }}>
++                        Open
++                      </Button>
++                    ) : null}
++                  </Box>
++                );
++              })}
++            </Box>
++          ) : (
++            <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 700 }}>
++              Nothing needs you right now.
++            </Typography>
++          )}
+ 
+-      <Paper variant="outlined" sx={{ ...card, gridColumn: { md: '1 / -1', xl: 'auto' } }}>
+-        <Typography sx={{ fontWeight: 800, mb: 0.5 }}>Next {days} days</Typography>
+-        <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
+-          <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
+-          {[0, 7, 14, 21, 28].map(d => (
+-            <g key={d}>
+-              <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
+-              <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
+-                {d === 0 ? 'today' : `${d / 7} wk`}
+-              </text>
+-            </g>
+-          ))}
+-          {placed.map(({ item, cx, row }, k) => (
+-            <g key={k}>
+-              <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
+-              <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
+-                <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
+-              </circle>
+-            </g>
+-          ))}
+-        </svg>
+-        {horizon.length ? (
+-          <Box sx={{ display: 'grid', gap: 0.5, mt: 1 }}>
+-            {horizon.slice(0, 4).map((h, k) => (
+-              <Box key={k} sx={{ display: 'flex', gap: 1, alignItems: 'baseline' }}>
+-                <Typography variant="caption" sx={{ minWidth: 70, fontWeight: 700, color: TONE[h.tone], fontVariantNumeric: 'tabular-nums' }}>
+-                  {inWords(h.at, now)}
+-                </Typography>
+-                <Typography
+-                  variant="body2"
+-                  sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+-                  {...(h.path ? { component: Link, to: h.path } : {})}
+-                >
+-                  {h.text}
+-                </Typography>
+-              </Box>
++          <Typography sx={{ fontWeight: 800, mt: 2, mb: 0.5 }}>Next {days} days</Typography>
++          <svg viewBox="0 0 600 68" width="100%" role="img" aria-label="What expires or runs out in the next 30 days" style={{ display: 'block', overflow: 'visible', maxWidth: 760 }}>
++            <line x1={14} x2={586} y1={46} y2={46} stroke="currentColor" strokeOpacity={0.2} strokeWidth={2} />
++            {[0, 7, 14, 21, 28].map(d => (
++              <g key={d}>
++                <line x1={x(now + d * 86400e3)} x2={x(now + d * 86400e3)} y1={42} y2={50} stroke="currentColor" strokeOpacity={0.3} />
++                <text x={x(now + d * 86400e3)} y={64} fontSize={13} textAnchor={d === 0 ? 'start' : 'middle'} fill="currentColor" opacity={0.6}>
++                  {d === 0 ? 'today' : `${d / 7} wk`}
++                </text>
++              </g>
+             ))}
+-            {horizon.length > 4 && (
+-              <Typography variant="caption" color="text.secondary">
+-                and {horizon.length - 4} more (hover the dots)
+-              </Typography>
+-            )}
+-          </Box>
+-        ) : (
+-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+-            Nothing expires or runs out in the next {days} days, as far as the fleet can see.
+-          </Typography>
+-        )}
+-      </Paper>
++            {placed.map(({ item, cx, row }, k) => (
++              <g key={k}>
++                <line x1={cx} x2={cx} y1={46} y2={34 - row * 12} stroke={TONE[item.tone]} strokeOpacity={0.5} />
++                <circle cx={cx} cy={30 - row * 12} r={8} fill={TONE[item.tone]} stroke="white" strokeOpacity={0.8} strokeWidth={2}>
++                  <title>{`${inWords(item.at, now)}: ${item.text}`}</title>
++                </circle>
++              </g>
++            ))}
++          </svg>
++          {horizon.length === 0 && (
++            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
++              Nothing expires or runs out in the next {days} days, as far as the fleet can see.
++            </Typography>
++          )}
++          {horizon.length > 0 && (
++            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
++              {horizon.length === 1 ? `1 item expires or runs out, ${inWords(horizon[0].at, now)}.` : `${horizon.length} items expire or run out; the first ${inWords(horizon[0].at, now)}.`} Hover a dot for what it is.
++            </Typography>
++          )}
++        </Paper>
++      </Box>
+     </Box>
+   );
+ }
+diff --git a/src/components/FleetView.tsx b/src/components/FleetView.tsx
+index 279b121..c82b58e 100644
+--- a/src/components/FleetView.tsx
++++ b/src/components/FleetView.tsx
+@@ -30,6 +30,7 @@ import { useSupervisorHealth } from '../useSupervisorHealth';
+ import { supervisorHealthIssues } from '../supervisorHealth';
+ import { useVcenterStatus } from '../useVcenterStatus';
+ import { diskForecast, entitiesFor, matchSupervisor, STALE_MINUTES, supervisorScore, utilisationIssues, vcenterIssues } from '../vcenterStatus';
++import { fixCounts, fixesByIssue, fleetScore, scoreDrivers, wallTiles } from '../fixes';
+ import { glance, horizon, needsYouNow } from '../fleetHero';
+ import { FleetHero } from './FleetHero';
+ import { settingsStore } from '../settings/store';
+@@ -113,6 +114,8 @@ export function FleetView() {
+     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+   const [exportOpen, setExportOpen] = React.useState(false);
+   const [showInfo, setShowInfo] = React.useState(false);
++  // Simulate fixes: recomputes the picture only; nothing is sent anywhere.
++  const [simulate, setSimulate] = React.useState(false);
+   const [findingsToggled, setFindingsOpen] = React.useState<boolean | null>(null);
+ 
+   const multiSupervisor = config.supervisors.length > 1;
+@@ -445,9 +448,16 @@ export function FleetView() {
+                 return supervisorScore(h.score, v ?? undefined, vcenter?.status?.metrics);
+               })
+             )}
+-            top={needsYouNow(tenantIssues, coming)}
++            top={needsYouNow(tenantIssues, coming, Date.now(), 6)}
+             horizon={coming}
+             onScore={() => jump('scorecard')}
++            tiles={wallTiles(tenantClusters, tenantIssues, simulate, shortCluster)}
++            drivers={scoreDrivers(scores.map(x => x.card))}
++            fixes={fixCounts(tenantIssues, clusterByKey)}
++            fixByIssue={fixesByIssue(tenantIssues, clusterByKey)}
++            simulate={simulate}
++            simulatedScore={fleetScore(scores.map(x => x.card), true)}
++            onSimulate={setSimulate}
+           />
+         </Guard>
+       )}
+@@ -558,6 +568,7 @@ export function FleetView() {
+         setShowInfo={setShowInfo}
+         open={findingsOpen}
+         setOpen={setFindingsOpen}
++        simulate={simulate}
+       />
+ 
+       {exportOpen && (
+@@ -591,6 +602,7 @@ function IssuesSection({
+   setShowInfo,
+   open,
+   setOpen,
++  simulate,
+ }: {
+   silenced: Array<{ issue: ReturnType<typeof buildIssues>[number]; by: Silence }>;
+   silences: Silence[];
+@@ -601,6 +613,7 @@ function IssuesSection({
+   setShowInfo: (v: boolean) => void;
+   open: boolean;
+   setOpen: (v: boolean) => void;
++  simulate: boolean;
+ }) {
+   const counts = countIssues(issues);
+   const shown = showInfo ? issues : issues.filter(x => x.severity !== 'info');
+@@ -629,7 +642,7 @@ function IssuesSection({
+       </Box>
+       {open && shown.length > 0 && (
+         <Guard name="Issues">
+-          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={5} />
++          <IssuesList issues={shown} clusters={clusters} supervisorNames={supervisorNames} limit={10} simulate={simulate} />
+         </Guard>
+       )}
+       {silences.length > 0 && (
+diff --git a/src/components/IssuesList.tsx b/src/components/IssuesList.tsx
+index bf26f36..5fe6d71 100644
+--- a/src/components/IssuesList.tsx
++++ b/src/components/IssuesList.tsx
+@@ -12,6 +12,7 @@ import {
+ } from '@mui/material';
+ import React from 'react';
+ import { Link, useLocation } from 'react-router-dom';
++import { issueFix } from '../fixes';
+ import { leadsSomewhere } from '../links';
+ import { diagnosisMarkdown } from '../issues';
+ import { FleetCluster, Issue, RunbookStep } from '../types';
+@@ -19,6 +20,11 @@ import { SilenceDialog } from './SilenceDialog';
+ import { useTone } from './charts';
+ import { SeverityLabel } from './common';
+ 
++/** "Go to Packages"; long labels and ones that already say it become "Go to it". */
++export function goTo(label: string): string {
++  return /^go to /i.test(label) || label.length > 24 ? 'Go to it' : `Go to ${label}`;
++}
++
+ function chips(label: string, items: string[], max = 4) {
+   if (!items.length) return null;
+   const shown = items.slice(0, max).join(', ');
+@@ -97,13 +103,20 @@ function IssueCard({
+   cluster,
+   supervisorName,
+   showCluster,
++  simulate = false,
++  defaultOpen = false,
+ }: {
+   issue: Issue;
+   cluster?: FleetCluster;
+   supervisorName?: string;
+   showCluster: boolean;
++  simulate?: boolean;
++  defaultOpen?: boolean;
+ }) {
+   const tone = useTone();
++  const [open, setOpen] = React.useState(defaultOpen);
++  const fix = issue.severity === 'info' ? undefined : issueFix(issue, cluster);
++  const fixed = simulate && !!fix;
+   const [copied, setCopied] = React.useState<'idle' | 'done' | 'manual'>('idle');
+   const [showRunbook, setShowRunbook] = React.useState(false);
+   const [silencing, setSilencing] = React.useState(false);
+@@ -113,7 +126,7 @@ function IssueCard({
+   // A link to this very page (with no section to jump to) would do nothing: leave it out.
+   const primary = candidate && leadsSomewhere(candidate.path, here) ? candidate : undefined;
+   const others = issue.links.filter(l => l.path !== candidate?.path && leadsSomewhere(l.path, here));
+-  const edge = issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
++  const edge = fixed ? tone('info') : issue.severity === 'critical' ? tone('error') : issue.severity === 'warning' ? tone('warning') : tone('neutral');
+ 
+   async function copy() {
+     try {
+@@ -129,17 +142,18 @@ function IssueCard({
+     <Paper
+       variant="outlined"
+       sx={{
+-        p: 2,
++        p: open ? 2 : 1.25,
+         pl: 2.5,
++        opacity: fixed ? 0.75 : 1,
+         borderRadius: 2,
+         position: 'relative',
+         overflow: 'hidden',
+         '&::before': { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: edge },
+       }}
+     >
+-      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', flexWrap: 'wrap' }}>
++      <Box sx={{ display: 'flex', gap: 1.5, alignItems: open ? 'flex-start' : 'center', flexWrap: 'wrap' }}>
+         <SeverityLabel severity={issue.severity} />
+-        <Box sx={{ flex: 1, minWidth: 240 }}>
++        <Box sx={{ flex: 1, minWidth: 240, textDecoration: fixed ? 'line-through' : 'none' }}>
+           {primary ? (
+             <Link to={primary.path} title={`Go to: ${primary.label}`} style={{ fontWeight: 600, textDecoration: 'none' }}>
+               {issue.title} ›
+@@ -153,9 +167,32 @@ function IssueCard({
+             </Typography>
+           )}
+         </Box>
+-        {primary && (
+-          <Button size="small" variant="contained" component={Link} to={primary.path}>
+-            Go to {primary.label.length > 24 ? 'it' : primary.label}
++        {issue.severity !== 'info' && (
++          <Box component="span" sx={{ px: 1, py: '1px', borderRadius: 5, border: '1px solid', borderColor: fixed ? 'info.main' : fix ? 'text.primary' : 'warning.main', color: fixed ? 'info.main' : 'text.primary', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
++            {fixed ? 'Fixed in simulation' : fix ? 'Fix ready' : 'Needs a decision'}
++          </Box>
++        )}
++        {fix ? (
++          <Button size="small" variant="contained" component={Link} to={fix.path} title="Opens the action with its checks and a dry run; nothing changes until you confirm">
++            {fix.label}…
++          </Button>
++        ) : (
++          primary && (
++            <Button size="small" variant="contained" component={Link} to={primary.path}>
++              {goTo(primary.label)}
++            </Button>
++          )
++        )}
++        <Button size="small" variant="outlined" aria-expanded={open} onClick={() => setOpen(!open)}>
++          {open ? 'Hide details' : 'Details'}
++        </Button>
++      </Box>
++
++      {open && (
++      <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
++        {fix && primary && (
++          <Button size="small" variant="outlined" component={Link} to={primary.path}>
++            {goTo(primary.label)}
+           </Button>
+         )}
+         {issue.clusterKey && (
+@@ -175,7 +212,9 @@ function IssueCard({
+           {copied === 'done' ? 'Copied' : 'Copy diagnosis'}
+         </Button>
+       </Box>
++      )}
+ 
++      {open && (
+       <Box sx={{ mt: 1.5, display: 'grid', gap: 1 }}>
+         <Typography variant="body2">
+           <Box component="span" sx={{ fontWeight: 700 }}>
+@@ -222,6 +261,7 @@ function IssueCard({
+           </Box>
+         )}
+       </Box>
++      )}
+ 
+       {copied === 'manual' && (
+         <Dialog open onClose={() => setCopied('idle')} maxWidth="md" fullWidth>
+@@ -248,12 +288,15 @@ export function IssuesList({
+   supervisorNames,
+   showCluster = true,
+   limit = 12,
++  simulate = false,
+ }: {
+   issues: Issue[];
+   clusters: Map<string, FleetCluster>;
+   supervisorNames: Map<string, string>;
+   showCluster?: boolean;
+   limit?: number;
++  /** Show issues the plugin can fix as fixed (the fleet page's Simulate fixes). */
++  simulate?: boolean;
+ }) {
+   const [count, setCount] = React.useState(limit);
+   const [q, setQ] = React.useState('');
+@@ -261,7 +304,7 @@ export function IssuesList({
+   const matching = needle ? issues.filter(i => `${i.title} ${i.clusterName ?? ''} ${i.tenantName ?? ''} ${i.severity}`.toLowerCase().includes(needle)) : issues;
+   const shown = matching.slice(0, count);
+   return (
+-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
++    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+       {issues.length > limit && (
+         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+           <TextField size="small" placeholder="Filter issues (title, cluster, org, severity)…" value={q} onChange={e => { setQ(e.target.value); setCount(limit); }} sx={{ width: 360 }} />
+@@ -277,6 +320,8 @@ export function IssuesList({
+           cluster={i.clusterKey ? clusters.get(i.clusterKey) : undefined}
+           supervisorName={supervisorNames.get(i.supervisorId)}
+           showCluster={showCluster}
++          simulate={simulate}
++          defaultOpen={issues.length === 1}
+         />
+       ))}
+       {matching.length > count && (
+diff --git a/src/fixes.ts b/src/fixes.ts
+new file mode 100644
+index 0000000..144b55e
+--- /dev/null
++++ b/src/fixes.ts
+@@ -0,0 +1,212 @@
++/**
++ * Fix proposals: which problems the plugin can already fix through one of its
++ * own guarded actions (checks, a server-side dry run, a confirmation), and what
++ * the fleet would look like once those were applied.
++ *
++ * Nothing here changes anything: "simulate" only recomputes the picture. Pure
++ * rules over issues and scorecards, so a future server-side aggregator (and
++ * later, automation policies) can reuse the same mapping.
++ */
++import { BASELINE_PATH, clusterDeepLink, clusterPath, machinePath, SECURITY_ROUTE } from './routes';
++import { FleetCluster, Issue, Scorecard, Severity } from './types';
++
++export interface FixProposal {
++  /** What the fix does, as a button label ("Replace the node"). */
++  label: string;
++  /** The page or dialog where the action is applied. */
++  path: string;
++}
++
++/** The rule part of an issue id ("<supervisor>/<ns>/<cluster>#stuck-np-1" → "stuck-np-1"). */
++export function issueRule(id: string): string {
++  const at = id.indexOf('#');
++  return at < 0 ? id : id.slice(at + 1);
++}
++
++/**
++ * The fix the plugin has for an issue, if any. Only actions that exist today
++ * and reliably clear the issue count: an upgrade is a planned change and a
++ * package re-reconcile may not help, so neither is offered as a fix.
++ */
++export function issueFix(issue: Issue, cluster?: FleetCluster): FixProposal | undefined {
++  if (!cluster) return undefined;
++  const rule = issueRule(issue.id);
++  if (rule.startsWith('stuck-node-')) return undefined;
++  if (rule.startsWith('stuck-')) return { label: 'Unblock or replace the node', path: machinePath(cluster, rule.slice('stuck-'.length)) };
++  if (rule.startsWith('vm-off-')) return { label: 'Replace the node', path: machinePath(cluster, rule.slice('vm-off-'.length)) };
++  if (rule === 'paused') return { label: 'Resume the cluster', path: clusterDeepLink(cluster, { hash: 'summary', action: 'resume' }) };
++  if (rule.startsWith('timeouts-')) {
++    const pool = rule.slice('timeouts-'.length);
++    return { label: 'Clear the leftover timeouts', path: clusterDeepLink(cluster, { hash: 'node-pools', focus: pool, action: 'timeouts', pool }) };
++  }
++  if (rule === 'certs' && cluster.certificateRotation?.enabled !== true) return { label: 'Turn on certificate rotation', path: BASELINE_PATH };
++  if (rule === 'single-cp') return { label: 'Scale the control plane to 3', path: BASELINE_PATH };
++  if (rule.startsWith('scan#sec-psa')) return { label: 'Set a Pod Security level', path: issue.primary?.path ?? SECURITY_ROUTE };
++  return undefined;
++}
++
++/** Scorecard checks an existing action brings back to passing, with the action's name. */
++export const FIXABLE_CHECKS: Record<string, string> = {
++  'cp-ha': 'Scale the control plane to 3',
++  certs: 'Turn on certificate rotation',
++  'not-paused': 'Resume the cluster',
++  timeouts: 'Clear the leftover timeouts',
++  'pool-size': 'Scale single-node pools to 2',
++};
++
++const earned = (status: string) => (status === 'pass' ? 1 : status === 'warn' ? 0.5 : 0);
++
++/** A cluster's score with every fixable check passing. Same arithmetic as the scorecard. */
++export function simulatedScore(card: Scorecard): number {
++  const evaluated = card.checks.filter(x => x.status !== 'unknown');
++  const all = evaluated.reduce((n, x) => n + x.weight, 0);
++  if (!all) return card.score;
++  const got = evaluated.reduce((n, x) => n + x.weight * (FIXABLE_CHECKS[x.id] ? 1 : earned(x.status)), 0);
++  return Math.round((got / all) * 100);
++}
++
++/** The fleet score: the average of the clusters' scores, as shown or with fixes simulated. */
++export function fleetScore(cards: Scorecard[], simulate = false): number | undefined {
++  if (!cards.length) return undefined;
++  return Math.round(cards.reduce((n, c) => n + (simulate ? simulatedScore(c) : c.score), 0) / cards.length);
++}
++
++export interface ScoreDriver {
++  /** Check id. */
++  id: string;
++  title: string;
++  /** Points of the fleet score this check costs (the drivers add up to 100 minus the score, before rounding). */
++  points: number;
++  /** Clusters where it isn't passing. */
++  clusters: number;
++  /** The action that fixes it, when the plugin has one. */
++  fix?: string;
++}
++
++/** What holds the fleet score down: each check's cost in points, largest first. */
++export function scoreDrivers(cards: Scorecard[]): ScoreDriver[] {
++  const by = new Map<string, ScoreDriver>();
++  for (const card of cards) {
++    const evaluated = card.checks.filter(x => x.status !== 'unknown');
++    const all = evaluated.reduce((n, x) => n + x.weight, 0);
++    if (!all) continue;
++    for (const x of evaluated) {
++      const lost = x.weight * (1 - earned(x.status));
++      if (!lost) continue;
++      const d = by.get(x.id) ?? { id: x.id, title: x.title, points: 0, clusters: 0, fix: FIXABLE_CHECKS[x.id] };
++      d.points += ((lost / all) * 100) / cards.length;
++      d.clusters += 1;
++      by.set(x.id, d);
++    }
++  }
++  return Array.from(by.values())
++    .map(d => ({ ...d, points: Math.round(d.points * 10) / 10 }))
++    .filter(d => d.points > 0)
++    .sort((a, b) => b.points - a.points || a.title.localeCompare(b.title));
++}
++
++/* ---------------- The cluster wall ---------------- */
++
++export type TileState = 'critical' | 'warning' | 'healthy' | 'fixed';
++export type TileIcon = 'storage' | 'memory' | 'network' | 'node' | 'certificate' | 'lifecycle' | 'security' | 'alert' | 'ok';
++
++export interface WallTile {
++  key: string;
++  name: string;
++  fullName: string;
++  tenantId: string;
++  tenantName: string;
++  state: TileState;
++  icon: TileIcon;
++  /** The worst open issue, or "Healthy". */
++  line1: string;
++  /** The fix that is ready, or what the cluster runs. */
++  line2: string;
++  /** Other open issues besides the one named. */
++  more: number;
++  path: string;
++}
++
++export function iconFor(issue: Issue): TileIcon {
++  const rule = issueRule(issue.id);
++  if (/^(pvc|attach-|scan#storage|backup)/.test(rule) || rule.includes('forecast') || rule.includes('org-quota')) return 'storage';
++  if (/^hot-/.test(rule) || rule.includes('limits#mem')) return 'memory';
++  if (/^(net-|lb$|dns$)/.test(rule)) return 'network';
++  if (rule === 'certs' || rule.includes('sec-cert')) return 'certificate';
++  if (/^(stuck-|vm-off-|repair-stopped|mhc-|single-cp|one-zone|unreachable|signin|pods$)/.test(rule)) return 'node';
++  if (/^(behind|upgrade|class|packages|paused|timeouts-)/.test(rule)) return 'lifecycle';
++  if (rule.startsWith('scan#sec-') || rule.includes('compliance') || rule.includes('vuln')) return 'security';
++  return 'alert';
++}
++
++const RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
++
++/** An issue title without the cluster's own name in it: the tile already carries the name. */
++export function tileTitle(title: string, clusterName: string): string {
++  let t = title.split(` in ${clusterName}`).join('');
++  while (t.includes(`${clusterName}-`)) t = t.split(`${clusterName}-`).join('');
++  return t.trim();
++}
++
++/**
++ * One tile per cluster: its worst open issue and whether a fix is ready. With
++ * `simulate`, issues that have a fix are taken as fixed, so a tile shows what
++ * would be left.
++ */
++export function wallTiles(clusters: FleetCluster[], issues: Issue[], simulate = false, short: (name: string) => string = n => n): WallTile[] {
++  const byCluster = new Map<string, Issue[]>();
++  for (const i of issues) {
++    if (!i.clusterKey || i.severity === 'info') continue;
++    byCluster.set(i.clusterKey, [...(byCluster.get(i.clusterKey) ?? []), i]);
++  }
++  return clusters.map(c => {
++    const open = (byCluster.get(c.key) ?? []).slice().sort((a, b) => RANK[a.severity] - RANK[b.severity]);
++    const left = simulate ? open.filter(i => !issueFix(i, c)) : open;
++    const top = left[0];
++    const base = { key: c.key, name: short(c.name), fullName: c.name, tenantId: c.tenantId, tenantName: c.tenantName, path: clusterPath(c) };
++    const nodes = c.machines.length;
++    const runs = [c.kubernetesVersion, nodes ? `${nodes} node${nodes === 1 ? '' : 's'}` : undefined].filter(Boolean).join(' · ');
++    if (!top) {
++      const fixed = simulate && open.length > 0;
++      return {
++        ...base,
++        state: fixed ? ('fixed' as const) : ('healthy' as const),
++        icon: 'ok' as const,
++        line1: fixed ? 'Fixed in simulation' : 'Healthy',
++        line2: fixed ? `${open.length} fix${open.length === 1 ? '' : 'es'} applied` : runs,
++        more: 0,
++      };
++    }
++    const fix = issueFix(top, c);
++    return {
++      ...base,
++      state: top.severity === 'critical' ? ('critical' as const) : ('warning' as const),
++      icon: iconFor(top),
++      line1: tileTitle(top.title, c.name),
++      line2: fix ? `Fix ready: ${fix.label}` : 'Needs a decision',
++      more: left.length - 1,
++    };
++  });
++}
++
++/** The fix the plugin has for each open issue, by issue id. */
++export function fixesByIssue(issues: Issue[], clusters: Map<string, FleetCluster>): Map<string, FixProposal> {
++  const out = new Map<string, FixProposal>();
++  for (const i of issues) {
++    if (i.severity === 'info') continue;
++    const fix = issueFix(i, i.clusterKey ? clusters.get(i.clusterKey) : undefined);
++    if (fix) out.set(i.id, fix);
++  }
++  return out;
++}
++
++export interface FixCounts {
++  /** Open issues that need action (critical and warning). */
++  open: number;
++  /** Of those, how many the plugin has a fix for. */
++  fixable: number;
++}
++
++export function fixCounts(issues: Issue[], clusters: Map<string, FleetCluster>): FixCounts {
++  return { open: issues.filter(i => i.severity !== 'info').length, fixable: fixesByIssue(issues, clusters).size };
++}
+diff --git a/tests/fix-proposals.test.ts b/tests/fix-proposals.test.ts
+new file mode 100644
+index 0000000..deff8a6
+--- /dev/null
++++ b/tests/fix-proposals.test.ts
+@@ -0,0 +1,90 @@
++/** v1.35: fix proposals, the simulated score and the cluster wall. */
++import assert from 'node:assert/strict';
++import { describe, test } from 'node:test';
++import { fixCounts, fleetScore, iconFor, issueFix, scoreDrivers, simulatedScore, tileTitle, wallTiles } from '../src/fixes';
++
++const cluster = (name: string, o: any = {}): any => ({ key: `s/ns/${name}`, supervisorId: 's', namespace: 'ns', name, tenantId: 't', tenantName: 'acme', health: 'healthy', machines: [{}, {}, {}], kubernetesVersion: 'v1.34.1', ...o });
++const issue = (c: any, rule: string, severity = 'warning', title = rule): any => ({ id: `${c.key}#${rule}`, severity, title, clusterKey: c.key, affected: { clusters: [], nodes: [], pods: [], tenants: [] } });
++const check = (id: string, status: string, weight = 1): any => ({ id, title: id, status, weight });
++const card = (checks: any[]): any => {
++  const ev = checks.filter(x => x.status !== 'unknown');
++  const all = ev.reduce((n, x) => n + x.weight, 0);
++  const got = ev.reduce((n, x) => n + x.weight * (x.status === 'pass' ? 1 : x.status === 'warn' ? 0.5 : 0), 0);
++  return { clusterKey: 'k', checks, score: Math.round((got / all) * 100), evaluated: ev.length, total: checks.length };
++};
++
++describe('fix proposals', () => {
++  const c = cluster('checkout');
++  test('only issues with an existing action get a fix', () => {
++    assert.match(issueFix(issue(c, 'stuck-np-1-abc'), c)!.path, /\/machines\/np-1-abc$/);
++    assert.match(issueFix(issue(c, 'vm-off-np-1-abc'), c)!.label, /Replace/);
++    assert.match(issueFix(issue(c, 'paused'), c)!.path, /action=resume/);
++    assert.match(issueFix(issue(c, 'timeouts-np-1'), c)!.path, /action=timeouts.*pool=np-1/);
++    assert.ok(issueFix(issue(c, 'single-cp'), c));
++    assert.ok(issueFix(issue(c, 'scan#sec-psa-Namespaces that allow privileged pods'), c));
++    for (const rule of ['behind', 'upgrade', 'packages', 'net-node1', 'pvc', 'dns', 'stuck-node-n1', 'scan#sec-latest-x']) assert.equal(issueFix(issue(c, rule), c), undefined, rule);
++  });
++  test('certificates: a fix only while rotation is off', () => {
++    assert.ok(issueFix(issue(c, 'certs'), c));
++    assert.equal(issueFix(issue(c, 'certs'), cluster('checkout', { certificateRotation: { enabled: true } })), undefined);
++  });
++  test('an issue without its cluster has no fix', () => {
++    assert.equal(issueFix(issue(c, 'paused'), undefined), undefined);
++  });
++});
++
++describe('simulated score', () => {
++  const a = card([check('cp-ha', 'fail', 3), check('version', 'fail', 2), check('certs', 'warn', 1), check('limits', 'pass', 2), check('pdb', 'unknown', 5)]);
++  test('fixable checks pass, the rest stay as they are, unknown stays out', () => {
++    assert.equal(a.score, 31); // (0 + 0 + 0.5 + 2) / 8
++    assert.equal(simulatedScore(a), 75); // (3 + 0 + 1 + 2) / 8
++  });
++  test('the fleet score averages the clusters, simulated or not', () => {
++    const b = card([check('cp-ha', 'pass', 3), check('version', 'pass', 2)]);
++    assert.equal(fleetScore([a, b]), 66);
++    assert.equal(fleetScore([a, b], true), 88);
++    assert.equal(fleetScore([]), undefined);
++  });
++  test('drivers: largest first, add up to the points lost, and name the fix', () => {
++    const b = card([check('cp-ha', 'pass', 3), check('version', 'pass', 2)]);
++    const d = scoreDrivers([a, b]);
++    assert.deepEqual(d.map(x => x.id), ['cp-ha', 'version', 'certs']);
++    assert.ok(Math.abs(d.reduce((n, x) => n + x.points, 0) - (100 - (31.25 + 100) / 2)) < 0.2);
++    assert.equal(d[0].fix, 'Scale the control plane to 3');
++    assert.equal(d[1].fix, undefined);
++    assert.equal(d[0].clusters, 1);
++  });
++});
++
++describe('cluster wall', () => {
++  const a = cluster('kubernetes-cluster-a1');
++  const b = cluster('kubernetes-cluster-b2');
++  const h = cluster('kubernetes-cluster-c3', { machines: [{}] });
++  const issues = [
++    issue(a, 'paused', 'warning', 'Paused'),
++    issue(a, 'net-n1', 'critical', `Pods can't start on node ${a.name}-${a.name}-np-1-x: pod networking fails`),
++    issue(b, 'single-cp', 'warning', 'Single control-plane node'),
++    issue(h, 'idle', 'info', 'Idle'),
++  ];
++  test('each tile names the worst issue and whether a fix is ready', () => {
++    const [ta, tb, th] = wallTiles([a, b, h], issues, false, n => n.replace('kubernetes-cluster-', ''));
++    assert.deepEqual([ta.name, ta.state, ta.icon, ta.more], ['a1', 'critical', 'network', 1]);
++    assert.equal(ta.line1, "Pods can't start on node np-1-x: pod networking fails");
++    assert.equal(ta.line2, 'Needs a decision');
++    assert.deepEqual([tb.state, tb.line2], ['warning', 'Fix ready: Scale the control plane to 3']);
++    assert.deepEqual([th.state, th.line1, th.line2], ['healthy', 'Healthy', 'v1.34.1 · 1 node']);
++  });
++  test('simulated: fixable issues go, what is left stays', () => {
++    const [ta, tb, th] = wallTiles([a, b, h], issues, true);
++    assert.deepEqual([ta.state, ta.more], ['critical', 0]);
++    assert.deepEqual([tb.state, tb.line1, tb.line2], ['fixed', 'Fixed in simulation', '1 fix applied']);
++    assert.equal(th.state, 'healthy');
++  });
++  test('counts, titles and icons', () => {
++    assert.deepEqual(fixCounts(issues, new Map([a, b, h].map(c => [c.key, c]))), { open: 3, fixable: 2 });
++    assert.equal(tileTitle('Privileged pods in web', 'web'), 'Privileged pods');
++    assert.equal(iconFor(issue(a, 'certs')), 'certificate');
++    assert.equal(iconFor(issue(a, 'hot-n1')), 'memory');
++    assert.equal(iconFor(issue(a, 'something-new')), 'alert');
++  });
++});
+-- 
+2.43.0
+

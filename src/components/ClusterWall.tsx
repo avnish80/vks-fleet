@@ -77,6 +77,45 @@ const LEGEND: Array<{ state: TileState; label: string }> = [
   { state: 'healthy', label: 'Healthy' },
 ];
 
+/** A tile for the dashboard's wall: the name and the worst open issue on two short lines. */
+function CompactTile({ tile }: { tile: WallTile }) {
+  const look = useTileLook()(tile.state);
+  return (
+    <Box
+      component={Link}
+      to={tile.path}
+      title={`${tile.fullName}: ${tile.line1}. ${tile.line2}${tile.more > 0 ? `, and ${tile.more} more` : ''}`}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0.25,
+        px: 1.25,
+        py: 0.75,
+        borderRadius: 1.5,
+        border: look.dashed ? '1.5px dashed' : '1.5px solid',
+        borderColor: look.border,
+        bgcolor: look.bg,
+        color: look.fg,
+        textDecoration: 'none',
+        minWidth: 0,
+        '&:hover': { boxShadow: 3 },
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <KubernetesIcon size={12} />
+        <Typography sx={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: '0.82rem', fontWeight: 700, lineHeight: 1.2 }} noWrap>
+          {tile.name}
+        </Typography>
+        <Glyph icon={tile.icon} size={16} />
+      </Box>
+      <Typography sx={{ fontSize: '0.78rem', lineHeight: 1.3, color: look.sub }} noWrap>
+        {tile.line1}
+        {tile.more > 0 ? ` · ${tile.more} more` : ''}
+      </Typography>
+    </Box>
+  );
+}
+
 function Tile({ tile }: { tile: WallTile }) {
   const look = useTileLook()(tile.state);
   return (
@@ -115,16 +154,17 @@ function Tile({ tile }: { tile: WallTile }) {
   );
 }
 
-export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: boolean }) {
+/** `compact`: the dashboard's wall, two short lines per tile, so a whole fleet stays a strip. */
+export function ClusterWall({ tiles, simulate, compact = false }: { tiles: WallTile[]; simulate: boolean; compact?: boolean }) {
   const look = useTileLook();
   const groups = new Map<string, WallTile[]>();
   for (const t of tiles) groups.set(t.tenantId, [...(groups.get(t.tenantId) ?? []), t]);
   const rank: Record<TileState, number> = { critical: 0, warning: 1, advisory: 2, fixed: 3, healthy: 4 };
   const ordered = Array.from(groups.values()).sort((a, b) => a[0].tenantName.localeCompare(b[0].tenantName));
   // Many clusters: smaller tiles, so the whole fleet still fits one screen.
-  const min = tiles.length > 36 ? 132 : 168;
+  const min = compact ? (tiles.length > 36 ? 130 : 200) : tiles.length > 36 ? 132 : 168;
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: compact ? 1 : 2 }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography sx={{ fontWeight: 800 }}>Clusters</Typography>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
@@ -139,7 +179,7 @@ export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: 
         </Box>
       </Box>
       {ordered.map(group => (
-        <Box key={group[0].tenantId} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box key={group[0].tenantId} sx={{ display: 'flex', flexDirection: 'column', gap: compact ? 0.5 : 1 }}>
           {ordered.length > 1 && (
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
               <Typography sx={{ fontWeight: 700, fontSize: '0.95rem' }}>{group[0].tenantName}</Typography>
@@ -148,13 +188,11 @@ export function ClusterWall({ tiles, simulate }: { tiles: WallTile[]; simulate: 
               </Typography>
             </Box>
           )}
-          <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))`, gap: 1.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, ${compact ? (tiles.length > 36 ? '200px' : '300px') : '1fr'}))`, gap: compact ? 1 : 1.5 }}>
             {group
               .slice()
               .sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name))
-              .map(t => (
-                <Tile key={t.key} tile={t} />
-              ))}
+              .map(t => (compact ? <CompactTile key={t.key} tile={t} /> : <Tile key={t.key} tile={t} />))}
           </Box>
         </Box>
       ))}
