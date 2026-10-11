@@ -190,12 +190,24 @@ export const PANELS: Panel[] = [
 export interface Forecast {
   what: 'volume' | 'node disk' | 'etcd' | 'node memory';
   subject: string;
-  /** Seconds until it runs out, at the last 6 hours' rate. */
+  /** Seconds until it runs out, at the last 6 hours' rate (node memory: the slower of the 6-hour and 24-hour rates). */
   seconds: number;
 }
 
 const HORIZON = 14 * 86400;
 const falling = (m: string) => `(${m} / -deriv(${m}[6h])) and (deriv(${m}[6h]) < 0) < ${HORIZON}`;
+
+/**
+ * A fall that holds: the metric is falling over the last 6 hours and over the
+ * last 24, and the answer is the later of the two estimates. Free memory rises
+ * and falls all day (page cache, garbage collection), so six hours alone keeps
+ * predicting an end that never comes; a real leak shows over a day as well.
+ */
+const sustained = (m: string) => {
+  const short = `(${m} / -deriv(${m}[6h]))`;
+  const long = `(${m} / -deriv(${m}[24h]))`;
+  return `((${short} >= ${long}) or ${long}) and (deriv(${m}[6h]) < 0) and (deriv(${m}[24h]) < 0)`;
+};
 
 export const FORECASTS: Array<{ what: Forecast['what']; query: string; subject: (l: Record<string, string>) => string }> = [
   { what: 'volume', query: falling('kubelet_volume_stats_available_bytes'), subject: l => `${l.namespace}/${l.persistentvolumeclaim}` },
@@ -205,7 +217,7 @@ export const FORECASTS: Array<{ what: Forecast['what']; query: string; subject: 
     query: `((max by (instance) (etcd_server_quota_backend_bytes) - max by (instance) (etcd_mvcc_db_total_size_in_bytes)) / max by (instance) (deriv(etcd_mvcc_db_total_size_in_bytes[6h]))) and (max by (instance) (deriv(etcd_mvcc_db_total_size_in_bytes[6h])) > 0) < ${HORIZON}`,
     subject: l => nodeName(l) || 'etcd',
   },
-  { what: 'node memory', query: `${falling('node_memory_MemAvailable_bytes')} and (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.25)`, subject: nodeName },
+  { what: 'node memory', query: `${sustained('node_memory_MemAvailable_bytes')} and (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.25)`, subject: nodeName },
 ];
 
 export const humanDuration = (s: number) => (s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 2 * 86400 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} days`);
@@ -424,7 +436,10 @@ export function observabilityIssues(summaries: ObservabilitySummary[], clusters:
         id: `${c.key}#forecast#${f.what}#${f.subject}`,
         severity: f.seconds < 2 * 86400 ? 'critical' : 'warning',
         title: `${f.what === 'volume' ? 'Volume' : f.what === 'node disk' ? 'Node disk' : f.what === 'etcd' ? 'etcd' : 'Node memory'} ${f.subject} runs out in about ${humanDuration(f.seconds)} (${c.name})`,
-        cause: `At the rate of the last 6 hours (from Prometheus), ${f.subject} runs out of ${f.what === 'node memory' ? 'memory' : 'space'} in about ${humanDuration(f.seconds)}.`,
+        cause:
+          f.what === 'node memory'
+            ? `Free memory on ${f.subject} has been falling over the last 6 hours and the last 24 (from Prometheus). At the slower of the two rates it runs out in about ${humanDuration(f.seconds)}.`
+            : `At the rate of the last 6 hours (from Prometheus), ${f.subject} runs out of space in about ${humanDuration(f.seconds)}.`,
         evidence: [],
         fix:
           f.what === 'volume'

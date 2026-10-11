@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, COMPLIANCE_ROUTE, MACHINES_PATH, PACKAGES_PATH, PREFLIGHT_PATH, SECURITY_ROUTE, SHOWBACK_PATH, UPGRADES_PATH, VM_BASE, VULNS_ROUTE } from '../routes';
+import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, COMPLIANCE_ROUTE, MACHINES_PATH, PACKAGES_PATH, PREFLIGHT_PATH, SECURITY_OVERVIEW_ROUTE, SECURITY_ROUTE, SHOWBACK_PATH, UPGRADES_PATH, VM_BASE, VULNS_ROUTE } from '../routes';
 import { AccessPage } from './AccessPanel';
 import { BaselinePage } from './BaselinePage';
 import { CapacityPage } from './CapacityPage';
@@ -7,6 +7,7 @@ import { CleanupPage } from './CleanupPage';
 import { CompliancePage } from './CompliancePage';
 import { Hub } from './Hub';
 import { SecurityPage, ShowbackPage } from './InsightPages';
+import { SecurityOverviewPage } from './SecurityOverview';
 import { MachinesPage } from './MachinesPage';
 import { VmsPage } from './NamespacePages';
 import { PackagesPage } from './PackagesPage';
@@ -30,8 +31,9 @@ export const ComputeHub = ({ children }: { children?: ReactNode }) => (
 export const SecurityHub = ({ children }: { children?: ReactNode }) => (
   <Hub
     title="Security"
-    blurb="Posture inside the clusters, CIS-aligned compliance with evidence, and image vulnerabilities from Trivy."
+    blurb="How secure the fleet is in one place, then posture inside the clusters, CIS-aligned compliance with evidence, and image vulnerabilities from Trivy."
     tabs={[
+      { label: 'Overview', path: SECURITY_OVERVIEW_ROUTE, render: () => <SecurityOverviewPage /> },
       { label: 'Posture', path: SECURITY_ROUTE, render: () => <SecurityPage /> },
       { label: 'Compliance', path: COMPLIANCE_ROUTE, render: () => <CompliancePage /> },
       { label: 'Vulnerabilities', path: VULNS_ROUTE, render: () => <VulnerabilitiesPage /> },

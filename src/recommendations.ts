@@ -27,6 +27,7 @@ type RecKey =
   | 'update-packages'
   | 'fix-backups'
   | 'install-backups'
+  | 'first-backup'
   | 'default-storageclass'
   | 'network-policy'
   | 'expand-volume'
@@ -114,6 +115,15 @@ const RULES: Record<RecKey, Rule> = {
     effort: 'guided',
     forCluster: c => clusterDeepLink(c, { hash: 'packages' }),
     fleet: PACKAGES_PATH,
+    simulated: true,
+  },
+  'first-backup': {
+    title: n => `Schedule a first backup on ${clusters(n)}`,
+    label: 'Open backups',
+    why: 'Velero is installed, but no backup has ever succeeded, so there is nothing to restore from yet. A schedule (or one manual backup) closes that.',
+    effort: 'guided',
+    forCluster: c => clusterDeepLink(c, { hash: 'backups' }),
+    fleet: CLUSTERS_TAB,
     simulated: true,
   },
   'default-storageclass': {
@@ -300,7 +310,13 @@ export function recommendations(input: RecommendationsInput): Recommendation[] {
     }
   }
   // No backup tool at all raises no issue (nothing failed), but it is the first thing to put right.
-  for (const [k, b] of input.backups ?? []) if (b.missing && input.clusters.has(k)) draft('install-backups').clusterKeys.add(k);
+  // Nor does a backup tool that has never produced a backup, unless a baseline's window already flags it.
+  const flagged = new Set(drafts.get('fix-backups')?.clusterKeys ?? []);
+  for (const [k, b] of input.backups ?? []) {
+    if (!input.clusters.has(k) || b.error) continue;
+    if (b.missing) draft('install-backups').clusterKeys.add(k);
+    else if (!b.lastSuccess && !flagged.has(k)) draft('first-backup').clusterKeys.add(k);
+  }
 
   const out: Recommendation[] = [];
   for (const [key, d] of drafts) {

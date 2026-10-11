@@ -2,6 +2,18 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.39.0 (release candidate)
+
+- **Security overview:** a new first tab in Security, and where the dashboard's Security block leads. One place for how secure the fleet is, built only from what the Posture, Compliance and Vulnerabilities tabs already collect.
+  - **A security score with a trend:** the CIS-aligned compliance result for the whole fleet (the same number as the Compliance tab's fleet score), with accepted controls counted as passing. Vulnerabilities and posture are shown beside it, not blended in.
+  - **One row per cluster:** compliance, failing controls, Pod Security, privileged pods, cluster-admin grants, critical and high CVEs, the last node scan, accepted risks.
+  - **Fix once:** the controls failing in the most clusters, with their owner (you, VKS or shared) and how to fix them.
+  - **Accepted risks** are counted apart from open ones, with when the first acceptance ends.
+  - **Evidence pack:** one Markdown document combining the summary, the clusters, failing controls, accepted risks, posture findings, the most widespread CVEs and the compliance evidence.
+- **A new recommended step:** *Schedule a first backup*, for a cluster that has Velero but has never had a successful backup.
+- **Steadier node memory forecasts:** free memory rises and falls all day, so six hours alone could keep predicting an end that never came. A node's memory is now forecast to run out only when it has been falling over the last 6 hours and the last 24, and the later of the two estimates is shown.
+- **Docs:** the install commands use this version.
+
 ## 1.38.0 (release candidate)
 
 Recommendations: the step the plugin suggests where it has no guaranteed fix.

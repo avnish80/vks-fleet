@@ -16,7 +16,7 @@ import { PageFrame } from './components/PersonaBar';
 import { SearchPage } from './components/SearchPage';
 import { FleetView } from './components/FleetView';
 import { PLUGIN_NAME } from './config';
-import { APPS_ROUTE, COMPLIANCE_ROUTE, INVESTIGATE_ROUTE, OBSERVABILITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
+import { APPS_ROUTE, COMPLIANCE_ROUTE, INVESTIGATE_ROUTE, OBSERVABILITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, VULNS_ROUTE, NAMESPACE_BASE, NAMESPACE_PATH, NETWORK_PATH, SECURITY_OVERVIEW_ROUTE, SECURITY_ROUTE, SHOWBACK_PATH, VM_BASE, VM_PATH } from './routes';
 import { ACCESS_PATH, BASELINE_PATH, CAPACITY_PATH, CLEANUP_PATH, CLUSTER_PATH, FLEET_PATH, MACHINE_PATH, MACHINES_PATH, PACKAGES_PATH, PREFLIGHT_PATH, SEARCH_ROUTE, UPGRADES_PATH } from './routes';
 import { SettingsPanel } from './settings/SettingsPanel';
 
@@ -45,7 +45,7 @@ for (const child of [
   { name: 'vks-fleet-apps', label: 'Applications', url: APPS_ROUTE, icon: 'mdi:apps' },
   { name: 'vks-fleet-observability', label: 'Observability', url: OBSERVABILITY_ROUTE, icon: 'mdi:chart-timeline-variant' },
   { name: 'vks-fleet-investigate', label: 'Investigate', url: INVESTIGATE_ROUTE, icon: 'mdi:magnify-scan' },
-  { name: 'vks-fleet-security', label: 'Security', url: SECURITY_ROUTE, icon: 'mdi:shield-lock-outline' },
+  { name: 'vks-fleet-security', label: 'Security', url: SECURITY_OVERVIEW_ROUTE, icon: 'mdi:shield-lock-outline' },
   { name: 'vks-fleet-lifecycle', label: 'Lifecycle', url: PACKAGES_PATH, icon: 'mdi:package-variant-closed' },
   { name: 'vks-fleet-capacity', label: 'Capacity & cost', url: CAPACITY_PATH, icon: 'mdi:gauge' },
   { name: 'vks-fleet-governance', label: 'Governance', url: BASELINE_PATH, icon: 'mdi:ruler-square' },
@@ -74,6 +74,7 @@ for (const page of [
   { path: VM_PATH, name: 'vks-fleet-vm', item: 'vks-fleet-compute', component: () => (<PageFrame><ComputeHub><VmDetail /></ComputeHub></PageFrame>) },
   { path: NETWORK_PATH, name: 'vks-fleet-network', component: () => (<PageFrame><NetworkPage /></PageFrame>) },
   { path: APPS_ROUTE, name: 'vks-fleet-apps', component: () => (<PageFrame><AppsPage /></PageFrame>) },
+  { path: SECURITY_OVERVIEW_ROUTE, name: 'vks-fleet-security-overview', item: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
   { path: SECURITY_ROUTE, name: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
   { path: COMPLIANCE_ROUTE, name: 'vks-fleet-compliance', item: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },
   { path: VULNS_ROUTE, name: 'vks-fleet-vulns', item: 'vks-fleet-security', component: () => (<PageFrame><SecurityHub /></PageFrame>) },

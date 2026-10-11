@@ -8,7 +8,7 @@
  */
 import { ScoreDriver, WallTile, iconFor, tileTitle } from './fixes';
 import { HorizonItem, inWords, NowItem } from './fleetHero';
-import { BASELINE_PATH, CAPACITY_PATH, FLEET_PATH, NETWORK_PATH, PACKAGES_PATH, SECURITY_ROUTE, SUPERVISOR_HEALTH_ROUTE, UPGRADES_PATH } from './routes';
+import { BASELINE_PATH, CAPACITY_PATH, FLEET_PATH, NETWORK_PATH, PACKAGES_PATH, SECURITY_OVERVIEW_ROUTE, SUPERVISOR_HEALTH_ROUTE, UPGRADES_PATH } from './routes';
 import { SeriesPoint, seriesSince, TREND_DAYS } from './scoreHistory';
 import { Issue } from './types';
 
@@ -206,7 +206,7 @@ function securityBlock(issues: Issue[]): DashboardBlock {
     value: String(open.length),
     tone: critical ? 'bad' : open.length ? 'warn' : 'ok',
     reason: !open.length ? 'No open security findings' : critical ? `open ${open.length === 1 ? 'finding' : 'findings'}, ${critical} critical` : `open ${open.length === 1 ? 'finding' : 'findings'} (posture and compliance)`,
-    path: SECURITY_ROUTE,
+    path: SECURITY_OVERVIEW_ROUTE,
     n: open.length,
     metric: 'security',
     better: 'down',

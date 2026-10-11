@@ -16,7 +16,7 @@ The sidebar has eleven entries. Five are hubs with tabs, each keeping what used 
 | **Applications** | Apps across clusters, image drift, GitOps |
 | **Observability** | Prometheus charts with change markers, forecasts, alerts, right-sizing, comparisons |
 | **Investigate** | One cluster's timeline with a post-mortem draft, beside the walk-down through its layers |
-| **Security** | Posture · Compliance · Vulnerabilities |
+| **Security** | Overview · Posture · Compliance · Vulnerabilities |
 | **Lifecycle** | Packages · Upgrades · Pre-flight |
 | **Capacity & cost** | Capacity · Showback |
 | **Governance** | Baseline · Cleanup · Access |
@@ -66,6 +66,7 @@ Search is one keystroke away everywhere: **Ctrl+K**.
 | Update packages | newer package versions available | Guided |
 | Get backups running again | a failed or stale backup | Guided |
 | Install Velero and schedule backups | no backup tool in the cluster | Guided |
+| Schedule a first backup | Velero installed, but no backup has ever succeeded | Guided |
 | Set a default StorageClass | none set | Guided |
 | Add a default-deny network policy | namespaces without a network policy | Guided |
 | Replace the node | a node disk forecast to fill up | One click |
@@ -80,6 +81,14 @@ Search is one keystroke away everywhere: **Ctrl+K**.
 **Built for fleets.** Pages that cover every cluster show a **fleet roll-up first** (for example, the compliance controls failing across the fleet: one failing in 17 of 20 clusters is one problem to fix once), then **one compact row per cluster** with its counts, clusters needing attention first. Expanding a row shows its first rows, most important first; **Show all** opens the full table in a dialog. Long lists (nodes, namespaces, repositories, issues) have a **filter box and paging**. To see every page at scale, turn on demo mode and set **Demo fleet size** to 20 or 50 clusters.
 
 The plugin follows Headlamp's theme, light or dark: every colour comes from the theme, and charts, markers and status chips are legible on both.
+
+**Security overview** (the first tab of Security, and where the dashboard's Security block leads) answers *how secure is the fleet* in one place. It only brings together what the Posture, Compliance and Vulnerabilities tabs collect; nothing new is scanned.
+
+- **The security score** is the CIS-aligned compliance result for the whole fleet: checks that pass out of checks that pass or fail, with accepted (waived) controls counted as passing. It is the same number as the Compliance tab's fleet score, with a trend kept in the browser like the fleet score's. Vulnerabilities and posture findings are shown beside it, never blended into it, so the number stays explainable. Not a certified CIS assessment.
+- **Four figures**, each opening its tab: failing controls, critical vulnerabilities (or *no scanner* when no cluster runs Trivy), privileged namespaces, and accepted risks with when the first acceptance ends.
+- **One row per cluster**, the lowest compliance first: compliance, failing controls, the Pod Security default and how many namespaces are privileged, privileged pods, cluster-admin grants, critical and high CVEs, the age of the last node scan, and accepted risks.
+- **Fix once:** the controls failing in the most clusters, with who owns each (you, VKS, or shared) and how to fix it, so nobody chases what VKS manages.
+- **Evidence pack:** one Markdown document with the summary, each cluster, the failing controls, accepted risks, posture findings, the most widespread CVEs and the full compliance evidence.
 
 ## What it shows
 

@@ -14,6 +14,8 @@ export const VM_PATH = '/vks-fleet/vms/:supervisor/:namespace/:name';
 export const NETWORK_PATH = '/vks-fleet/network';
 export const APPS_ROUTE = '/vks-fleet/apps';
 export const SECURITY_ROUTE = '/vks-fleet/security';
+/** The Security hub's first tab: the fleet's security in one place. */
+export const SECURITY_OVERVIEW_ROUTE = '/vks-fleet/security-overview';
 export const SHOWBACK_PATH = '/vks-fleet/showback';
 export const COMPLIANCE_ROUTE = '/vks-fleet/compliance';
 export const VULNS_ROUTE = '/vks-fleet/vulnerabilities';

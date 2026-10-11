@@ -141,6 +141,7 @@ src/
   components/InvestigatePage.tsx  Investigate: timeline beside the walk-down
   preflight.ts          Change impact analysis: checks, capacity during and after, blast radius, verdict
   fleetHero.ts          Needs you now and the next 30 days
+  securityOverview.ts   Security overview: per-cluster rows, the fleet's security score, controls to fix once, accepted risks, the evidence pack
   recommendations.ts    Recommended steps: per issue, grouped and ranked for the fleet, and what Simulate counts
   dashboard.ts          The fleet dashboard: its eight blocks, headline, tabs and their addresses
   scoreHistory.ts       The fleet score over time, kept in the browser: daily points, trend, since the last visit
