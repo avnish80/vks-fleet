@@ -2,7 +2,8 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { ElevationGate } from './Elevation';
 import React from 'react';
 import { headlampClient, headlampWriter } from '../api/headlampClient';
-import { DEFAULT_BENCHMARK, DEFAULT_KUBE_BENCH_IMAGE, SCAN_NS } from '../nodeScan';
+import { benchmarkLabel, cisBenchmark } from '../benchmark';
+import { DEFAULT_KUBE_BENCH_IMAGE, SCAN_NS } from '../nodeScan';
 import { runNodeScan, ScanStep } from '../nodeScanRunner';
 import { settingsStore } from '../settings/store';
 
@@ -12,6 +13,7 @@ export function NodeScanDialog({
   contextName,
   image: configured,
   benchmark: configuredBenchmark,
+  kubernetesVersion,
   onClose,
   onDone,
 }: {
@@ -19,21 +21,36 @@ export function NodeScanDialog({
   contextName: string;
   image?: string;
   benchmark?: string;
+  /** The cluster's Kubernetes version: it decides which CIS benchmark applies. */
+  kubernetesVersion?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [image, setImage] = React.useState(configured ?? DEFAULT_KUBE_BENCH_IMAGE);
-  const [benchmark, setBenchmark] = React.useState(configuredBenchmark ?? DEFAULT_BENCHMARK);
+  const cis = cisBenchmark(kubernetesVersion);
+  const [benchmark, setBenchmark] = React.useState(configuredBenchmark ?? cis.profile);
   const [steps, setSteps] = React.useState<ScanStep[]>([]);
   const [phase, setPhase] = React.useState<'idle' | 'checking' | 'checked' | 'running' | 'done'>('idle');
   const [result, setResult] = React.useState<{ ok: boolean; message: string } | null>(null);
 
   const go = async (dryRun: boolean) => {
     if (image !== (configured ?? DEFAULT_KUBE_BENCH_IMAGE)) settingsStore.update({ nodeScanImage: image });
-    if (benchmark !== (configuredBenchmark ?? DEFAULT_BENCHMARK)) settingsStore.update({ nodeScanBenchmark: benchmark });
+    // Only a profile chosen by hand is remembered: otherwise each cluster keeps getting the one for its own version.
+    if (benchmark !== (configuredBenchmark ?? cis.profile)) settingsStore.update({ nodeScanBenchmark: benchmark });
     setPhase(dryRun ? 'checking' : 'running');
     setSteps([]);
-    const r = await runNodeScan(headlampClient(contextName), headlampWriter(contextName), { image, benchmark, dryRun }, setSteps);
+    let first: ScanStep[] = [];
+    let r = await runNodeScan(headlampClient(contextName), headlampWriter(contextName), { image, benchmark, dryRun }, next => {
+      first = next;
+      setSteps(next);
+    });
+    // An image released before kube-bench gained this profile exits with an error. The fallback profile has the
+    // same checks under the same numbers, so the scan runs again with it and says so.
+    if (!dryRun && !r.ok && r.kubeBenchFailed && cis.fallbackProfile && benchmark === cis.profile) {
+      const before = first;
+      const note: ScanStep = { text: `This kube-bench image doesn't ship ${cis.profile} yet: running ${cis.fallbackProfile} (the same checks, numbered the same)`, state: 'done' };
+      r = await runNodeScan(headlampClient(contextName), headlampWriter(contextName), { image, benchmark: cis.fallbackProfile, dryRun }, next => setSteps([...before, note, ...next]));
+    }
     setResult(r);
     setPhase(dryRun ? (r.ok ? 'checked' : 'idle') : 'done');
     if (!dryRun) onDone();
@@ -65,7 +82,7 @@ export function NodeScanDialog({
             value={benchmark}
             onChange={e => setBenchmark(e.target.value)}
             disabled={phase === 'running'}
-            helperText={'For example cis-1.10 or cis-1.11 (those the image ships). "auto" lets kube-bench guess, but it mistakes VKS for TKGI.'}
+            helperText={`${kubernetesVersion ? `This cluster runs ${kubernetesVersion.replace(/\+.*/, '')}: ` : ''}${benchmarkLabel(cis)} is written for ${cis.covers}${cis.beyond ? ' (the newest there is; this cluster is newer)' : ''}, as kube-bench profile ${cis.profile}.${cis.fallbackProfile ? ` Images older than kube-bench's ${cis.profile} support fall back to ${cis.fallbackProfile}.` : ''} "auto" lets kube-bench guess, but it mistakes VKS for TKGI.`}
           />
           {steps.length > 0 && (
             <Box component="ul" sx={{ m: 0, pl: 2 }}>

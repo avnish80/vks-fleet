@@ -2,6 +2,19 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.39.1 (release candidate)
+
+How the security figures are measured, and against which benchmark.
+
+- **The CIS benchmark follows each cluster's Kubernetes version:** v2.0 for 1.34 to 1.35 (and, marked, for anything newer), v1.12 for 1.32 to 1.33, v1.11 for 1.29 to 1.31. The Compliance tab, the overview and every export say which.
+- **Exact recommendation numbers:** for v2.0 and v1.12 each check carries its recommendation numbers (`CIS 2.0: 1.2.6-1.2.8`) instead of a section. The *General policies* checks were cited under an old section number (5.7); they are 5.6. *Kubelet protects kernel defaults* has no counterpart in v1.12 or v2.0, so it is no longer scored for clusters on 1.32 and later.
+- **Coverage is stated:** the checks assess 98 of the 131 recommendations in CIS v2.0; the evidence pack lists the other 33 by number.
+- **Node scans use the right profile:** the kube-bench profile for the cluster's version (`cis-2.0`, `cis-1.12`, `cis-1.11`) instead of `cis-1.10` for every cluster. An image that doesn't ship `cis-2.0` yet falls back to `cis-1.12`, the same checks under the same numbers, and says so. A check's evidence names the profile its scan used.
+- **How this is measured:** a section on the Security overview, and in the evidence pack: where each figure comes from, what it needs in the cluster (nothing for compliance and posture; Trivy Operator for vulnerabilities; a policy engine for policy results), and what it doesn't show.
+- **Measured with:** each cluster's row says which sources it has. A missing scanner reads *not measured*, never zero.
+- **Vulnerabilities counted once per image:** the overview summed every pod's findings, so the same image counted many times and VKS-managed images were mixed with yours. It now counts as the Vulnerabilities tab does: each image once, your own images as the figure, VKS-managed ones beside it.
+- **Docs:** the install commands use this version.
+
 ## 1.39.0 (release candidate)
 
 - **Security overview:** a new first tab in Security, and where the dashboard's Security block leads. One place for how secure the fleet is, built only from what the Posture, Compliance and Vulnerabilities tabs already collect.

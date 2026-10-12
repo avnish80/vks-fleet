@@ -89,6 +89,17 @@ The plugin follows Headlamp's theme, light or dark: every colour comes from the 
 - **One row per cluster**, the lowest compliance first: compliance, failing controls, the Pod Security default and how many namespaces are privileged, privileged pods, cluster-admin grants, critical and high CVEs, the age of the last node scan, and accepted risks.
 - **Fix once:** the controls failing in the most clusters, with who owns each (you, VKS, or shared) and how to fix it, so nobody chases what VKS manages.
 - **Evidence pack:** one Markdown document with the summary, each cluster, the failing controls, accepted risks, posture findings, the most widespread CVEs and the full compliance evidence.
+- **How this is measured** is on the page and in the evidence pack: where each figure comes from, what it needs in the cluster, and what it doesn't show.
+
+| Figure | Where it comes from | Needs in the cluster |
+|---|---|---|
+| Security score, compliance, Pod Security, posture | Each cluster's Kubernetes API | Nothing installed; a sign-in that can read it |
+| Node scan (file permissions) | kube-bench, run on request as two short-lived Jobs | Nothing pre-installed; the kube-bench image must be pullable or mirrored |
+| Vulnerabilities | The reports Trivy Operator writes | Trivy Operator |
+| Policy results | PolicyReports | A policy engine such as Kyverno (optional) |
+| Trends | One point a day | Nothing; kept in the browser |
+
+A source that is missing reads **not measured**, never zero, and each cluster's row says what it is measured with. Vulnerabilities are counted once per image (not once per pod running it), your own images apart from the ones VKS ships and rebuilds: the same counting as the Vulnerabilities tab.
 
 ## What it shows
 
@@ -303,7 +314,7 @@ A **fleet matrix** shows every cluster against every check.
 
 Each finding is also an issue with a runbook. The runbooks use server-side dry runs, for example trying a Pod Security level before enforcing it.
 
-**Compliance** (sidebar: Compliance): 53 checks aligned with the CIS Kubernetes Benchmark, evaluated through the Kubernetes API, with nothing installed in the clusters:
+**Compliance** (sidebar: Compliance): checks aligned with the CIS Kubernetes Benchmark, evaluated through the Kubernetes API, with nothing installed in the clusters. **Each cluster is measured against the benchmark written for its Kubernetes version**: v2.0 for 1.34 to 1.35 (and, marked as such, for anything newer, since it is the newest), v1.12 for 1.32 to 1.33, v1.11 for 1.29 to 1.31. For v2.0 and v1.12 every check carries its exact recommendation numbers (`CIS 2.0: 1.2.6-1.2.8`); for older benchmarks, its section. The checks assess 98 of the 131 recommendations in v2.0; the evidence pack lists the rest by number. The checks' titles and remedies are this plugin's own wording, and this is not a certified CIS assessment. They cover:
 
 - **Control plane** (API server, controller manager, scheduler, etcd): flags read from the static pods' command lines. Covers authorization, admission plugins, profiling, TLS to etcd and kubelets, encryption at rest, and audit logging and retention.
 - **Worker nodes:** each kubelet's live configuration (`nodes/<node>/proxy/configz`, up to six nodes per cluster). Covers anonymous auth, Webhook authorization, the client CA, the read-only port, streaming timeouts, certificate rotation and kernel defaults.
@@ -325,7 +336,7 @@ Titles are the plugin's own, and each control references the CIS section it alig
 - **Results** are summarised into the `vks-fleet-scan/kube-bench-results` ConfigMap, which keeps the last 5 runs per target **in the cluster itself**. The Jobs are deleted afterwards (and expire within the hour regardless).
 - **In the benchmark:** the file-permission controls take their result from the latest scan, and the cluster section lists every kube-bench check (failures and warnings first) with what was found and the remediation.
 - **The image** defaults to `docker.io/aquasec/kube-bench:latest`; set your own mirrored and pinned image in the dialog, and it's remembered.
-- **The benchmark** defaults to `cis-1.10` and can be changed in the dialog. kube-bench guesses the benchmark from the Kubernetes version and mistakes VKS (`+vmware`) for TKGI, whose checks look for paths VKS nodes don't have. Results from such foreign benchmarks are flagged and not counted.
+- **The benchmark** is the one written for the cluster's Kubernetes version: kube-bench profile `cis-2.0` for 1.34 and later, `cis-1.12` for 1.32 to 1.33, `cis-1.11` for 1.29 to 1.31. kube-bench gained `cis-2.0` in August 2026, after its 0.16.0 release, so an older image doesn't have it: the scan then runs `cis-1.12` instead, which has the same checks under the same numbers, and says so. The profile can be changed in the dialog. The scan always names it, because kube-bench's own guess from the Kubernetes version mistakes VKS (`+vmware`) for TKGI, whose checks look for paths VKS nodes don't have; such a run is shown but not counted.
 - **A slow or stuck scan** shows the pod's latest event as it waits (a large image pulling, or `FailedCreatePodSandBox` when pod networking is broken on the node) and reports it if the scan times out.
 
 **Frameworks and OSCAL.** The Compliance page switches between **CIS-aligned** and **NSA/CISA hardening**, the NSA/CISA Kubernetes Hardening Guidance with its sections: pod security; network separation and hardening; authentication and authorization; audit logging; application practices. Two further controls:

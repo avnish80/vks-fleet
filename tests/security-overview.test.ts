@@ -57,21 +57,22 @@ describe('security overview', () => {
   test('vulnerabilities and node scans, when a cluster has them', () => {
     const counts = (c: number, h: number) => ({ CRITICAL: c, HIGH: h, MEDIUM: 0, LOW: 0, UNKNOWN: 0 });
     const reports: any[] = [
-      { clusterKey: a.clusterKey, clusterName: 'a', trivy: true, images: [{ counts: counts(2, 5), top: [] }, { counts: counts(1, 0), top: [] }], audits: [], exposedSecrets: [], compliance: [], policy: [] },
+      { clusterKey: a.clusterKey, clusterName: 'a', trivy: true, images: [{ image: 'app:1', owner: 'you', namespace: 'n', workload: 'w', counts: counts(2, 5), top: [] }, { image: 'db:1', owner: 'you', namespace: 'n', workload: 'w', counts: counts(1, 0), top: [] }, { image: 'cni:1', owner: 'vks', namespace: 'n', workload: 'w', counts: counts(7, 9), top: [] }], audits: [], exposedSecrets: [], compliance: [], policy: [] },
       { clusterKey: b.clusterKey, clusterName: 'b', trivy: false, images: [] },
     ];
     const nodeScans = new Map<string, any[]>([[a.clusterKey, [{ at: '2026-10-07T07:00:00Z', target: 'worker', tests: [] }, { at: '2026-09-01T00:00:00Z', target: 'control-plane', tests: [] }]]]);
     const rows = securityRows(input({ reports, nodeScans }));
     const ra = rows.find(r => r.clusterName === 'a')!;
     const rb = rows.find(r => r.clusterName === 'b')!;
-    assert.deepEqual([ra.vulns, ra.nodeScanDays, rb.vulns, rb.nodeScanDays], [{ critical: 3, high: 5 }, 3, undefined, undefined]);
+    assert.deepEqual([ra.vulns, ra.nodeScanDays, rb.vulns, rb.nodeScanDays], [{ critical: 3, high: 5, vksCritical: 7, vksHigh: 9 }, 3, undefined, undefined]);
   });
   test('the evidence pack is one document with every part', () => {
     const md = evidencePack(input({ silences: [silence(complianceIssueId(a.clusterKey, '2'), '2026-11-01T00:00:00Z', 'Control 2 on a')] }));
     for (const heading of ['# VKS fleet security evidence', '## Summary', '## Clusters', '## Controls failing across the fleet', '## Posture findings', '## Vulnerabilities']) assert.ok(md.includes(heading), heading);
     assert.match(md, /Security score: 71%/);
     assert.match(md, /Accepted risks: 1 \(the first acceptance ends 2026-11-01: Control 2 on a\)/);
-    assert.match(md, /\| a \| 67% \| 1 \| baseline \| 1 of 2 \| 2 \| 1 \| — \| — \| never \| 1 \|/);
+    assert.match(md, /\| a \| — \| 67% \| 1 \| baseline \| 1 of 2 \| 2 \| 1 \| — \| — \| — \| never \| 1 \|/);
+    assert.ok(md.includes('## How this is measured') && md.includes('98 of the 131 recommendations in CIS v2.0'));
     assert.match(md, /No cluster has a vulnerability scanner/);
     assert.match(md, /Not a certified CIS assessment/);
   });

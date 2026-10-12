@@ -12,7 +12,8 @@ import { shortener } from '../names';
 import { download } from '../report';
 import { clusterPath, COMPLIANCE_ROUTE, SECURITY_ROUTE, VULNS_ROUTE } from '../routes';
 import { seriesLine, scoreSeries, sinceLast, sinceLastText, TREND_DAYS } from '../scoreHistory';
-import { acceptedRisks, evidencePack, FailingControl, failingControls, securityRows, SecurityRow, securityScore } from '../securityOverview';
+import { cisCoverage } from '../benchmark';
+import { acceptedRisks, evidencePack, FailingControl, failingControls, securityRows, SecurityRow, securityScore, vulnCounts } from '../securityOverview';
 import { activeSilences } from '../silences';
 import { useClusterScans } from '../useClusterScans';
 import { useNodeScans } from '../useNodeScans';
@@ -23,6 +24,47 @@ import { NoClusters } from './EmptyState';
 import { card, scoreColour } from './FleetHero';
 import { useScoreHistory } from './scoreHistoryStore';
 import { SignInHelper } from './SignInHelper';
+
+interface Method {
+  figure: string;
+  from: string;
+  needs: string;
+  limits: string;
+}
+
+/** Where each figure on this page comes from, what it needs, and what it can't see. */
+const METHODS: Method[] = [
+  {
+    figure: 'Security score and compliance',
+    from: "Each cluster's Kubernetes API: control-plane flags from the static pods, every kubelet's live configuration, RBAC, namespaces and workloads",
+    needs: 'Nothing installed. A sign-in to the cluster that can read them',
+    limits: 'File permissions on the nodes (the node scan covers those), and the recommendations that need a person',
+  },
+  {
+    figure: 'Node scan',
+    from: 'kube-bench, run on request from the Compliance tab as two short-lived Jobs: one control-plane node, one worker',
+    needs: 'Nothing pre-installed. The kube-bench image must be pullable (or mirrored), and the scan creates a privileged namespace for itself',
+    limits: 'Only the two nodes it ran on, and only as of the day it ran',
+  },
+  {
+    figure: 'Pod Security, privileged pods, cluster-admin grants',
+    from: "The cluster's API: namespace labels, the cluster default (probed with a dry run), running pods, role bindings",
+    needs: 'Nothing installed',
+    limits: 'What an admission webhook or policy engine would refuse beyond Pod Security',
+  },
+  {
+    figure: 'Vulnerabilities',
+    from: 'The reports Trivy Operator writes into the cluster; each image counted once, yours apart from VKS-managed ones',
+    needs: 'Trivy Operator installed in the cluster',
+    limits: 'Images Trivy has not scanned yet, and anything in a cluster without it ("not measured", never zero)',
+  },
+  {
+    figure: 'Policy results (Compliance tab)',
+    from: 'PolicyReports in the cluster',
+    needs: 'A policy engine that writes them, such as Kyverno (optional)',
+    limits: 'Policies you have not written',
+  },
+];
 
 type Status = 'success' | 'warning' | 'error' | '';
 const pctStatus = (p: number): Status => (p >= 90 ? 'success' : p >= 70 ? 'warning' : 'error');
@@ -56,7 +98,12 @@ export function SecurityOverviewPage() {
   const short = shortener(clusters.map(c => c.name));
   const clusterOf = new Map(clusters.map(c => [c.key, c]));
   const scanned = (reports ?? []).filter(r => r.trivy);
-  const critical = rows.reduce((n, r) => n + (r.vulns?.critical ?? 0), 0);
+  // Each image once across the fleet, your own apart from the ones VKS ships: the Vulnerabilities tab's counting.
+  const vulns = vulnCounts(scanned);
+  const critical = vulns.critical;
+  const benchmarks = Array.from(new Set(rows.map(r => r.benchmark).filter(Boolean))).sort();
+  const beyond = rows.filter(r => r.benchmarkBeyond);
+  const cover = cisCoverage();
   const privileged = rows.reduce((n, r) => n + r.privilegedNamespaces, 0);
   const since = score ? sinceLastText(sinceLast(stored, today, score.pct)) : undefined;
   const { line, last } = points.length >= 2 ? seriesLine(scoreSeries(points), today, 170, 44) : { line: '', last: undefined };
@@ -98,7 +145,7 @@ export function SecurityOverviewPage() {
                 <Typography variant="body2" color="text.secondary">
                   {score ? `Security score ${score.pct}%${since ? `, ${since}` : ''}. ` : ''}
                   {worst && rows.length > 1 && worst.compliance.scored ? `Lowest: ${short(worst.clusterName)} at ${worst.compliance.pct}%. ` : ''}
-                  The score is the CIS-aligned compliance result, with accepted controls counted as passing; vulnerabilities and posture are shown beside it, not blended in. Not a certified CIS assessment.
+                  The score is the compliance result against the CIS Kubernetes Benchmark{benchmarks.length ? ` (${benchmarks.map(v => `v${v}`).join(', ')})` : ''}, with accepted controls counted as passing; vulnerabilities and posture are shown beside it, not blended in. Not a certified CIS assessment: see how it is measured below.
                 </Typography>
               </Box>
               {line ? (
@@ -130,7 +177,11 @@ export function SecurityOverviewPage() {
               <KpiTile
                 label="Critical vulnerabilities"
                 value={scanned.length ? critical : '—'}
-                sub={scanned.length ? `from Trivy in ${scanned.length} of ${rows.length} cluster${rows.length === 1 ? '' : 's'}` : 'no scanner (Trivy) in any cluster'}
+                sub={
+                  scanned.length
+                    ? `in your images, each image counted once; Trivy in ${scanned.length} of ${rows.length} cluster${rows.length === 1 ? '' : 's'}${vulns.vksCritical ? `. ${vulns.vksCritical} more in VKS-managed images, which VKS rebuilds` : ''}`
+                    : 'not measured: no cluster has Trivy Operator'
+                }
                 tone={!scanned.length ? 'neutral' : critical ? 'error' : 'success'}
                 onClick={() => history.push(VULNS_ROUTE)}
                 hint="Open Vulnerabilities"
@@ -158,7 +209,7 @@ export function SecurityOverviewPage() {
       {rows.length > 0 && (
         <SectionBox title="Clusters">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            One row per signed-in cluster, the lowest compliance first.
+            One row per signed-in cluster, the lowest compliance first.{beyond.length ? ` * Kubernetes newer than the newest CIS benchmark covers (v2.0 is written for 1.34 to 1.35): measured against it all the same.` : ''}
           </Typography>
           <SimpleTable
             columns={[
@@ -174,6 +225,18 @@ export function SecurityOverviewPage() {
                     short(r.clusterName)
                   );
                 },
+              },
+              {
+                label: 'Benchmark',
+                getter: (r: SecurityRow) =>
+                  r.benchmark ? (
+                    <span title={r.benchmarkBeyond ? `This cluster's Kubernetes is newer than CIS v${r.benchmark} covers; it is the newest benchmark there is.` : `The CIS Kubernetes Benchmark written for this cluster's Kubernetes version.`}>
+                      CIS {r.benchmark}
+                      {r.benchmarkBeyond ? ' *' : ''}
+                    </span>
+                  ) : (
+                    '—'
+                  ),
               },
               {
                 label: 'Compliance',
@@ -192,7 +255,15 @@ export function SecurityOverviewPage() {
               { label: 'cluster-admin grants', getter: (r: SecurityRow) => <StatusLabel status={r.adminGrants ? 'warning' : 'success'}>{String(r.adminGrants)}</StatusLabel> },
               {
                 label: 'Critical CVEs',
-                getter: (r: SecurityRow) => (r.vulns ? <StatusLabel status={r.vulns.critical ? 'error' : 'success'}>{`${r.vulns.critical}${r.vulns.high ? ` (+${r.vulns.high} high)` : ''}`}</StatusLabel> : <span title="No Trivy Operator in this cluster">no scanner</span>),
+                getter: (r: SecurityRow) =>
+                  r.vulns ? (
+                    <span title={`In your images, each image counted once: ${r.vulns.critical} critical, ${r.vulns.high} high. In VKS-managed images (rebuilt by VKS): ${r.vulns.vksCritical} critical, ${r.vulns.vksHigh} high.`}>
+                      <StatusLabel status={r.vulns.critical ? 'error' : 'success'}>{`${r.vulns.critical} yours`}</StatusLabel>
+                      {r.vulns.vksCritical ? ` +${r.vulns.vksCritical} VKS` : ''}
+                    </span>
+                  ) : (
+                    <span title="Not measured: Trivy Operator isn't installed in this cluster">not measured</span>
+                  ),
               },
               {
                 label: 'Node scan',
@@ -204,6 +275,17 @@ export function SecurityOverviewPage() {
                   ),
               },
               { label: 'Accepted', getter: (r: SecurityRow) => String(r.accepted) },
+              {
+                label: 'Measured with',
+                getter: (r: SecurityRow) => {
+                  const missing = [!r.sources.nodeScan && 'a node scan', !r.sources.scanner && 'Trivy Operator', !r.sources.policyEngine && 'a policy engine'].filter(Boolean);
+                  return (
+                    <span title={missing.length ? `Not measured here: ${missing.join(', ')}. See how it is measured, below.` : 'Every source is present.'}>
+                      {['API', r.sources.nodeScan && 'node scan', r.sources.scanner && 'Trivy', r.sources.policyEngine && 'policies'].filter(Boolean).join(', ')}
+                    </span>
+                  );
+                },
+              },
             ]}
             data={rows}
           />
@@ -260,6 +342,27 @@ export function SecurityOverviewPage() {
               )}
             </>
           )}
+        </SectionBox>
+      )}
+      {rows.length > 0 && (
+        <SectionBox title="How this is measured">
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Each cluster is measured against the <b>CIS Kubernetes Benchmark written for its Kubernetes version</b>: v2.0 for 1.34 to 1.35 (and, marked, for anything newer), v1.12 for 1.32 to
+            1.33, v1.11 for 1.29 to 1.31. The checks assess <b>{cover.assessed} of the {cover.total}</b> recommendations in v2.0; the rest need a person, or something the Kubernetes API and a node scan
+            can't see, and are listed in the evidence pack. The checks' wording is this plugin's own, and this is not a certified CIS assessment.
+          </Typography>
+          <SimpleTable
+            columns={[
+              { label: 'Figure', getter: (m: Method) => <b>{m.figure}</b> },
+              { label: 'Where it comes from', getter: (m: Method) => m.from },
+              { label: 'Needs in the cluster', getter: (m: Method) => m.needs },
+              { label: "What it doesn't show", getter: (m: Method) => m.limits },
+            ]}
+            data={METHODS}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            The node scan follows the same approach Broadcom documents for VKS (kube-bench on a node, KB 417426), run as a short-lived Job instead of by hand. Trends are kept in this browser only.
+          </Typography>
         </SectionBox>
       )}
     </>

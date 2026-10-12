@@ -17,9 +17,12 @@ export const HISTORY = 5;
 /**
  * kube-bench guesses the benchmark from the Kubernetes version string; VKS's
  * "+vmware" suffix makes it pick TKGI's (BOSH paths that don't exist on VKS
- * nodes). So the scan names the CIS benchmark explicitly.
+ * nodes). So the scan names the CIS benchmark explicitly: the one written for
+ * the cluster's Kubernetes version (see benchmark.ts). This is only the
+ * fallback when that version isn't known: the newest profile every recent
+ * kube-bench image ships.
  */
-export const DEFAULT_BENCHMARK = 'cis-1.10';
+export const DEFAULT_BENCHMARK = 'cis-1.12';
 
 /** Benchmarks written for other platforms: results from them don't apply to VKS nodes. */
 export const isForeignBenchmark = (b?: string) => !!b && /^(tkgi|gke|eks|aks|ack|rh-|ocp|k3s|rke)/i.test(b);
@@ -193,7 +196,7 @@ export function mergeNodeScan(results: ControlResult[], runs: NodeScanRun[]): Co
     const tests = run.tests.filter(t => t.id.startsWith(prefix));
     if (!tests.length) return undefined;
     const failed = tests.filter(t => t.status === 'FAIL');
-    const when = new Date(run.at).toLocaleString();
+    const when = `${new Date(run.at).toLocaleString()}${run.benchmark ? `, profile ${run.benchmark}` : ''}`;
     return failed.length
       ? { status: 'fail' as const, evidence: `kube-bench ${when}${run.node ? ` on ${run.node}` : ''}: ${failed.length} of ${tests.length} failing (${failed.slice(0, 5).map(t => t.id).join(', ')})` }
       : { status: 'pass' as const, evidence: `kube-bench ${when}${run.node ? ` on ${run.node}` : ''}: all ${tests.length} checks pass` };

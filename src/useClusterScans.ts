@@ -1,5 +1,8 @@
 import { headlampClient, headlampWriter } from './api/headlampClient';
 import { ClusterScan, fetchClusterScan } from './clusterScan';
+import { alignToBenchmark, cisBenchmark } from './benchmark';
+import { useFleetData } from './fleetContext';
+import React from 'react';
 import { usePolling } from './usePolling';
 
 export interface ScanTarget {
@@ -19,5 +22,16 @@ export function useClusterScans(targets: ScanTarget[], allowedRegistries: string
       ),
     seconds
   );
-  return targets.length ? polled : [];
+  // Each cluster is measured against the CIS benchmark written for its Kubernetes version.
+  const { all } = useFleetData();
+  const versions = React.useMemo(() => new Map((all ?? []).flatMap(r => r.clusters).map(c => [c.key, c.kubernetesVersion])), [all]);
+  const aligned = React.useMemo(
+    () =>
+      polled?.map(s => {
+        const b = cisBenchmark(versions.get(s.clusterKey));
+        return { ...s, compliance: alignToBenchmark(s.compliance, b), benchmark: b.version, benchmarkBeyond: b.beyond };
+      }) ?? null,
+    [polled, versions]
+  );
+  return targets.length ? aligned : [];
 }

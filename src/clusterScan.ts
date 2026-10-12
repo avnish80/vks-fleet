@@ -100,6 +100,10 @@ export interface ClusterScan {
   psaDefault?: PsaLevel;
   /** CIS-aligned benchmark results. */
   compliance: ControlResult[];
+  /** The CIS Kubernetes Benchmark version those results are aligned with (from the cluster's Kubernetes version). */
+  benchmark?: string;
+  /** The cluster's Kubernetes is newer than that benchmark covers. */
+  benchmarkBeyond?: boolean;
   /** Storage classes, and which are marked default (none or several both cause trouble). */
   storageClasses?: { names: string[]; defaults: string[] };
   /** Nodes where pods are stuck being created or deleted: usually that node's CNI (Multus, Calico). */

@@ -14,7 +14,8 @@ import { ComplianceScore, ControlResult, ControlStatus, scoreResults } from './c
 import { complianceMarkdown, isWaived } from './complianceReport';
 import { latest, mergeNodeScan, NodeScanRun } from './nodeScan';
 import { securityIssueId } from './scanIssues';
-import { ScannerReports, topCves } from './scanners';
+import { cisCoverage } from './benchmark';
+import { fleetImages, ScannerReports, topCves } from './scanners';
 import { Silence } from './types';
 
 const DAY = 86400e3;
@@ -41,8 +42,17 @@ export interface SecurityRow {
   compliance: ComplianceScore;
   /** Controls failing and not accepted. */
   failing: number;
-  /** Image vulnerabilities, when the cluster has a scanner (Trivy). */
-  vulns?: { critical: number; high: number };
+  /**
+   * Image vulnerabilities, when the cluster has a scanner (Trivy): counted once per
+   * image (not once per pod running it), your own images apart from the ones VKS
+   * ships and rebuilds. The same counting as the Vulnerabilities tab.
+   */
+  vulns?: { critical: number; high: number; vksCritical: number; vksHigh: number };
+  /** The CIS benchmark version the cluster is measured against, and whether its Kubernetes is newer than that covers. */
+  benchmark?: string;
+  benchmarkBeyond?: boolean;
+  /** What this cluster is measured with, beyond the API checks every signed-in cluster gets. */
+  sources: { nodeScan: boolean; scanner: boolean; policyEngine: boolean };
   /** Open posture findings (accepted ones left out): privileged or host-level pods, and cluster-admin grants. */
   privilegedPods: number;
   adminGrants: number;
@@ -65,6 +75,12 @@ export interface OverviewInput {
 
 const acceptedFinding = (silences: Silence[], scan: ClusterScan, f: SecurityFinding) => silences.find(s => s.match.issueId === securityIssueId(scan.clusterKey, f));
 
+/** Critical and high vulnerabilities, each image counted once: yours, and the images VKS ships. */
+export function vulnCounts(reports: ScannerReports[]): { critical: number; high: number; vksCritical: number; vksHigh: number } {
+  const sum = (owner: 'you' | 'vks', sev: 'CRITICAL' | 'HIGH') => fleetImages(reports, owner).reduce((n, i) => n + i.counts[sev], 0);
+  return { critical: sum('you', 'CRITICAL'), high: sum('you', 'HIGH'), vksCritical: sum('vks', 'CRITICAL'), vksHigh: sum('vks', 'HIGH') };
+}
+
 /** One row per signed-in cluster, the one with the lowest compliance first. */
 export function securityRows(input: OverviewInput): SecurityRow[] {
   const rows = input.scans.map(scan => {
@@ -83,7 +99,10 @@ export function securityRows(input: OverviewInput): SecurityRow[] {
       namespaces: scan.namespaces.length,
       compliance: scoreResults(effective(scan, results, input.silences)),
       failing: results.filter(r => r.status === 'fail').length - waived,
-      vulns: report?.trivy ? { critical: report.images.reduce((n, i) => n + i.counts.CRITICAL, 0), high: report.images.reduce((n, i) => n + i.counts.HIGH, 0) } : undefined,
+      vulns: report?.trivy ? vulnCounts([report]) : undefined,
+      benchmark: scan.benchmark,
+      benchmarkBeyond: scan.benchmarkBeyond,
+      sources: { nodeScan: newest.length > 0, scanner: !!report?.trivy, policyEngine: !!report?.policyEngine },
       privilegedPods: objects('privileged'),
       adminGrants: objects('cluster-admin'),
       criticalFindings: open.filter(f => f.severity === 'critical').length,
@@ -175,14 +194,24 @@ export function evidencePack(input: OverviewInput): string {
     'CIS-aligned checks evaluated through the Kubernetes API (and node scans where they were run), posture findings, and scanner reports. Not a certified CIS assessment.',
     ''
   );
+  const used = Array.from(new Set(input.scans.map(s => s.benchmark).filter(Boolean))).sort();
+  const cover = cisCoverage();
+  out.push('## How this is measured', '');
+  out.push(`- **Benchmark:** each cluster is measured against the CIS Kubernetes Benchmark written for its Kubernetes version${used.length ? ` (here: ${used.map(v => `v${v}`).join(', ')})` : ''}. v2.0 covers Kubernetes 1.34 to 1.35; a newer cluster is measured against it and marked.`);
+  out.push(`- **Coverage:** the checks assess ${cover.assessed} of the ${cover.total} recommendations in CIS v2.0 (v1.12 has the same numbering). Not assessed: ${cover.notAssessed.join(', ')}.`);
+  out.push('- **Compliance, Pod Security and posture:** read through each cluster\'s Kubernetes API (control-plane flags from the static pods, each kubelet\'s live configuration, RBAC, namespaces, workloads). Nothing is installed in the cluster.');
+  out.push('- **File permissions** (CIS 1.1 and 4.1): from a node scan, a kube-bench Job the plugin runs on request on one control-plane node and one worker. Until a scan has run, these are shown as "needs node scan" and never counted as passing.');
+  out.push('- **Vulnerabilities:** from the reports Trivy Operator writes in a cluster where it is installed; each image is counted once, your own apart from the ones VKS ships.');
+  out.push('- **Policy results:** from PolicyReports, where a policy engine such as Kyverno writes them.');
+  out.push('- **Accepted risks** are counted apart from open ones and return when their acceptance ends.', '');
   out.push('## Summary', '');
   out.push(`- Security score: ${score ? `${score.pct}% (${score.pass} of ${score.scored} scored checks pass; accepted controls count as passing)` : 'not scored'}`);
   out.push(`- Controls failing: ${failing.length} distinct, ${rows.reduce((n, r) => n + r.failing, 0)} across clusters`);
   out.push(`- Accepted risks: ${accepted.count}${accepted.next ? ` (the first acceptance ends ${accepted.next.until.slice(0, 10)}: ${accepted.next.label})` : ''}`);
-  out.push('', '## Clusters', '', '| Cluster | Compliance | Failing | Pod Security default | Privileged namespaces | Privileged pods | cluster-admin grants | Critical CVEs | High CVEs | Last node scan | Accepted |', '|---|---|---|---|---|---|---|---|---|---|---|');
+  out.push('', '## Clusters', '', '| Cluster | Benchmark | Compliance | Failing | Pod Security default | Privileged namespaces | Privileged pods | cluster-admin grants | Critical CVEs (yours) | High CVEs (yours) | Critical CVEs (VKS images) | Last node scan | Accepted |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of rows) {
     out.push(
-      `| ${cell(r.clusterName)} | ${r.compliance.scored ? `${r.compliance.pct}%` : '—'} | ${r.failing} | ${cell(r.psaDefault)} | ${r.privilegedNamespaces} of ${r.namespaces} | ${r.privilegedPods} | ${r.adminGrants} | ${cell(r.vulns?.critical)} | ${cell(r.vulns?.high)} | ${
+      `| ${cell(r.clusterName)} | ${r.benchmark ? `CIS ${r.benchmark}${r.benchmarkBeyond ? ' (cluster is newer)' : ''}` : '—'} | ${r.compliance.scored ? `${r.compliance.pct}%` : '—'} | ${r.failing} | ${cell(r.psaDefault)} | ${r.privilegedNamespaces} of ${r.namespaces} | ${r.privilegedPods} | ${r.adminGrants} | ${cell(r.vulns?.critical)} | ${cell(r.vulns?.high)} | ${cell(r.vulns?.vksCritical)} | ${
         r.nodeScanDays === undefined ? 'never' : r.nodeScanDays === 0 ? 'today' : `${r.nodeScanDays} days ago`
       } | ${r.accepted} |`
     );

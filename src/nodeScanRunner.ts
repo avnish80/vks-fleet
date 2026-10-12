@@ -27,7 +27,7 @@ export interface ScanStep {
 
 export interface ScanOptions {
   image: string;
-  /** CIS benchmark to use (e.g. cis-1.10), or "auto" to let kube-bench guess. */
+  /** kube-bench profile to use (e.g. cis-2.0, cis-1.12), or "auto" to let kube-bench guess. */
   benchmark?: string;
   targets?: ScanTarget[];
   dryRun?: boolean;
@@ -44,7 +44,7 @@ export async function runNodeScan(
   writer: SupervisorWriter,
   opts: ScanOptions,
   progress: (steps: ScanStep[]) => void
-): Promise<{ ok: boolean; runs: NodeScanRun[]; message: string }> {
+): Promise<{ ok: boolean; runs: NodeScanRun[]; message: string; /** kube-bench itself exited with an error (for example, an image that doesn't know the benchmark asked for). */ kubeBenchFailed?: boolean }> {
   const steps: ScanStep[] = [];
   // Each step keeps a reference to its own entry, so its text can change while it runs.
   const step = (text: string) => {
@@ -61,6 +61,7 @@ export async function runNodeScan(
   const now = opts.now ?? (() => new Date());
   const targets = opts.targets ?? ['control-plane', 'worker'];
   const dry = !!opts.dryRun;
+  let kubeBenchFailed = false;
 
   // 1. Namespace (it may already exist from an earlier scan).
   let done = step(`Namespace ${SCAN_NS}`);
@@ -148,7 +149,8 @@ export async function runNodeScan(
           break;
         }
         if ((job?.status?.failed ?? 0) > 0) {
-          done('failed', 'kube-bench failed; see its pod log');
+          kubeBenchFailed = true;
+          done('failed', `kube-bench failed${opts.benchmark && opts.benchmark !== 'auto' ? ` (benchmark ${opts.benchmark}: does this image ship it?)` : ''}; see its pod log`);
           break;
         }
         if ((job?.status?.succeeded ?? 0) > 0 && pod) {
@@ -217,5 +219,6 @@ export async function runNodeScan(
     ok,
     runs: collected,
     message: ok ? 'Scan complete.' : collected.length ? 'Partly complete: see the steps.' : 'The scan did not complete: see the steps.',
+    kubeBenchFailed,
   };
 }

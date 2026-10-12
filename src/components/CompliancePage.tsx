@@ -50,7 +50,7 @@ export function CompliancePage() {
   const scans = useClusterScans(targets, config.baseline?.allowedRegistries ?? []);
   const [scanVersion, setScanVersion] = React.useState(0);
   const nodeScans = useNodeScans(targets, scanVersion);
-  const [scanning, setScanning] = React.useState<{ cluster: string; contextName: string } | null>(null);
+  const [scanning, setScanning] = React.useState<{ cluster: string; contextName: string; kubernetesVersion?: string } | null>(null);
   const [showAllTests, setShowAllTests] = React.useState<Record<string, boolean>>({});
   const [framework, setFramework] = React.useState<Framework>('cis');
   const scanner = useScannerReports(targets);
@@ -93,6 +93,7 @@ export function CompliancePage() {
   const present = new Set(list.flatMap(s => s.compliance.map(sectionOf)));
   const sections = framework === 'nsa' ? NSA_ORDER.filter(x => present.has(x)) : Array.from(present);
   const totalControls = list[0]?.compliance.length ?? 0;
+  const benchmarksUsed = Array.from(new Set(list.map(s => s.benchmark).filter(Boolean))).sort().map(v => `v${v}`).join(', ') || 'v2.0';
   const stamp = new Date().toISOString().slice(0, 10);
 
   return (
@@ -122,7 +123,7 @@ export function CompliancePage() {
       >
         <SignInHelper clusters={clusters} health={workload.byKey} supervisors={config.supervisors} />
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {totalControls} checks {framework === 'nsa' ? 'mapped to the NSA/CISA Kubernetes Hardening Guidance' : 'aligned with the CIS Kubernetes Benchmark'}, evaluated through the Kubernetes API: control-plane flags
+          {totalControls} checks {framework === 'nsa' ? 'mapped to the NSA/CISA Kubernetes Hardening Guidance' : `aligned with the CIS Kubernetes Benchmark (${benchmarksUsed}: each cluster against the version written for its Kubernetes)`}, evaluated through the Kubernetes API: control-plane flags
           (from the static pods), each kubelet's live configuration, RBAC, Pod Security, network policies, service accounts and
           workloads. Each control says who owns it: <b>VKS</b> (platform configuration) or <b>you</b> (how the cluster is used).
           File-permission controls need a node-level scan and are never counted as passed. Not a certified CIS assessment.
@@ -282,7 +283,7 @@ export function CompliancePage() {
                 <Box id={encodeURIComponent(s.clusterKey)} sx={{ scrollMarginTop: 72 }}>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                     {clusterOf.get(s.clusterKey) && canWrite(clusterOf.get(s.clusterKey)!.supervisorId) && (
-                      <Button size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName })}>
+                      <Button size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName, kubernetesVersion: clusterOf.get(s.clusterKey)?.kubernetesVersion })}>
                         Run node scan…
                       </Button>
                     )}
@@ -389,6 +390,7 @@ export function CompliancePage() {
           contextName={scanning.contextName}
           image={config.nodeScanImage}
           benchmark={config.nodeScanBenchmark}
+          kubernetesVersion={scanning.kubernetesVersion}
           onClose={() => setScanning(null)}
           onDone={() => setScanVersion(v => v + 1)}
         />
@@ -434,7 +436,7 @@ function NodeScanResults({ runs, showAll, toggle }: { runs: NodeScanRun[]; showA
         <Alert severity="warning" sx={{ mb: 1 }}>
           This scan used the <b>{foreign.benchmark}</b> benchmark: kube-bench mistook VKS for another platform (it reads the
           "+vmware" in the version). Its checks look for paths VKS nodes don't have, so the results aren't counted. Run the scan
-          again with a CIS benchmark (for example cis-1.10).
+          again with a CIS benchmark (the scan dialog suggests the one for this cluster's Kubernetes version).
         </Alert>
       )}
       <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem' }}>

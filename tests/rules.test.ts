@@ -95,7 +95,7 @@ describe('node scan (kube-bench)', () => {
   const bench = { Controls: [{ version: 'cis-1.10', tests: [{ results: [{ test_number: '1.1.1', test_desc: 'x (Automated)', status: 'PASS' }, { test_number: '1.1.12', test_desc: 'y', status: 'FAIL', remediation: 'chown' }] }] }] };
   test('names the benchmark explicitly (regression: VKS detected as TKGI)', () => {
     const cmd = jobManifest('worker', 'kb').spec.template.spec.containers[0].command;
-    assert.deepEqual(cmd.slice(cmd.indexOf('--benchmark'), cmd.indexOf('--benchmark') + 2), ['--benchmark', 'cis-1.10']);
+    assert.deepEqual(cmd.slice(cmd.indexOf('--benchmark'), cmd.indexOf('--benchmark') + 2), ['--benchmark', 'cis-1.12']);
     assert.equal(isForeignBenchmark('tkgi-1.2.53'), true);
     assert.equal(isForeignBenchmark('cis-1.10'), false);
     const merged = mergeNodeScan([{ id: 'CP-FILES', status: 'node-scan', evidence: '' } as any], [{ at: '2026-09-27T00:00:00Z', target: 'control-plane', benchmark: 'tkgi-1.2.53', tests: [{ id: '1.1.1', desc: 'x', status: 'FAIL' }] }]);
