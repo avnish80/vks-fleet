@@ -114,8 +114,7 @@ export function normalizeConfig(raw: Partial<PluginConfig> | undefined | null): 
         ? { context: raw.vcenter.context.trim(), namespace: (raw.vcenter.namespace || 'vks-fleet').trim(), configMap: (raw.vcenter.configMap || 'vks-fleet-vcenter').trim() }
         : undefined,
     elevation: raw?.elevation?.enabled === true ? { enabled: true, suffix: typeof raw.elevation.suffix === 'string' && raw.elevation.suffix.trim() ? raw.elevation.suffix.trim() : '-admin' } : undefined,
-    nodeScanImage: typeof raw?.nodeScanImage === 'string' && raw.nodeScanImage.trim() ? raw.nodeScanImage.trim() : undefined,
-    nodeScanBenchmark: typeof raw?.nodeScanBenchmark === 'string' && raw.nodeScanBenchmark.trim() ? raw.nodeScanBenchmark.trim() : undefined,
+    cisBenchmark: raw?.cisBenchmark === true,
     identitySwitch: raw?.identitySwitch !== false,
     silences: (Array.isArray(raw?.silences) ? raw!.silences : []).filter(
       x => x && typeof x.id === 'string' && x.match && (x.match.issueId || x.match.clusterKey) && typeof x.until === 'string'

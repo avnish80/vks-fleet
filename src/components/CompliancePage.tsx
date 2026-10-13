@@ -2,7 +2,7 @@ import { Loader, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
 import React from 'react';
 import { ClusterScan } from '../clusterScan';
-import { ControlResult, ControlStatus, complianceIssueId, Framework, NSA_ORDER, scoreResults } from '../compliance';
+import { ControlResult, ControlStatus, complianceIssueId, GENERIC_CIS_NOTICE, scoreResults } from '../compliance';
 import { useScannerReports } from '../useScannerReports';
 import { PolicyResult, TrivyCompliance } from '../scanners';
 import { complianceCsv, complianceDrift, complianceMarkdown, complianceOscal, isWaived, snapshot } from '../complianceReport';
@@ -16,10 +16,7 @@ import { complianceStore, useComplianceStore } from './complianceStore';
 import { NoClusters } from './EmptyState';
 import { SignInHelper } from './SignInHelper';
 import { IsolationSection } from './IsolationSection';
-import { NodeScanDialog } from './NodeScanDialog';
 import { ClusterSections, PagedTable } from './scale';
-import { BenchTest, isForeignBenchmark, latest, mergeNodeScan, NodeScanRun } from '../nodeScan';
-import { useNodeScans } from '../useNodeScans';
 import { removeSilence, SilenceDialog } from './SilenceDialog';
 
 const STATUS: Record<ControlStatus, { text: string; status: 'success' | 'warning' | 'error' | '' }> = {
@@ -27,7 +24,6 @@ const STATUS: Record<ControlStatus, { text: string; status: 'success' | 'warning
   fail: { text: 'Fail', status: 'error' },
   review: { text: 'Review', status: 'warning' },
   unknown: { text: 'Not readable', status: '' },
-  'node-scan': { text: 'Needs node scan', status: '' },
 };
 const OWNER: Record<ControlResult['owner'], string> = { vks: 'VKS', you: 'Cluster owner', shared: 'Shared' };
 
@@ -38,21 +34,18 @@ interface FleetFailing {
   remediation: string;
   clusters: string[];
 }
-const ORDER: Record<ControlStatus, number> = { fail: 0, review: 1, pass: 2, na: 3 } as any;
+const ORDER: Record<ControlStatus, number> = { fail: 0, review: 1, unknown: 2, pass: 3 };
 
 export function CompliancePage() {
-  const { config, results, canWrite } = useFleetData();
+  const { config, results } = useFleetData();
+  /** The generic CIS benchmark checks: off unless switched on in the settings. */
+  const cis = config.cisBenchmark === true;
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const workload = useWorkloadHealth(clusters, config.refreshSeconds);
   const targets = clusters
     .map(c => ({ key: c.key, name: c.name, contextName: workload.byKey.get(c.key)?.contextName }))
     .filter((t): t is { key: string; name: string; contextName: string } => !!t.contextName);
   const scans = useClusterScans(targets, config.baseline?.allowedRegistries ?? []);
-  const [scanVersion, setScanVersion] = React.useState(0);
-  const nodeScans = useNodeScans(targets, scanVersion);
-  const [scanning, setScanning] = React.useState<{ cluster: string; contextName: string; kubernetesVersion?: string } | null>(null);
-  const [showAllTests, setShowAllTests] = React.useState<Record<string, boolean>>({});
-  const [framework, setFramework] = React.useState<Framework>('cis');
   const scanner = useScannerReports(targets);
   const store = useComplianceStore() ?? {};
   const [owner, setOwner] = React.useState<'all' | 'you' | 'vks'>('all');
@@ -62,14 +55,9 @@ export function CompliancePage() {
 
   if (results === null) return <Loader title="Loading clusters" />;
   if (clusters.length === 0) return <NoClusters title="Compliance" what="compliance information" />;
-  if (targets.length > 0 && scans === null) return <Loader title="Running the checks" />;
-  // Node scans (kube-bench) fill in the file-permission controls the API can't see.
-  const list: ClusterScan[] = (scans ?? []).map(s => ({
-    ...s,
-    compliance: mergeNodeScan(s.compliance, nodeScans.get(s.clusterKey) ?? []).filter(r => (r.frameworks ?? ['cis']).includes(framework)),
-  }));
-  const sectionOf = (r: ControlResult) => (framework === 'nsa' ? r.nsa ?? 'Other' : r.section);
-  const clusterOf = new Map(clusters.map(c => [c.key, c]));
+  if (cis && targets.length > 0 && scans === null) return <Loader title="Running the checks" />;
+  const list: ClusterScan[] = cis ? scans ?? [] : [];
+  const sectionOf = (r: ControlResult) => r.section;
   const silences = activeSilences(config.silences);
   const baselines = store.baselines ?? {};
   const keep = (r: ControlResult) =>
@@ -91,7 +79,7 @@ export function CompliancePage() {
   const waived = list.reduce((n, s) => n + s.compliance.filter(r => r.status === 'fail' && isWaived(silences, s.clusterKey, r.id)).length, 0);
   const regressions = list.reduce((n, s) => n + complianceDrift(baselines[s.clusterKey], s.compliance).filter(d => d.worse).length, 0);
   const present = new Set(list.flatMap(s => s.compliance.map(sectionOf)));
-  const sections = framework === 'nsa' ? NSA_ORDER.filter(x => present.has(x)) : Array.from(present);
+  const sections = Array.from(present);
   const totalControls = list[0]?.compliance.length ?? 0;
   const benchmarksUsed = Array.from(new Set(list.map(s => s.benchmark).filter(Boolean))).sort().map(v => `v${v}`).join(', ') || 'v2.0';
   const stamp = new Date().toISOString().slice(0, 10);
@@ -102,64 +90,73 @@ export function CompliancePage() {
       <SectionBox
         title="Compliance"
         headerProps={{
-          actions: [
-            <Button key="md" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-compliance-${stamp}.md`, complianceMarkdown(list, silences), 'text/markdown')}>
-              Evidence (Markdown)
-            </Button>,
-            <Button key="csv" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-compliance-${stamp}.csv`, complianceCsv(list, silences), 'text/csv')}>
-              CSV
-            </Button>,
-            <Button
-              key="oscal"
-              size="small"
-              variant="outlined"
-              disabled={!list.length}
-              onClick={() => download(`vks-compliance-${framework}-${stamp}.oscal.json`, complianceOscal(list, silences, framework), 'application/json')}
-            >
-              OSCAL
-            </Button>,
-          ],
+          actions: cis
+            ? [
+                <Button key="md" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-generic-cis-${stamp}.md`, complianceMarkdown(list, silences), 'text/markdown')}>
+                  Evidence (Markdown)
+                </Button>,
+                <Button key="csv" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-generic-cis-${stamp}.csv`, complianceCsv(list, silences), 'text/csv')}>
+                  CSV
+                </Button>,
+                <Button key="oscal" size="small" variant="outlined" disabled={!list.length} onClick={() => download(`vks-generic-cis-${stamp}.oscal.json`, complianceOscal(list, silences), 'application/json')}>
+                  OSCAL
+                </Button>,
+              ]
+            : [],
         }}
       >
         <SignInHelper clusters={clusters} health={workload.byKey} supervisors={config.supervisors} />
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {totalControls} checks {framework === 'nsa' ? 'mapped to the NSA/CISA Kubernetes Hardening Guidance' : `aligned with the CIS Kubernetes Benchmark (${benchmarksUsed}: each cluster against the version written for its Kubernetes)`}, evaluated through the Kubernetes API: control-plane flags
-          (from the static pods), each kubelet's live configuration, RBAC, Pod Security, network policies, service accounts and
-          workloads. Each control says who owns it: <b>VKS</b> (platform configuration) or <b>you</b> (how the cluster is used).
-          File-permission controls need a node-level scan and are never counted as passed. Not a certified CIS assessment.
-        </Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 2, mb: 2 }}>
-          <KpiTile label="Fleet score" value={fleet.scored ? `${fleet.pct}%` : '—'} sub={`${fleet.scored} of ${fleet.total} checks scored`} tone={fleet.pct >= 90 ? 'success' : fleet.pct >= 70 ? 'warning' : 'error'} meter={{ value: fleet.pct, max: 100 }} />
-          <KpiTile label="Failing" value={failing} sub="not waived" tone={failing ? 'error' : 'success'} />
-          <KpiTile label="Waived" value={waived} sub="accepted risks" tone="neutral" />
-          <KpiTile label="Regressions" value={regressions} sub="since the baseline" tone={regressions ? 'warning' : 'success'} />
-          <KpiTile label="To review" value={fleet.review} sub="need a person" tone="info" />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField select size="small" label="Framework" value={framework} onChange={e => setFramework(e.target.value as Framework)} sx={{ minWidth: 220 }}>
-            <MenuItem value="cis">CIS-aligned</MenuItem>
-            <MenuItem value="nsa">NSA/CISA hardening</MenuItem>
-          </TextField>
-          <TextField select size="small" label="Owner" value={owner} onChange={e => setOwner(e.target.value as 'all' | 'you' | 'vks')} sx={{ minWidth: 200 }}>
-            <MenuItem value="all">Everything</MenuItem>
-            <MenuItem value="you">Yours (cluster owner, shared)</MenuItem>
-            <MenuItem value="vks">VKS-managed (platform)</MenuItem>
-          </TextField>
-          <TextField select size="small" label="Level" value={level} onChange={e => setLevel(Number(e.target.value) as 1 | 2)} sx={{ minWidth: 140 }}>
-            <MenuItem value={1}>Level 1</MenuItem>
-            <MenuItem value={2}>Levels 1 and 2</MenuItem>
-          </TextField>
-          <TextField select size="small" label="Show" value={onlyFailing ? 'failing' : 'all'} onChange={e => setOnlyFailing(e.target.value === 'failing')} sx={{ minWidth: 160 }}>
-            <MenuItem value="all">All controls</MenuItem>
-            <MenuItem value="failing">Failing only</MenuItem>
-          </TextField>
-        </Box>
+        {!cis ? (
+          <>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Tenant isolation and the results of your own policies, below. No benchmark is scored here: <b>VMware does not publish or support a CIS benchmark for VKS</b>, and a generic one flags
+              settings that VKS manages, so it would give the wrong impression of a cluster.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Generic CIS Kubernetes Benchmark checks are available as a reference: switch them on in Settings → Plugins → vks-fleet.
+            </Typography>
+          </>
+        ) : (
+          <>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {GENERIC_CIS_NOTICE} Switched on in the plugin settings.
+            </Alert>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {totalControls} checks aligned with the CIS Kubernetes Benchmark ({benchmarksUsed}: each cluster against the version written for its Kubernetes), evaluated through the Kubernetes API:
+              control-plane flags (from the static pods), each kubelet's live configuration, RBAC, Pod Security, network policies, service accounts and workloads. Each control says who owns it:{' '}
+              <b>VKS</b> (platform configuration, not yours to change) or <b>you</b> (how the cluster is used). File permissions on the nodes are not visible through the API and are listed for review,
+              never counted as passed.
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 2, mb: 2 }}>
+              <KpiTile label="Generic CIS result" value={fleet.scored ? `${fleet.pct}%` : '—'} sub={`${fleet.scored} of ${fleet.total} checks scored`} tone={fleet.pct >= 90 ? 'success' : fleet.pct >= 70 ? 'warning' : 'error'} meter={{ value: fleet.pct, max: 100 }} />
+              <KpiTile label="Failing" value={failing} sub="not waived" tone={failing ? 'error' : 'success'} />
+              <KpiTile label="Waived" value={waived} sub="accepted risks" tone="neutral" />
+              <KpiTile label="Regressions" value={regressions} sub="since the baseline" tone={regressions ? 'warning' : 'success'} />
+              <KpiTile label="To review" value={fleet.review} sub="need a person" tone="info" />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField select size="small" label="Owner" value={owner} onChange={e => setOwner(e.target.value as 'all' | 'you' | 'vks')} sx={{ minWidth: 200 }}>
+                <MenuItem value="all">Everything</MenuItem>
+                <MenuItem value="you">Yours (cluster owner, shared)</MenuItem>
+                <MenuItem value="vks">VKS-managed (platform)</MenuItem>
+              </TextField>
+              <TextField select size="small" label="Level" value={level} onChange={e => setLevel(Number(e.target.value) as 1 | 2)} sx={{ minWidth: 140 }}>
+                <MenuItem value={1}>Level 1</MenuItem>
+                <MenuItem value={2}>Levels 1 and 2</MenuItem>
+              </TextField>
+              <TextField select size="small" label="Show" value={onlyFailing ? 'failing' : 'all'} onChange={e => setOnlyFailing(e.target.value === 'failing')} sx={{ minWidth: 160 }}>
+                <MenuItem value="all">All controls</MenuItem>
+                <MenuItem value="failing">Failing only</MenuItem>
+              </TextField>
+            </Box>
+          </>
+        )}
       </SectionBox>
 
       <IsolationSection />
 
       {list.length > 0 && (
-        <SectionBox title="By section">
+        <SectionBox title="Generic CIS checks by section">
           <Box sx={{ overflowX: 'auto' }}>
             <Box component="table" sx={{ borderCollapse: 'separate', borderSpacing: '4px', fontSize: '0.85rem', minWidth: '100%' }}>
               <thead>
@@ -187,7 +184,7 @@ export function CompliancePage() {
                         <Box
                           component="td"
                           key={sec}
-                          title={`${sc.pass} pass, ${sc.fail} fail, ${sc.review} review, ${sc.nodeScan} need a node scan, ${sc.unknown} not readable`}
+                          title={`${sc.pass} pass, ${sc.fail} fail, ${sc.review} review, ${sc.unknown} not readable`}
                           sx={{ p: 1, textAlign: 'center', borderRadius: 1, bgcolor: 'action.hover', borderBottom: '3px solid', borderBottomColor: scored === 0 ? 'divider' : sc.fail ? 'error.main' : 'success.main' }}
                         >
                           {scored ? `${sc.pct}%` : '—'}
@@ -203,7 +200,7 @@ export function CompliancePage() {
       )}
 
       {list.length > 1 && fleetFailing.length > 0 && (
-        <SectionBox title="Failing across the fleet">
+        <SectionBox title="Generic CIS checks failing across the fleet">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             A control that fails in most clusters is one problem to fix once (a template, a package default, a policy), not one per cluster.
           </Typography>
@@ -222,7 +219,8 @@ export function CompliancePage() {
         </SectionBox>
       )}
 
-      <SectionBox title={`By cluster (${list.length})`}>
+      {cis && (
+      <SectionBox title={`Generic CIS checks by cluster (${list.length})`}>
         <ClusterSections
           openFirst={list.length <= 3}
           sections={list.map(s => {
@@ -242,7 +240,7 @@ export function CompliancePage() {
                     },
                   },
                   { label: 'Control', getter: (r: ControlResult) => <><b>{r.id}</b> {r.title}</> },
-                  { label: 'Ref', getter: (r: ControlResult) => (framework === 'nsa' ? r.nsa ?? '—' : `${r.ref} · L${r.level}`) },
+                  { label: 'Ref', getter: (r: ControlResult) => `${r.ref} · L${r.level}` },
                   { label: 'Owner', getter: (r: ControlResult) => OWNER[r.owner] },
                   { label: 'Evidence', getter: (r: ControlResult) => <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{r.evidence}</Typography> },
                   { label: 'Remediation', getter: (r: ControlResult) => (r.status === 'pass' ? '—' : r.remediation) },
@@ -282,11 +280,6 @@ export function CompliancePage() {
               renderPreview: (limit: number) => (
                 <Box id={encodeURIComponent(s.clusterKey)} sx={{ scrollMarginTop: 72 }}>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                    {clusterOf.get(s.clusterKey) && canWrite(clusterOf.get(s.clusterKey)!.supervisorId) && (
-                      <Button size="small" variant="outlined" onClick={() => setScanning({ cluster: s.clusterName, contextName: s.contextName, kubernetesVersion: clusterOf.get(s.clusterKey)?.kubernetesVersion })}>
-                        Run node scan…
-                      </Button>
-                    )}
                     <Button size="small" onClick={() => complianceStore.update({ baselines: { ...baselines, [s.clusterKey]: snapshot(s.compliance) } })}>
                       {baselines[s.clusterKey] ? 'Save as new baseline' : 'Save as baseline'}
                     </Button>
@@ -313,11 +306,6 @@ export function CompliancePage() {
                     </Typography>
                   )}
                   {table(limit)}
-                  <NodeScanResults
-                    runs={nodeScans.get(s.clusterKey) ?? []}
-                    showAll={!!showAllTests[s.clusterKey]}
-                    toggle={() => setShowAllTests({ ...showAllTests, [s.clusterKey]: !showAllTests[s.clusterKey] })}
-                  />
                 </Box>
               ),
               renderAll: () => table(),
@@ -325,9 +313,10 @@ export function CompliancePage() {
           })}
         />
       </SectionBox>
+      )}
 
-      {(scanner ?? []).some(r => r.compliance.length) && (
-        <SectionBox title="Trivy Operator compliance reports">
+      {cis && (scanner ?? []).some(r => r.compliance.length) && (
+        <SectionBox title="Trivy Operator compliance reports (generic benchmarks)">
           <SimpleTable
             columns={[
               { label: 'Cluster', getter: (x: TrivyCompliance & { cluster: string }) => x.cluster },
@@ -384,83 +373,7 @@ export function CompliancePage() {
         </SectionBox>
       )}
 
-      {scanning && (
-        <NodeScanDialog
-          cluster={scanning.cluster}
-          contextName={scanning.contextName}
-          image={config.nodeScanImage}
-          benchmark={config.nodeScanBenchmark}
-          kubernetesVersion={scanning.kubernetesVersion}
-          onClose={() => setScanning(null)}
-          onDone={() => setScanVersion(v => v + 1)}
-        />
-      )}
-
       {waiving && <SilenceDialog match={{ issueId: waiving.issueId }} label={waiving.label} onClose={() => setWaiving(null)} />}
     </>
   );
 }
-
-const TEST_TONE: Record<BenchTest['status'], 'success' | 'error' | 'warning' | ''> = { PASS: 'success', FAIL: 'error', WARN: 'warning', INFO: '' };
-
-/** The latest kube-bench results for a cluster (failures and warnings first). */
-function NodeScanResults({ runs, showAll, toggle }: { runs: NodeScanRun[]; showAll: boolean; toggle: () => void }) {
-  const cp = latest(runs, 'control-plane');
-  const worker = latest(runs, 'worker');
-  if (!cp && !worker) {
-    return (
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-        No node scan yet. Run one for the file-permission checks.
-      </Typography>
-    );
-  }
-  const tests = [...(cp?.tests ?? []), ...(worker?.tests ?? [])];
-  const foreign = [cp, worker].find(r => r && isForeignBenchmark(r.benchmark));
-  const shown = showAll ? tests : tests.filter(t => t.status === 'FAIL' || t.status === 'WARN');
-  const count = (st: BenchTest['status']) => tests.filter(t => t.status === st).length;
-  return (
-    <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
-        <Typography sx={{ fontWeight: 600 }}>Node scan (kube-bench)</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {[cp && `control plane ${new Date(cp.at).toLocaleString()}${cp.node ? ` on ${cp.node}` : ''}`, worker && `worker ${new Date(worker.at).toLocaleString()}${worker.node ? ` on ${worker.node}` : ''}`]
-            .filter(Boolean)
-            .join(' · ')}
-          {cp?.benchmark ? ` · ${cp.benchmark}` : ''} · {count('PASS')} pass, {count('FAIL')} fail, {count('WARN')} warn
-        </Typography>
-        <Button size="small" onClick={toggle}>
-          {showAll ? 'Only failures and warnings' : `Show all ${tests.length}`}
-        </Button>
-      </Box>
-      {foreign && (
-        <Alert severity="warning" sx={{ mb: 1 }}>
-          This scan used the <b>{foreign.benchmark}</b> benchmark: kube-bench mistook VKS for another platform (it reads the
-          "+vmware" in the version). Its checks look for paths VKS nodes don't have, so the results aren't counted. Run the scan
-          again with a CIS benchmark (the scan dialog suggests the one for this cluster's Kubernetes version).
-        </Alert>
-      )}
-      <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem' }}>
-        <tbody>
-          {shown.map(t => (
-            <Box component="tr" key={`${t.id}-${t.desc}`} sx={{ borderTop: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
-              <Box component="td" sx={{ p: 0.75, whiteSpace: 'nowrap' }}>
-                <StatusLabel status={TEST_TONE[t.status]}>{t.status}</StatusLabel>
-              </Box>
-              <Box component="td" sx={{ p: 0.75, whiteSpace: 'nowrap', fontWeight: 600 }}>
-                {t.id}
-              </Box>
-              <Box component="td" sx={{ p: 0.75 }}>
-                {t.desc}
-                {t.actual ? <Typography variant="caption" color="text.secondary" display="block">Found: {t.actual}</Typography> : null}
-              </Box>
-              <Box component="td" sx={{ p: 0.75, color: 'text.secondary' }}>
-                {t.status === 'PASS' ? '' : t.remediation}
-              </Box>
-            </Box>
-          ))}
-        </tbody>
-      </Box>
-    </Box>
-  );
-}
-

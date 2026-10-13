@@ -1,7 +1,7 @@
 /**
  * A fictional VKS fleet for demo mode (and tests): one Supervisor, two orgs
  * (acme, globex), four clusters, each with problems worth showing:
- *   payments   healthy; Trivy reports; a saved kube-bench run; daily backups
+ *   payments   healthy; Trivy reports; daily backups
  *   checkout   a machine stuck draining behind a PodDisruptionBudget, a
  *              crash-looping pod, a privileged pod, a cluster-admin grant
  *   sandbox    a Kubernetes version behind; no default StorageClass

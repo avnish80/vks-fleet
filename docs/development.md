@@ -10,12 +10,10 @@ npx tsx --test tests/*.test.ts
 
 `tests/` uses Node's built-in test runner; `tsx` is the only tool needed. It covers:
 
-- **An end-to-end run** of the plugin's real fetchers and rules on the demo fleet: fleet, orgs, persona, inventory, context matching, Pod Security default, compliance, kube-bench, issues, demo writes.
+- **An end-to-end run** of the plugin's real fetchers and rules on the demo fleet: fleet, orgs, persona, inventory, context matching, Pod Security default, the generic CIS checks, issues, demo writes.
 - **Focused rule tests,** including regressions found in real use:
   - unreadable data scored as passing
   - false Pod Security findings on VKS
-  - kube-bench misdetecting VKS as TKGI
-  - a stuck node scan crashing
 - **The request limiter** and the "not installed" memory.
 
 The GitHub build runs them before building. **A failing test stops the release.**
@@ -131,10 +129,8 @@ src/
   guestActions.ts       In-cluster actions: Pod Security, network policies, package update/pause/reconcile
   silences.ts           Silences and maintenance mode
   awareness.ts          Since-last-visit and command palette helpers
-  compliance.ts         CIS-aligned controls, evidence parsing and evaluation
+  compliance.ts         Generic CIS checks (off by default): controls, evidence parsing and evaluation
   complianceReport.ts   Drift, compliance issues, evidence exports
-  nodeScan.ts           kube-bench Jobs, result parsing and history
-  nodeScanRunner.ts     Node scan orchestration (namespace, Jobs, results, clean-up)
   isolation.ts          Tenant isolation report
   scanners.ts           Trivy Operator and PolicyReport/OpenReports parsing, fleet CVE aggregation
   scannerIssues.ts      Issues from scanner reports

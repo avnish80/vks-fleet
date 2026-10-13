@@ -1,4 +1,4 @@
-/** v1.39.1: each cluster is measured against the CIS benchmark written for its Kubernetes version. */
+/** The generic CIS checks (off by default since v1.40): each cluster against the benchmark written for its Kubernetes version. */
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { alignToBenchmark, cisBenchmark, cisCoverage, CIS_ITEMS, controlRef, kubeMinor } from '../src/benchmark';
@@ -9,25 +9,23 @@ const EMPTY: any = { kubelets: [], pods: [], namespaces: [], networkPolicies: []
 
 describe('CIS benchmark by Kubernetes version', () => {
   test('the benchmark follows the cluster\'s Kubernetes version', () => {
-    const b = (v?: string) => { const x = cisBenchmark(v); return [x.version, x.profile, x.exact, x.beyond]; };
-    assert.deepEqual(b('v1.35.0+vmware.1'), ['2.0', 'cis-2.0', true, false]);
-    assert.deepEqual(b('v1.34.1+vmware.2-fips'), ['2.0', 'cis-2.0', true, false]);
+    const b = (v?: string) => { const x = cisBenchmark(v); return [x.version, x.exact, x.beyond]; };
+    assert.deepEqual(b('v1.35.0+vmware.1'), ['2.0', true, false]);
+    assert.deepEqual(b('v1.34.1+vmware.2-fips'), ['2.0', true, false]);
     // Newer than any benchmark covers: the newest one, and marked.
-    assert.deepEqual(b('v1.36.2+vmware.1'), ['2.0', 'cis-2.0', true, true]);
-    assert.deepEqual(b('v1.33.4'), ['1.12', 'cis-1.12', true, false]);
-    assert.deepEqual(b('1.32.0'), ['1.12', 'cis-1.12', true, false]);
-    assert.deepEqual(b('v1.31.9'), ['1.11', 'cis-1.11', false, false]);
-    assert.deepEqual(b('v1.28.2'), ['1.10', 'cis-1.10', false, false]);
+    assert.deepEqual(b('v1.36.2+vmware.1'), ['2.0', true, true]);
+    assert.deepEqual(b('v1.33.4'), ['1.12', true, false]);
+    assert.deepEqual(b('1.32.0'), ['1.12', true, false]);
+    assert.deepEqual(b('v1.31.9'), ['1.11', false, false]);
+    assert.deepEqual(b('v1.28.2'), ['1.10', false, false]);
     // Not known: the newest, not marked as beyond.
-    assert.deepEqual(b(undefined), ['2.0', 'cis-2.0', true, false]);
-    assert.equal(cisBenchmark('v1.35.0').fallbackProfile, 'cis-1.12');
-    assert.equal(cisBenchmark('v1.33.0').fallbackProfile, undefined);
+    assert.deepEqual(b(undefined), ['2.0', true, false]);
     assert.deepEqual([kubeMinor('v1.36.2+vmware.1'), kubeMinor('1.9.0'), kubeMinor('main'), kubeMinor(undefined)], [36, 9, undefined, undefined]);
   });
-  test('every check is mapped to recommendation numbers, or is deliberately outside CIS', () => {
+  test('every check is mapped to recommendation numbers, or is deliberately outside the newer benchmarks', () => {
     const results = evaluateCompliance(EMPTY);
     assert.equal(results.length, CONTROL_COUNT);
-    const unmapped = results.filter(r => r.frameworks.includes('cis') && !CIS_ITEMS[r.id]).map(r => r.id);
+    const unmapped = results.filter(r => !CIS_ITEMS[r.id]).map(r => r.id);
     // Kernel defaults was a recommendation in older benchmarks; v1.12 and v2.0 have no counterpart.
     assert.deepEqual(unmapped, ['KUBELET-KERNEL']);
     for (const id of Object.keys(CIS_ITEMS)) assert.ok(results.some(r => r.id === id), `${id} is a real check`);
@@ -35,7 +33,9 @@ describe('CIS benchmark by Kubernetes version', () => {
   });
   test('coverage of CIS v2.0: what is assessed, and what is not, by number', () => {
     const c = cisCoverage();
-    assert.deepEqual([c.total, c.assessed, c.notAssessed.length], [131, 98, 33]);
+    // File permissions and the like are listed for a person, not counted as assessed.
+    assert.deepEqual([c.total, c.assessed, c.manual, c.notAssessed.length], [131, 65, 33, 33]);
+    assert.equal(c.assessed + c.manual + c.notAssessed.length, c.total);
     assert.ok(c.notAssessed.includes('1.2.9') && c.notAssessed.includes('2.7') && c.notAssessed.includes('5.5.1') && c.notAssessed.includes('4.3.1'));
     assert.ok(!c.notAssessed.includes('1.1.21') && !c.notAssessed.includes('2.3') && !c.notAssessed.includes('5.6.4'));
   });
@@ -48,16 +48,16 @@ describe('CIS benchmark by Kubernetes version', () => {
     assert.equal(controlRef({ id: 'API-AUTHZ', ref: 'CIS 1.2' }, v111), 'CIS 1.11: section 1.2');
     assert.equal(controlRef({ id: 'GEN-SECCOMP', ref: 'CIS 5.6' }, v2), 'CIS 2.0: 5.6.2');
     assert.equal(controlRef({ id: 'API-AUDIT', ref: 'CIS 1.2 / 3.2' }, v2), 'CIS 2.0: 1.2.16, 3.2.1');
-    assert.equal(controlRef({ id: 'GEN-QUOTAS', ref: 'NSA/CISA' }, v2), 'NSA/CISA');
   });
-  test('aligning a cluster\'s results: references rewritten, a check outside the benchmark left out, NSA-only kept', () => {
+  test('aligning a cluster\'s results: references rewritten, a check outside the benchmark left out', () => {
     const results = evaluateCompliance(EMPTY);
     const v2 = alignToBenchmark(results, cisBenchmark('v1.36.2+vmware.1'));
     assert.equal(v2.length, results.length - 1);
     assert.ok(!v2.some(r => r.id === 'KUBELET-KERNEL'));
-    assert.ok(v2.some(r => r.id === 'GEN-QUOTAS' && r.ref === 'NSA/CISA'));
-    assert.ok(v2.filter(r => r.frameworks.includes('cis')).every(r => r.ref.startsWith('CIS 2.0: ')));
-    assert.equal(v2.find(r => r.id === 'NODE-FILES')!.ref, 'CIS 2.0: 4.1.1-4.1.10');
+    assert.ok(v2.every(r => r.ref.startsWith('CIS 2.0: ')));
+    const files = v2.find(r => r.id === 'NODE-FILES')!;
+    // File permissions are not visible through the API: they are for a person to review: never a pass, never a fail.
+    assert.deepEqual([files.ref, files.status], ['CIS 2.0: 4.1.1-4.1.10', 'review']);
     // An older cluster keeps every check, with section references.
     const v111 = alignToBenchmark(results, cisBenchmark('v1.30.0'));
     assert.equal(v111.length, results.length);
@@ -80,13 +80,13 @@ describe('vulnerabilities, counted as the Vulnerabilities tab counts them', () =
     const rows = securityRows({
       scans: [scan('a'), scan('b')],
       reports: [report('a', [img('app:1', 'you', 2, 0), img('app:1', 'you', 2, 0)], { policyEngine: true }), report('b', [], { trivy: false })],
-      nodeScans: new Map([['s/ns/b', [{ at: '2026-10-01T00:00:00Z', target: 'worker', tests: [] } as any]]]),
+      cis: true,
       silences: [],
       now: new Date('2026-10-12T00:00:00Z'),
     });
     const a = rows.find(r => r.clusterName === 'a')!;
     const b = rows.find(r => r.clusterName === 'b')!;
-    assert.deepEqual([a.vulns, a.sources, a.benchmark, a.benchmarkBeyond], [{ critical: 2, high: 0, vksCritical: 0, vksHigh: 0 }, { nodeScan: false, scanner: true, policyEngine: true }, '2.0', true]);
-    assert.deepEqual([b.vulns, b.sources, b.nodeScanDays], [undefined, { nodeScan: true, scanner: false, policyEngine: false }, 11]);
+    assert.deepEqual([a.vulns, a.sources, a.benchmark, a.benchmarkBeyond], [{ critical: 2, high: 0, vksCritical: 0, vksHigh: 0 }, { scanner: true, policyEngine: true }, '2.0', true]);
+    assert.deepEqual([b.vulns, b.sources], [undefined, { scanner: false, policyEngine: false }]);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Inside each demo cluster: nodes, workloads with their pods, namespaces with
  * Pod Security labels, packages, RBAC, storage classes, backups, scanner
- * reports and a saved kube-bench run, each cluster with its own problems.
+ * reports, each cluster with its own problems.
  */
 import { add, Store } from './router';
 import { DEMO_CLUSTERS, machineNames, baseName } from './supervisor';
@@ -85,7 +85,6 @@ export function buildGuest(c: C, now: Date): Store {
     ...['kube-system', 'default', 'kube-public', 'vmware-system-tkg', 'tkg-system', 'tanzu-system-monitoring'].map(n => ({ metadata: { name: n, labels: {} } })),
     ...appNs.filter(n => n !== 'default').map(n => ({ metadata: { name: n, labels: PSA[n] ? { 'pod-security.kubernetes.io/enforce': PSA[n] } : {} } })),
     ...(baseName(c) === 'payments' ? [{ metadata: { name: 'vks-fleet', labels: {} } }] : []),
-    ...(baseName(c) === 'payments' ? [{ metadata: { name: 'vks-fleet-scan', labels: { 'pod-security.kubernetes.io/enforce': 'privileged', 'app.kubernetes.io/managed-by': 'vks-fleet' } } }] : []),
   ]);
 
   // Control-plane static pods (flags readable through the API) and the CNI on every node.
@@ -418,15 +417,6 @@ export function buildGuest(c: C, now: Date): Store {
       })(),
     };
     add(s, '', 'configmaps', [{ metadata: { namespace: 'vks-fleet', name: 'vks-fleet-vcenter' }, data: { 'status.json': JSON.stringify(status) } }]);
-  }
-  // A saved kube-bench run on payments.
-  if (baseName(c) === 'payments') {
-    const t = (id: string, desc: string, status: string, remediation?: string) => ({ id, desc, status, remediation });
-    const runs = [
-      { at: iso(20), target: 'control-plane', node: cp.name, benchmark: 'cis-1.10', tests: [t('1.1.1', 'API server pod specification file permissions are 600 or more restrictive', 'PASS'), t('1.1.12', 'etcd data directory ownership is etcd:etcd', 'PASS'), t('1.2.1', '--anonymous-auth is false', 'WARN', 'Review anonymous access')] },
-      { at: iso(20), target: 'worker', node: workers[0].name, benchmark: 'cis-1.10', tests: [t('4.1.1', 'kubelet service file permissions are 600 or more restrictive', 'PASS'), t('4.1.9', 'kubelet config.yaml permissions are 600 or more restrictive', 'FAIL', 'chmod 600 /var/lib/kubelet/config.yaml')] },
-    ];
-    add(s, '', 'configmaps', [{ metadata: { namespace: 'vks-fleet-scan', name: 'kube-bench-results' }, data: { 'runs.json': JSON.stringify(runs) } }]);
   }
   return s;
 }

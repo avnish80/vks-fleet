@@ -1,6 +1,8 @@
 /**
- * Which CIS Kubernetes Benchmark a cluster is measured against, and where each
- * of the plugin's checks sits in it.
+ * Which generic CIS Kubernetes Benchmark a cluster's checks are aligned with,
+ * and where each check sits in it. Only used when the checks are switched on
+ * (PluginConfig.cisBenchmark): VMware does not publish or support a CIS
+ * benchmark for VKS.
  *
  * A CIS benchmark is written for a range of Kubernetes versions, so the
  * benchmark follows the cluster's version: v2.0 for Kubernetes 1.34 to 1.35,
@@ -22,10 +24,6 @@ export interface CisBenchmark {
   beyond: boolean;
   /** Whether the plugin's checks carry exact recommendation numbers for this benchmark (v1.12 and v2.0). */
   exact: boolean;
-  /** The kube-bench profile for node scans. */
-  profile: string;
-  /** A profile with the same checks that older kube-bench images already ship, to fall back on. */
-  fallbackProfile?: string;
 }
 
 /** The newest CIS Kubernetes Benchmark the plugin knows, and the last Kubernetes minor it covers. */
@@ -40,11 +38,11 @@ export function kubeMinor(version?: string): number | undefined {
 /** The benchmark for a cluster's Kubernetes version. Unknown versions get the newest. */
 export function cisBenchmark(kubernetesVersion?: string): CisBenchmark {
   const minor = kubeMinor(kubernetesVersion);
-  if (minor === undefined || minor >= 34) return { version: '2.0', covers: 'Kubernetes 1.34 to 1.35', beyond: minor !== undefined && minor > NEWEST.lastMinor, exact: true, profile: 'cis-2.0', fallbackProfile: 'cis-1.12' };
-  if (minor >= 32) return { version: '1.12', covers: 'Kubernetes 1.32 to 1.33', beyond: false, exact: true, profile: 'cis-1.12' };
-  if (minor >= 29) return { version: '1.11', covers: 'Kubernetes 1.29 to 1.31', beyond: false, exact: false, profile: 'cis-1.11' };
-  if (minor === 28) return { version: '1.10', covers: 'Kubernetes 1.28', beyond: false, exact: false, profile: 'cis-1.10' };
-  return { version: '1.9', covers: 'Kubernetes 1.27', beyond: false, exact: false, profile: 'cis-1.9' };
+  if (minor === undefined || minor >= 34) return { version: '2.0', covers: 'Kubernetes 1.34 to 1.35', beyond: minor !== undefined && minor > NEWEST.lastMinor, exact: true };
+  if (minor >= 32) return { version: '1.12', covers: 'Kubernetes 1.32 to 1.33', beyond: false, exact: true };
+  if (minor >= 29) return { version: '1.11', covers: 'Kubernetes 1.29 to 1.31', beyond: false, exact: false };
+  if (minor === 28) return { version: '1.10', covers: 'Kubernetes 1.28', beyond: false, exact: false };
+  return { version: '1.9', covers: 'Kubernetes 1.27', beyond: false, exact: false };
 }
 
 /** "CIS 2.0", for a column or a sentence. */
@@ -126,25 +124,31 @@ const expand = (item: string): string[] => {
   return Array.from({ length: b - a + 1 }, (_, k) => `${prefix}${a + k}`);
 };
 
+/** Checks a person has to make: nothing the API shows can pass or fail them. */
+export const MANUAL_CHECKS = ['CP-FILES', 'NODE-FILES', 'SEC-EXTERNAL', 'GEN-BOUNDARIES'];
+
 export interface Coverage {
   /** Recommendations in the benchmark. */
   total: number;
-  /** Those the plugin's checks assess (through the API or a node scan). */
+  /** Those the plugin's checks assess automatically, through the Kubernetes API. */
   assessed: number;
-  /** Those it doesn't, by number. */
+  /** Those it lists for a person to review (file permissions on the nodes among them). */
+  manual: number;
+  /** Those it doesn't cover at all, by number. */
   notAssessed: string[];
 }
 
 /** How much of CIS v2.0 (and v1.12) the plugin's checks assess. */
 export function cisCoverage(): Coverage {
   const all = SECTIONS.flatMap(([s, n]) => Array.from({ length: n }, (_, k) => `${s}.${k + 1}`));
-  const assessed = new Set(Object.values(CIS_ITEMS).flatMap(items => items.flatMap(expand)));
-  return { total: all.length, assessed: all.filter(i => assessed.has(i)).length, notAssessed: all.filter(i => !assessed.has(i)) };
+  const items = (manual: boolean) => new Set(Object.entries(CIS_ITEMS).filter(([id]) => MANUAL_CHECKS.includes(id) === manual).flatMap(([, list]) => list.flatMap(expand)));
+  const auto = items(false);
+  const manual = items(true);
+  return { total: all.length, assessed: all.filter(i => auto.has(i)).length, manual: all.filter(i => manual.has(i)).length, notAssessed: all.filter(i => !auto.has(i) && !manual.has(i)) };
 }
 
 /** A check's reference for a benchmark: exact recommendation numbers where they are known, otherwise its section. */
 export function controlRef(control: Pick<ControlResult, 'id' | 'ref'>, benchmark: CisBenchmark): string {
-  if (!control.ref.startsWith('CIS')) return control.ref;
   const items = benchmark.exact ? CIS_ITEMS[control.id] : undefined;
   return items ? `CIS ${benchmark.version}: ${items.join(', ')}` : `${control.ref.replace(/^CIS /, `CIS ${benchmark.version}: section `)}`;
 }
@@ -156,6 +160,6 @@ export function controlRef(control: Pick<ControlResult, 'id' | 'ref'>, benchmark
  */
 export function alignToBenchmark(results: ControlResult[], benchmark: CisBenchmark): ControlResult[] {
   return results
-    .filter(r => !(benchmark.exact && r.frameworks.includes('cis') && !CIS_ITEMS[r.id]))
+    .filter(r => !(benchmark.exact && !CIS_ITEMS[r.id]))
     .map(r => ({ ...r, ref: controlRef(r, benchmark) }));
 }

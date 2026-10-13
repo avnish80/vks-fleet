@@ -1,44 +1,26 @@
 /**
- * CIS-aligned checks for VKS clusters, from what the Kubernetes API shows:
+ * Generic CIS Kubernetes Benchmark checks, from what the Kubernetes API shows:
  *  - control-plane flags, read from the static pods' command lines;
  *  - each kubelet's live configuration (nodes/<n>/proxy/configz);
  *  - RBAC, Pod Security, network policies, service accounts and workloads.
- * File-permission checks need a node-level scan and are listed as such, never
- * as passed. Titles are our own; "ref" names the CIS Kubernetes Benchmark
- * section each control aligns with. This is not a certified CIS assessment.
+ *
+ * These are OFF unless switched on in the plugin's settings (see
+ * PluginConfig.cisBenchmark). VMware does not publish or support a CIS
+ * benchmark for VKS, and a generic benchmark flags settings VKS manages, so
+ * showing it by default would give the wrong impression. When on, every place
+ * it appears says it is generic. File-permission recommendations can't be
+ * seen through the API and are listed for manual review, never as passed.
+ * Titles are our own; "ref" names the benchmark recommendations each check
+ * aligns with. This is not a certified CIS assessment.
  */
 import { isPlatformNamespace } from './workload';
 
 export type Owner = 'vks' | 'you' | 'shared';
-export type CheckMethod = 'api' | 'node-scan' | 'manual';
-export type ControlStatus = 'pass' | 'fail' | 'review' | 'unknown' | 'node-scan';
-
-export type Framework = 'cis' | 'nsa';
-
-/** NSA/CISA Kubernetes Hardening Guidance sections, per control. */
-export const NSA_SECTION: Record<string, string> = {
-  'PSS-ADMISSION': 'Pod security', 'PSS-PRIV': 'Pod security', 'PSS-HOSTNS': 'Pod security', 'PSS-ESCALATION': 'Pod security',
-  'PSS-ROOT': 'Pod security', 'PSS-NETRAW': 'Pod security', 'PSS-HOSTPATH': 'Pod security', 'PSS-HOSTPORT': 'Pod security',
-  'GEN-SECCOMP': 'Pod security', 'GEN-RO-ROOTFS': 'Pod security', 'SA-DEFAULT': 'Pod security',
-  'NET-POLICIES': 'Network separation and hardening', 'NET-CNI': 'Network separation and hardening', 'GEN-QUOTAS': 'Network separation and hardening',
-  'API-TLS': 'Network separation and hardening', 'ETCD-TLS': 'Network separation and hardening', 'ETCD-PEER': 'Network separation and hardening',
-  'API-ENCRYPTION': 'Network separation and hardening', 'API-ETCD-TLS': 'Network separation and hardening', 'API-KUBELET-TLS': 'Network separation and hardening',
-  'CM-BIND': 'Network separation and hardening', 'SCH-BIND': 'Network separation and hardening', 'KUBELET-RO': 'Network separation and hardening',
-  'API-ANON': 'Authentication and authorization', 'API-AUTHZ': 'Authentication and authorization', 'API-TOKENFILE': 'Authentication and authorization',
-  'KUBELET-ANON': 'Authentication and authorization', 'KUBELET-AUTHZ': 'Authentication and authorization', 'KUBELET-CA': 'Authentication and authorization',
-  'RBAC-ADMIN': 'Authentication and authorization', 'RBAC-SECRETS': 'Authentication and authorization', 'RBAC-WILDCARD': 'Authentication and authorization',
-  'RBAC-PODCREATE': 'Authentication and authorization', 'RBAC-ESCALATE': 'Authentication and authorization', 'RBAC-MASTERS': 'Authentication and authorization',
-  'API-AUDIT': 'Audit logging and threat detection', 'API-AUDIT-RETAIN': 'Audit logging and threat detection',
-  'SEC-ENV': 'Application security practices', 'SEC-EXTERNAL': 'Application security practices', 'GEN-DEFAULT-NS': 'Application security practices',
-};
-export const NSA_ORDER = ['Pod security', 'Network separation and hardening', 'Authentication and authorization', 'Audit logging and threat detection', 'Application security practices'];
+export type CheckMethod = 'api' | 'manual';
+export type ControlStatus = 'pass' | 'fail' | 'review' | 'unknown';
 
 export interface ControlResult {
   id: string;
-  /** Frameworks this control belongs to (all are CIS-aligned unless marked NSA/CISA-only). */
-  frameworks: Framework[];
-  /** NSA/CISA hardening section, when mapped. */
-  nsa?: string;
   ref: string;
   section: string;
   title: string;
@@ -65,7 +47,7 @@ export interface ComplianceEvidence {
   clusterRoles: any[];
   clusterRoleBindings: any[];
   serviceAccounts: any[];
-  /** ResourceQuotas and LimitRanges (for the NSA/CISA resource-limits control). */
+  /** ResourceQuotas and LimitRanges (read with the rest; no check uses them at present). */
   resourceQuotas?: any[];
   limitRanges?: any[];
   /** The cluster-wide default Pod Security level, when probed. */
@@ -100,8 +82,6 @@ type Eval = (e: ComplianceEvidence) => { status: ControlStatus; evidence: string
 
 interface ControlDef {
   id: string;
-  /** Only in the NSA/CISA view (not a CIS control). */
-  nsaOnly?: boolean;
   ref: string;
   section: string;
   title: string;
@@ -184,8 +164,8 @@ function rbac(match: (rule: any) => boolean, what: string, level: 'fail' | 'revi
 }
 
 const CONTROLS: ControlDef[] = [
-  // ---- Control plane: file permissions (node scan)
-  { id: 'CP-FILES', ref: 'CIS 1.1', section: 'Control plane', title: 'Control-plane config files have restrictive permissions and ownership', level: 1, owner: 'vks', method: 'node-scan', remediation: 'Checked by a node-level scan (kube-bench); set by the VKS node image.' },
+  // ---- Control plane: file permissions (not visible through the API: for review)
+  { id: 'CP-FILES', ref: 'CIS 1.1', section: 'Control plane', title: 'Control-plane config files have restrictive permissions and ownership', level: 1, owner: 'vks', method: 'manual', remediation: 'Set by the VKS node image. File permissions are not visible through the Kubernetes API: check them on a node if your policy asks for it.' },
   // ---- API server (CIS 1.2)
   { id: 'API-ANON', ref: 'CIS 1.2', section: 'API server', title: 'Anonymous requests are disabled (or tightly limited)', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS; if your policy requires it, raise it with VKS support.',
     evaluate: e => { const f = api(e); if (!f) return unknown('kube-apiserver static pod not readable.'); return f.get('anonymous-auth') === 'false' ? pass('--anonymous-auth=false') : review(`${show(f, 'anonymous-auth')} (defaults to true; anonymous access is limited to health endpoints by RBAC)`); } },
@@ -213,7 +193,7 @@ const CONTROLS: ControlDef[] = [
   { id: 'ETCD-TLS', ref: 'CIS 2', section: 'etcd', title: 'etcd serves TLS and requires client certificates', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS.', evaluate: flag(etcd, 'etcd', f => f.has('cert-file') && f.has('key-file') && f.get('client-cert-auth') === 'true' && f.get('auto-tls') !== 'true', f => `${show(f, 'client-cert-auth')}, ${show(f, 'auto-tls')}`) },
   { id: 'ETCD-PEER', ref: 'CIS 2', section: 'etcd', title: 'etcd peers use TLS with client certificates', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS.', evaluate: flag(etcd, 'etcd', f => f.has('peer-cert-file') && f.get('peer-client-cert-auth') === 'true' && f.get('peer-auto-tls') !== 'true', f => `${show(f, 'peer-client-cert-auth')}, ${show(f, 'peer-auto-tls')}`) },
   // ---- Worker nodes (CIS 4)
-  { id: 'NODE-FILES', ref: 'CIS 4.1', section: 'Worker nodes', title: 'Kubelet config files have restrictive permissions and ownership', level: 1, owner: 'vks', method: 'node-scan', remediation: 'Checked by a node-level scan (kube-bench); set by the VKS node image.' },
+  { id: 'NODE-FILES', ref: 'CIS 4.1', section: 'Worker nodes', title: 'Kubelet config files have restrictive permissions and ownership', level: 1, owner: 'vks', method: 'manual', remediation: 'Set by the VKS node image. File permissions are not visible through the Kubernetes API: check them on a node if your policy asks for it.' },
   { id: 'KUBELET-ANON', ref: 'CIS 4.2', section: 'Worker nodes', title: 'Kubelet rejects anonymous requests', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS (node image).', evaluate: kubelet(c => c?.authentication?.anonymous?.enabled === false, c => `anonymous.enabled=${c?.authentication?.anonymous?.enabled}`) },
   { id: 'KUBELET-AUTHZ', ref: 'CIS 4.2', section: 'Worker nodes', title: 'Kubelet authorizes requests through the API (Webhook)', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS (node image).', evaluate: kubelet(c => c?.authorization?.mode === 'Webhook', c => `authorization.mode=${c?.authorization?.mode}`) },
   { id: 'KUBELET-CA', ref: 'CIS 4.2', section: 'Worker nodes', title: 'Kubelet verifies client certificates', level: 1, owner: 'vks', method: 'api', remediation: 'Managed by VKS (node image).', evaluate: kubelet(c => !!c?.authentication?.x509?.clientCAFile, c => `clientCAFile ${c?.authentication?.x509?.clientCAFile ? 'set' : 'not set'}`) },
@@ -248,7 +228,6 @@ const CONTROLS: ControlDef[] = [
   { id: 'GEN-SECCOMP', ref: 'CIS 5.6', section: 'General', title: 'Pods use the RuntimeDefault seccomp profile', level: 2, owner: 'you', method: 'api', remediation: 'Set seccompProfile: RuntimeDefault (restricted enforces it).', evaluate: pods(p => !(['RuntimeDefault', 'Localhost'].includes(p?.spec?.securityContext?.seccompProfile?.type) || containers(p).every((c: any) => ['RuntimeDefault', 'Localhost'].includes(c?.securityContext?.seccompProfile?.type))), 'run without a seccomp profile') },
   { id: 'GEN-DEFAULT-NS', ref: 'CIS 5.6', section: 'General', title: 'The default namespace is not used for workloads', level: 2, owner: 'you', method: 'api', remediation: 'Move workloads into their own namespaces.', evaluate: e => { if (cannot(e, 'pods')) return unknown('Pods not readable.'); const inDefault = e.pods.filter(p => p?.metadata?.namespace === 'default' && p?.status?.phase === 'Running'); return inDefault.length ? fail(`Pods running in default (${inDefault.length}): ${inDefault.slice(0, 4).map(p => p.metadata.name).join(', ')}`) : pass('Nothing runs in default.'); } },
   { id: 'GEN-RO-ROOTFS', ref: 'CIS 5.6', section: 'General', title: 'Containers use a read-only root filesystem', level: 2, owner: 'you', method: 'api', remediation: 'Set readOnlyRootFilesystem: true and mount writable paths as emptyDir volumes.', evaluate: pods(p => containers(p).some((c: any) => c?.securityContext?.readOnlyRootFilesystem !== true), 'write to their root filesystem') },
-  { id: 'GEN-QUOTAS', ref: 'NSA/CISA', section: 'General', title: 'Namespaces with workloads have resource quotas or limit ranges', level: 2, owner: 'you', method: 'api', nsaOnly: true, remediation: 'Add a ResourceQuota or LimitRange per namespace, so one workload cannot starve the others.', evaluate: e => { if (cannot(e, 'pods') || !e.resourceQuotas || !e.limitRanges) return unknown('Pods, quotas or limit ranges not readable.'); const withPods = new Set(userPods(e).map(p => p.metadata.namespace)); const covered = new Set([...e.resourceQuotas, ...e.limitRanges].map(x => x?.metadata?.namespace)); const bad = Array.from(withPods).filter(n => !covered.has(n)); return bad.length ? fail(`Namespaces with workloads but no quota or limit range (${bad.length}): ${bad.slice(0, 5).join(', ')}`) : pass(`All ${withPods.size} namespaces with workloads have one.`); } },
   { id: 'GEN-BOUNDARIES', ref: 'CIS 5.6', section: 'General', title: 'Namespaces separate teams and applications', level: 1, owner: 'you', method: 'manual', remediation: 'Review with the application owners.' },
 ];
 
@@ -256,15 +235,11 @@ export const CONTROL_COUNT = CONTROLS.length;
 
 export function evaluateCompliance(e: ComplianceEvidence): ControlResult[] {
   return CONTROLS.map(c => {
-    const r = c.method === 'node-scan'
-      ? { status: 'node-scan' as const, evidence: 'Needs a node-level scan (file permissions are not visible through the API).' }
-      : c.method === 'manual' || !c.evaluate
+    const r = c.method === 'manual' || !c.evaluate
       ? { status: 'review' as const, evidence: 'Needs a person to review.' }
       : c.evaluate(e);
     return {
       id: c.id,
-      frameworks: c.nsaOnly ? (['nsa'] as Framework[]) : NSA_SECTION[c.id] ? (['cis', 'nsa'] as Framework[]) : (['cis'] as Framework[]),
-      nsa: NSA_SECTION[c.id] ?? (c.nsaOnly ? 'Network separation and hardening' : undefined),
       ref: c.ref,
       section: c.section,
       title: c.title,
@@ -282,7 +257,6 @@ export interface ComplianceScore {
   fail: number;
   review: number;
   unknown: number;
-  nodeScan: number;
   /** pass / (pass + fail), as a percentage. */
   pct: number;
   /** Controls that produced a pass or fail, out of all. */
@@ -299,7 +273,6 @@ export function scoreResults(results: ControlResult[]): ComplianceScore {
     fail: f,
     review: n('review'),
     unknown: n('unknown'),
-    nodeScan: n('node-scan'),
     pct: p + f ? Math.round((p / (p + f)) * 100) : 0,
     scored: p + f,
     total: results.length,
@@ -307,3 +280,7 @@ export function scoreResults(results: ControlResult[]): ComplianceScore {
 }
 
 export const complianceIssueId = (clusterKey: string, controlId: string) => `${clusterKey}#compliance#${controlId}`;
+
+/** What every page and export says about these checks when they are switched on. */
+export const GENERIC_CIS_NOTICE =
+  'Generic CIS Kubernetes Benchmark checks. VMware does not publish or support a CIS benchmark for VKS: several settings they flag are managed by VKS and are not yours to change. A reference, not a statement of VKS compliance, and not a certified CIS assessment.';

@@ -6,8 +6,6 @@ import { parseQuantity } from '../src/quantity';
 import { componentFlags, evaluateCompliance, parseFlags, scoreResults } from '../src/compliance';
 import { complianceOscal, complianceDrift, snapshot } from '../src/complianceReport';
 import { levelFromError, probeNamespace, probePsaDefault } from '../src/psaProbe';
-import { isForeignBenchmark, jobManifest, mergeNodeScan, parseKubeBench } from '../src/nodeScan';
-import { runNodeScan } from '../src/nodeScanRunner';
 import { imageOwner, vksSource } from '../src/scanners';
 import { stuckNodes } from '../src/clusterScan';
 import { isolationReport } from '../src/isolation';
@@ -49,17 +47,12 @@ describe('compliance', () => {
     const unknownDefault = evaluateCompliance({ ...empty, namespaces: nss } as any).find(x => x.id === 'PSS-ADMISSION')!;
     assert.equal(unknownDefault.status, 'review');
   });
-  test('NSA/CISA-only controls stay out of the CIS view', () => {
-    const r = evaluateCompliance({ ...empty, resourceQuotas: [], limitRanges: [] } as any);
-    assert.deepEqual(r.find(x => x.id === 'GEN-QUOTAS')!.frameworks, ['nsa']);
-    assert.ok(r.filter(x => x.frameworks.includes('cis')).length > 50);
-  });
   test('drift and OSCAL', () => {
     const r = evaluateCompliance({ ...empty, pods: [{ metadata: { namespace: 'a', name: 'p' }, spec: { containers: [{ securityContext: { privileged: true } }] }, status: { phase: 'Running' } }] } as any);
     const base = snapshot(r.map(x => (x.id === 'PSS-PRIV' ? { ...x, status: 'pass' as const } : x)));
     assert.deepEqual(complianceDrift(base, r).filter(d => d.worse).map(d => d.id), ['PSS-PRIV']);
     const sil = activeSilences([newSilence({ issueId: complianceIssueId('k', 'PSS-PRIV') }, 'x', 'accepted for the demo', 24)]);
-    const oscal = JSON.parse(complianceOscal([{ clusterKey: 'k', clusterName: 'c', contextName: 'c', compliance: r, at: '2026-09-27T00:00:00Z' } as any], sil, 'cis'));
+    const oscal = JSON.parse(complianceOscal([{ clusterKey: 'k', clusterName: 'c', contextName: 'c', compliance: r, at: '2026-09-27T00:00:00Z' } as any], sil));
     const res = oscal['assessment-results'].results[0];
     assert.equal(oscal['assessment-results'].metadata['oscal-version'], '1.1.2');
     assert.ok(res.findings.some((f: any) => f.target.status.state === 'not-satisfied' && f['related-risks']));
@@ -88,39 +81,6 @@ describe('Pod Security cluster default probe', () => {
     assert.equal(await probePsaDefault(writer(null, 'violates PodSecurity "baseline:latest"'), 'default'), 'baseline');
     assert.equal(await probePsaDefault(writer(null, null), 'default'), 'privileged');
     assert.equal(await probePsaDefault(writer('pods is forbidden: User cannot create', null), 'default'), undefined);
-  });
-});
-
-describe('node scan (kube-bench)', () => {
-  const bench = { Controls: [{ version: 'cis-1.10', tests: [{ results: [{ test_number: '1.1.1', test_desc: 'x (Automated)', status: 'PASS' }, { test_number: '1.1.12', test_desc: 'y', status: 'FAIL', remediation: 'chown' }] }] }] };
-  test('names the benchmark explicitly (regression: VKS detected as TKGI)', () => {
-    const cmd = jobManifest('worker', 'kb').spec.template.spec.containers[0].command;
-    assert.deepEqual(cmd.slice(cmd.indexOf('--benchmark'), cmd.indexOf('--benchmark') + 2), ['--benchmark', 'cis-1.12']);
-    assert.equal(isForeignBenchmark('tkgi-1.2.53'), true);
-    assert.equal(isForeignBenchmark('cis-1.10'), false);
-    const merged = mergeNodeScan([{ id: 'CP-FILES', status: 'node-scan', evidence: '' } as any], [{ at: '2026-09-27T00:00:00Z', target: 'control-plane', benchmark: 'tkgi-1.2.53', tests: [{ id: '1.1.1', desc: 'x', status: 'FAIL' }] }]);
-    assert.equal(merged[0].status, 'node-scan', 'results from a foreign benchmark are not counted');
-  });
-  test('parses results, including a log with a warning line first', () => {
-    assert.equal(parseKubeBench(bench).tests.length, 2);
-    assert.equal(parseKubeBench('W0927 warning\n' + JSON.stringify(bench)).tests.length, 2);
-    assert.equal(parseKubeBench(bench).tests[0].desc, 'x');
-  });
-  test('a stuck scan reports the last event instead of crashing (regression)', async () => {
-    let t = 0;
-    const client: any = {
-      async get(p: string) {
-        if (p === '/api/v1/namespaces/vks-fleet-scan') return {};
-        if (p.includes('/jobs/')) return { status: {} };
-        if (p.includes('/pods?labelSelector')) return { items: [{ metadata: { name: 'kb' }, spec: {}, status: { containerStatuses: [{ state: { waiting: { reason: 'ContainerCreating' } } }] } }] };
-        if (p.includes('/events?')) return { items: [{ reason: 'FailedCreatePodSandBox', message: 'multus: error getting pod', lastTimestamp: '2026-09-27T00:01:00Z' }] };
-        throw Object.assign(new Error('nf'), { status: 404 });
-      },
-    };
-    let last: any[] = [];
-    const res = await runNodeScan(client, { async send() { return {}; } } as any, { image: 'kb', targets: ['worker'], sleep: async () => { t += 30000; }, now: () => new Date(1790400000000 + t), timeoutMs: 120000, pollMs: 1 }, s => (last = s));
-    assert.equal(res.ok, false);
-    assert.match(last.find(s => s.state === 'failed')!.text, /timed out \(last event: FailedCreatePodSandBox/);
   });
 });
 

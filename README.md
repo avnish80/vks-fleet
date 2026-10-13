@@ -18,7 +18,7 @@ Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, 
 
 ![Supervisor health: hosts, what runs where, and what esx-01 failing would take down](docs/images/supervisor.png)
 
-**Detect.** Issues are ranked, time-bound problems first, each with its cause and what to do: stuck nodes, drains blocked by PodDisruptionBudgets, crash loops, certificates, quota and overcommit, controllers that stopped reconciling, services running on a single host, CIS-aligned compliance, vulnerabilities from Trivy, and drift from your own baseline profiles.
+**Detect.** Issues are ranked, time-bound problems first, each with its cause and what to do: stuck nodes, drains blocked by PodDisruptionBudgets, crash loops, certificates, quota and overcommit, controllers that stopped reconciling, services running on a single host, Pod Security and privileged workloads, vulnerabilities from Trivy, and drift from your own baseline profiles.
 
 **Explain.** **Investigate** puts one cluster's timeline (changes, alerts, events, anomalies) beside a **walk down the layers** under a node: pod, node, Machine, VM, ESXi host, namespace, Supervisor, with the deepest unhealthy layer named. It drafts the post-mortem too. [Observability and investigation](docs/observability.md)
 
@@ -30,7 +30,7 @@ Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, 
 
 **Remediate.** Upgrades, scaling, node replacement, timeouts, packages, VMs and clusters, each from a dialog with its checks, a server-side dry run and a confirmation. With **read by default, elevate to change**, changes need a time-limited elevation with a reason.
 
-**Audit.** Every change is stamped on what it changed and shows in the change audit and the activity heatmap. Compliance exports evidence (Markdown, CSV, OSCAL).
+**Audit.** Every change is stamped on what it changed and shows in the change audit and the activity heatmap. Security exports an evidence pack (Markdown).
 
 ## Who it's for
 
@@ -44,7 +44,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 - **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh):
 
   ```bash
-  VERSION=1.39.1
+  VERSION=1.40.0
   SUPERVISOR=10.0.0.2                 # your Supervisor's address
   VCENTER=vcenter.example.com         # the vCenter it belongs to
   kubectl create namespace vks-fleet

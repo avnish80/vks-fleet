@@ -31,7 +31,7 @@ export const ComputeHub = ({ children }: { children?: ReactNode }) => (
 export const SecurityHub = ({ children }: { children?: ReactNode }) => (
   <Hub
     title="Security"
-    blurb="How secure the fleet is in one place, then posture inside the clusters, CIS-aligned compliance with evidence, and image vulnerabilities from Trivy."
+    blurb="How secure the fleet is in one place, then posture inside the clusters, tenant isolation and policy results, and image vulnerabilities from Trivy."
     tabs={[
       { label: 'Overview', path: SECURITY_OVERVIEW_ROUTE, render: () => <SecurityOverviewPage /> },
       { label: 'Posture', path: SECURITY_ROUTE, render: () => <SecurityPage /> },

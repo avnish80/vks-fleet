@@ -175,7 +175,8 @@ export function FleetView() {
         scans ?? undefined,
         [
           ...limitIssues(scopedResults, limits, configuredByNamespace(scopedResults, inventory), orgQuotas),
-          ...complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines),
+          // The generic CIS benchmark checks raise issues only when they are switched on in the settings.
+          ...(config.cisBenchmark ? complianceIssues(scans ?? [], scopedResults.flatMap(r => r.clusters), activeSilences(config.silences), complianceBaselines) : []),
           ...scannerIssues(scannerReports ?? [], scopedResults.flatMap(r => r.clusters)),
           ...(vcenter?.status
             ? (all ?? []).flatMap(r => {
@@ -224,7 +225,7 @@ export function FleetView() {
             : []),
         ]
       ),
-    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, complianceBaselines, all, inventoryAll, org, scannerReports, observability, supervisorHealth, vcenter]
+    [scopedResults, workload.byKey, packages, backups, config.baseline?.backupWithinHours, inventory, scans, limits, orgQuotas, config.silences, config.cisBenchmark, complianceBaselines, all, inventoryAll, org, scannerReports, observability, supervisorHealth, vcenter]
   );
   const tenantClusters = tenant === ALL ? allClusters : allClusters.filter(c => c.tenantId === tenant);
   const tenantKeys = new Set(tenantClusters.map(c => c.key));

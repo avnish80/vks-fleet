@@ -63,10 +63,11 @@ export interface PluginConfig {
   silences?: Silence[];
   /** Display names for org (tenant) IDs, applied to every Supervisor. */
   orgNames?: Record<string, string>;
-  /** kube-bench image for node scans (mirror it for air-gapped sites). */
-  nodeScanImage?: string;
-  /** CIS benchmark kube-bench uses (e.g. cis-1.10). */
-  nodeScanBenchmark?: string;
+  /**
+   * Show the generic CIS Kubernetes Benchmark checks (off by default: VMware does not
+   * publish or support a CIS benchmark for VKS, and a generic one flags settings VKS manages).
+   */
+  cisBenchmark?: boolean;
   /** Demo mode: a fictional fleet instead of the configured Supervisors (nothing is ever changed). */
   demo?: boolean;
   /** Demo fleet size (clusters), to see the pages at scale. */

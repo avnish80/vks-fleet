@@ -2,6 +2,19 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.40.0 (release candidate)
+
+No benchmark by default. VMware does not publish or support a CIS benchmark for VKS, and a generic CIS Kubernetes Benchmark flags settings that VKS manages, so presenting its score gave the wrong impression of a cluster.
+
+- **The CIS checks are off by default.** No benchmark score, no benchmark columns and no benchmark issues anywhere unless *Show generic CIS Kubernetes Benchmark checks* is switched on in the plugin settings. Switched on, every place they appear, and every export, says they are generic checks, not a VKS benchmark and not a certified CIS assessment.
+- **Security overview without a score:** it now says what is open (privileged namespaces, privileged pods, cluster-admin grants, critical vulnerabilities), with one row per cluster, the one with the most open first. The evidence pack makes no benchmark claim. The generic CIS result, its trend and *Fix once* return only with the setting.
+- **Compliance tab:** tenant isolation and policy results, as before; the benchmark sections only with the setting.
+- **Fleet issues and score:** failing benchmark controls no longer count as issues unless the setting is on, so the fleet's open issues (and the dashboard's Security block) may drop after this upgrade.
+- **Removed: the node scan (kube-bench).** The *Run node scan…* button, its results and its settings are gone. A `vks-fleet-scan` namespace left by an earlier scan can be deleted: `kubectl delete namespace vks-fleet-scan`. File-permission checks are now listed for a person to review.
+- **Removed: the NSA/CISA hardening view,** and its resource-quota check.
+- **Coverage restated** (with the setting on): of the 131 recommendations in CIS v2.0, 65 are assessed automatically and 33 are listed for review.
+- **Docs:** the install commands use this version.
+
 ## 1.39.1 (release candidate)
 
 How the security figures are measured, and against which benchmark.

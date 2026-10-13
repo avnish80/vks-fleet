@@ -81,7 +81,7 @@ Each cluster has deliberate problems, so every page has something to show:
 
 | Cluster | What it demonstrates |
 |---|---|
-| payments | The healthy one: hardened workloads, network policies, daily backups, Trivy reports, a saved kube-bench run |
+| payments | The healthy one: hardened workloads, network policies, daily backups, Trivy reports |
 | Supervisor | Every service pod on one ESXi host while four are Ready, a ProviderFailed leftover to clean up, six controller leases renewing |
 | checkout | A node disk filling in about 38 hours, crash-loop and disk alerts from Alertmanager, a node stuck draining behind a PodDisruptionBudget, a crash-looping pod, a privileged pod, a cluster-admin grant, a partly failed backup, a failing package, images with critical CVEs |
 | sandbox | A Kubernetes version behind (upgrade available), no default StorageClass, no monitoring (to try Enable monitoring) |

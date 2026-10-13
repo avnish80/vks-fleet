@@ -27,7 +27,7 @@ test('lists that are not installed are remembered; named objects never are', asy
   forgetServed();
   assert.equal(isListPath('/apis/argoproj.io/v1alpha1/applications'), true);
   assert.equal(isListPath('/api/v1/namespaces/x/pods?labelSelector=a%3Db'), true);
-  assert.equal(isListPath('/api/v1/namespaces/vks-fleet-scan/configmaps/kube-bench-results'), false);
+  assert.equal(isListPath('/api/v1/namespaces/vks-fleet/configmaps/vks-fleet-vcenter'), false);
   assert.equal(isListPath('/api/v1/namespaces/default'), false);
   let calls = 0;
   const notFound = async () => { calls++; throw Object.assign(new Error('nf'), { status: 404 }); };
@@ -36,8 +36,8 @@ test('lists that are not installed are remembered; named objects never are', asy
   assert.equal(calls, 1, 'second list is answered from memory');
   await assert.rejects(rememberingGet('other', '/apis/argoproj.io/v1alpha1/applications', notFound));
   assert.equal(calls, 2, 'memory is per cluster');
-  await assert.rejects(rememberingGet('c', '/api/v1/namespaces/vks-fleet-scan/configmaps/kube-bench-results', notFound));
-  await assert.rejects(rememberingGet('c', '/api/v1/namespaces/vks-fleet-scan/configmaps/kube-bench-results', notFound));
+  await assert.rejects(rememberingGet('c', '/api/v1/namespaces/vks-fleet/configmaps/vks-fleet-vcenter', notFound));
+  await assert.rejects(rememberingGet('c', '/api/v1/namespaces/vks-fleet/configmaps/vks-fleet-vcenter', notFound));
   assert.equal(calls, 4, 'a named object is always asked for (it may appear any moment)');
   await assert.rejects(rememberingGet('c', '/apis/argoproj.io/v1alpha1/applications', notFound, Date.now() + 11 * 60 * 1000));
   assert.equal(calls, 5, 'forgotten after ten minutes, so newly installed tools show up');

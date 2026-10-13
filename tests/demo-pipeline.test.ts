@@ -13,7 +13,6 @@ import { DEMO_SUPERVISOR, demoContexts } from '../src/demo/supervisor';
 import { fetchSupervisor } from '../src/fleet';
 import { fetchInventory } from '../src/inventory';
 import { buildIssues } from '../src/issues';
-import { mergeNodeScan, readRuns } from '../src/nodeScan';
 import { fetchClusterPackages } from '../src/packages';
 import { detectPersona } from '../src/persona';
 import { fetchScannerReports } from '../src/scanners';
@@ -76,7 +75,7 @@ describe('demo fleet through the real pipeline', () => {
     assert.equal(ctxs.size, 4);
   });
 
-  test('inside clusters: Pod Security default, compliance, storage classes, kube-bench', async () => {
+  test('inside clusters: Pod Security default, compliance, storage classes', async () => {
     const byName: Record<string, any> = {};
     for (const c of r.clusters) {
       const ctx = ctxs.get(c.key)!;
@@ -87,8 +86,6 @@ describe('demo fleet through the real pipeline', () => {
     }
     assert.ok(scoreResults(byName.payments.compliance).pct > scoreResults(byName.checkout.compliance).pct, 'payments is better hardened than checkout');
     assert.deepEqual(byName.sandbox.storageClasses.defaults, []);
-    const runs = readRuns(await C(ctxs.get(r.clusters.find(c => c.name === 'payments')!.key)!).get('/api/v1/namespaces/vks-fleet-scan/configmaps/kube-bench-results'));
-    assert.equal(mergeNodeScan(byName.payments.compliance, runs).find(x => x.id === 'NODE-FILES')!.status, 'fail');
   });
 
   test('issues: the problems the demo is meant to show', async () => {

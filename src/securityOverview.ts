@@ -1,33 +1,28 @@
 /**
  * The security overview: how secure the fleet is, in one place. It only brings
  * together what the Posture, Compliance and Vulnerabilities tabs already
- * collect (nothing new is scanned): one row per cluster, the controls failing
- * in the most clusters, the risks that were accepted, and one evidence pack.
+ * collect (nothing new is scanned): one row per cluster, the risks that were
+ * accepted, and one evidence pack.
  *
- * The security score is the compliance result, nothing blended in: checks that
- * pass out of checks that pass or fail, with accepted (waived) controls
- * counted as passing, the same arithmetic as the Compliance tab. Pure
+ * By default it is posture and vulnerabilities only. The generic CIS Kubernetes
+ * Benchmark checks join it (a score, failing controls, "fix once") only when
+ * they are switched on in the settings: VMware does not publish or support a
+ * CIS benchmark for VKS, so nothing here presents one unless asked to. Pure
  * functions over plain data.
  */
-import { ClusterScan, SECURITY_KIND_LABEL, SecurityFinding } from './clusterScan';
-import { ComplianceScore, ControlResult, ControlStatus, scoreResults } from './compliance';
-import { complianceMarkdown, isWaived } from './complianceReport';
-import { latest, mergeNodeScan, NodeScanRun } from './nodeScan';
-import { securityIssueId } from './scanIssues';
 import { cisCoverage } from './benchmark';
+import { ClusterScan, SECURITY_KIND_LABEL, SecurityFinding } from './clusterScan';
+import { ComplianceScore, ControlResult, ControlStatus, GENERIC_CIS_NOTICE, scoreResults } from './compliance';
+import { complianceMarkdown, isWaived } from './complianceReport';
+import { securityIssueId } from './scanIssues';
 import { fleetImages, ScannerReports, topCves } from './scanners';
 import { Silence } from './types';
 
 const DAY = 86400e3;
 
-/** A cluster's CIS-aligned results, with node-scan results merged in. */
-export function cisResults(scan: ClusterScan, runs: NodeScanRun[] = []): ControlResult[] {
-  return mergeNodeScan(scan.compliance, runs).filter(r => (r.frameworks ?? ['cis']).includes('cis'));
-}
-
 /** The same results with accepted (waived) failures counted as passing. */
-function effective(scan: ClusterScan, results: ControlResult[], silences: Silence[]): ControlResult[] {
-  return results.map(r => (r.status === 'fail' && isWaived(silences, scan.clusterKey, r.id) ? { ...r, status: 'pass' as ControlStatus } : r));
+function effective(scan: ClusterScan, silences: Silence[]): ControlResult[] {
+  return scan.compliance.map(r => (r.status === 'fail' && isWaived(silences, scan.clusterKey, r.id) ? { ...r, status: 'pass' as ControlStatus } : r));
 }
 
 export interface SecurityRow {
@@ -38,10 +33,10 @@ export interface SecurityRow {
   /** User namespaces whose effective level is "privileged", of how many. */
   privilegedNamespaces: number;
   namespaces: number;
-  /** Compliance, with accepted controls counted as passing. */
-  compliance: ComplianceScore;
-  /** Controls failing and not accepted. */
-  failing: number;
+  /** Generic CIS benchmark result, with accepted controls counted as passing. Only when those checks are switched on. */
+  compliance?: ComplianceScore;
+  /** Benchmark controls failing and not accepted. Only when those checks are switched on. */
+  failing?: number;
   /**
    * Image vulnerabilities, when the cluster has a scanner (Trivy): counted once per
    * image (not once per pod running it), your own images apart from the ones VKS
@@ -52,22 +47,21 @@ export interface SecurityRow {
   benchmark?: string;
   benchmarkBeyond?: boolean;
   /** What this cluster is measured with, beyond the API checks every signed-in cluster gets. */
-  sources: { nodeScan: boolean; scanner: boolean; policyEngine: boolean };
+  sources: { scanner: boolean; policyEngine: boolean };
   /** Open posture findings (accepted ones left out): privileged or host-level pods, and cluster-admin grants. */
   privilegedPods: number;
   adminGrants: number;
   /** Critical posture findings still open. */
   criticalFindings: number;
-  /** Days since the newest node scan (kube-bench); undefined when never scanned. */
-  nodeScanDays?: number;
-  /** Accepted risks: waived controls and accepted posture findings. */
+  /** Accepted risks: accepted posture findings (and waived benchmark controls, when those checks are on). */
   accepted: number;
 }
 
 export interface OverviewInput {
   scans: ClusterScan[];
   reports?: ScannerReports[];
-  nodeScans?: Map<string, NodeScanRun[]>;
+  /** Whether the generic CIS Kubernetes Benchmark checks are switched on (off by default). */
+  cis?: boolean;
   /** Active silences (waivers and accepted findings among them). */
   silences: Silence[];
   now: Date;
@@ -81,15 +75,13 @@ export function vulnCounts(reports: ScannerReports[]): { critical: number; high:
   return { critical: sum('you', 'CRITICAL'), high: sum('you', 'HIGH'), vksCritical: sum('vks', 'CRITICAL'), vksHigh: sum('vks', 'HIGH') };
 }
 
-/** One row per signed-in cluster, the one with the lowest compliance first. */
+/** One row per signed-in cluster, the one with the most open findings first (the lowest benchmark result first, when those checks are on). */
 export function securityRows(input: OverviewInput): SecurityRow[] {
   const rows = input.scans.map(scan => {
-    const runs = input.nodeScans?.get(scan.clusterKey) ?? [];
-    const results = cisResults(scan, runs);
+    const results = input.cis ? scan.compliance : [];
     const open = scan.security.filter(f => !acceptedFinding(input.silences, scan, f));
     const objects = (kind: SecurityFinding['kind']) => open.filter(f => f.kind === kind && f.severity !== 'info').reduce((n, f) => n + f.objects.length, 0);
     const report = input.reports?.find(r => r.clusterKey === scan.clusterKey);
-    const newest = [latest(runs, 'control-plane'), latest(runs, 'worker')].filter((r): r is NodeScanRun => !!r).map(r => new Date(r.at).getTime());
     const waived = results.filter(r => r.status === 'fail' && isWaived(input.silences, scan.clusterKey, r.id)).length;
     return {
       clusterKey: scan.clusterKey,
@@ -97,25 +89,31 @@ export function securityRows(input: OverviewInput): SecurityRow[] {
       psaDefault: scan.psaDefault,
       privilegedNamespaces: scan.namespaces.filter(n => n.enforce === 'privileged').length,
       namespaces: scan.namespaces.length,
-      compliance: scoreResults(effective(scan, results, input.silences)),
-      failing: results.filter(r => r.status === 'fail').length - waived,
+      compliance: input.cis ? scoreResults(effective(scan, input.silences)) : undefined,
+      failing: input.cis ? results.filter(r => r.status === 'fail').length - waived : undefined,
       vulns: report?.trivy ? vulnCounts([report]) : undefined,
-      benchmark: scan.benchmark,
-      benchmarkBeyond: scan.benchmarkBeyond,
-      sources: { nodeScan: newest.length > 0, scanner: !!report?.trivy, policyEngine: !!report?.policyEngine },
+      benchmark: input.cis ? scan.benchmark : undefined,
+      benchmarkBeyond: input.cis ? scan.benchmarkBeyond : undefined,
+      sources: { scanner: !!report?.trivy, policyEngine: !!report?.policyEngine },
       privilegedPods: objects('privileged'),
       adminGrants: objects('cluster-admin'),
       criticalFindings: open.filter(f => f.severity === 'critical').length,
-      nodeScanDays: newest.length ? Math.max(0, Math.floor((input.now.getTime() - Math.max(...newest)) / DAY)) : undefined,
       accepted: waived + scan.security.filter(f => acceptedFinding(input.silences, scan, f)).length,
     };
   });
-  return rows.sort((a, b) => a.compliance.pct - b.compliance.pct || b.failing - a.failing || a.clusterName.localeCompare(b.clusterName));
+  const open = (r: SecurityRow) => r.criticalFindings * 100 + r.privilegedPods + r.adminGrants + r.privilegedNamespaces + (r.vulns?.critical ?? 0);
+  return rows.sort((a, b) =>
+    input.cis ? (a.compliance?.pct ?? 0) - (b.compliance?.pct ?? 0) || (b.failing ?? 0) - (a.failing ?? 0) || a.clusterName.localeCompare(b.clusterName) : open(b) - open(a) || a.clusterName.localeCompare(b.clusterName)
+  );
 }
 
-/** The fleet's security score: every cluster's checks together (not an average of percentages). Undefined when nothing could be scored. */
+/**
+ * The generic CIS benchmark result for the fleet: every cluster's checks together (not an average of
+ * percentages). Undefined when those checks are off, or nothing could be scored.
+ */
 export function securityScore(input: OverviewInput): ComplianceScore | undefined {
-  const all = scoreResults(input.scans.flatMap(scan => effective(scan, cisResults(scan, input.nodeScans?.get(scan.clusterKey) ?? []), input.silences)));
+  if (!input.cis) return undefined;
+  const all = scoreResults(input.scans.flatMap(scan => effective(scan, input.silences)));
   return all.scored ? all : undefined;
 }
 
@@ -129,11 +127,11 @@ export interface FailingControl {
   clusters: string[];
 }
 
-/** Controls failing across the fleet, the most widespread first: each is one thing to fix once. */
+/** Benchmark controls failing across the fleet, the most widespread first: each is one thing to fix once. Empty when those checks are off. */
 export function failingControls(input: OverviewInput): FailingControl[] {
   const by = new Map<string, FailingControl>();
-  for (const scan of input.scans) {
-    for (const r of cisResults(scan, input.nodeScans?.get(scan.clusterKey) ?? [])) {
+  for (const scan of input.cis ? input.scans : []) {
+    for (const r of scan.compliance) {
       if (r.status !== 'fail' || isWaived(input.silences, scan.clusterKey, r.id)) continue;
       const cur = by.get(r.id) ?? { id: r.id, ref: r.ref, title: r.title, owner: r.owner, remediation: r.remediation, clusters: [] };
       cur.clusters.push(scan.clusterName);
@@ -157,7 +155,7 @@ export function acceptedRisks(input: OverviewInput): AcceptedRisks {
   const used = new Map<string, Silence>();
   let count = 0;
   for (const scan of input.scans) {
-    for (const r of cisResults(scan, input.nodeScans?.get(scan.clusterKey) ?? [])) {
+    for (const r of input.cis ? scan.compliance : []) {
       const s = r.status === 'fail' ? isWaived(input.silences, scan.clusterKey, r.id) : undefined;
       if (s) {
         count += 1;
@@ -179,48 +177,65 @@ export function acceptedRisks(input: OverviewInput): AcceptedRisks {
 const cell = (v: string | number | undefined) => (v === undefined || v === '' ? '—' : String(v).replace(/\|/g, '\\|'));
 
 /**
- * One document for an auditor or a review: the summary, each cluster, what
- * fails across the fleet, the accepted risks, the open posture findings, the
- * most widespread vulnerabilities, and the full compliance evidence.
+ * One document for a review: how it is measured, each cluster, the accepted
+ * risks, the open posture findings and the most widespread vulnerabilities.
+ * The generic CIS benchmark results are part of it only when those checks are
+ * switched on, and are labelled as generic.
  */
 export function evidencePack(input: OverviewInput): string {
   const rows = securityRows(input);
   const score = securityScore(input);
   const failing = failingControls(input);
   const accepted = acceptedRisks(input);
+  const cis = !!input.cis;
   const out: string[] = [];
   out.push('# VKS fleet security evidence', '', `Generated ${input.now.toISOString()} by vks-fleet. ${rows.length} cluster${rows.length === 1 ? '' : 's'}.`, '');
-  out.push(
-    'CIS-aligned checks evaluated through the Kubernetes API (and node scans where they were run), posture findings, and scanner reports. Not a certified CIS assessment.',
-    ''
-  );
-  const used = Array.from(new Set(input.scans.map(s => s.benchmark).filter(Boolean))).sort();
-  const cover = cisCoverage();
   out.push('## How this is measured', '');
-  out.push(`- **Benchmark:** each cluster is measured against the CIS Kubernetes Benchmark written for its Kubernetes version${used.length ? ` (here: ${used.map(v => `v${v}`).join(', ')})` : ''}. v2.0 covers Kubernetes 1.34 to 1.35; a newer cluster is measured against it and marked.`);
-  out.push(`- **Coverage:** the checks assess ${cover.assessed} of the ${cover.total} recommendations in CIS v2.0 (v1.12 has the same numbering). Not assessed: ${cover.notAssessed.join(', ')}.`);
-  out.push('- **Compliance, Pod Security and posture:** read through each cluster\'s Kubernetes API (control-plane flags from the static pods, each kubelet\'s live configuration, RBAC, namespaces, workloads). Nothing is installed in the cluster.');
-  out.push('- **File permissions** (CIS 1.1 and 4.1): from a node scan, a kube-bench Job the plugin runs on request on one control-plane node and one worker. Until a scan has run, these are shown as "needs node scan" and never counted as passing.');
-  out.push('- **Vulnerabilities:** from the reports Trivy Operator writes in a cluster where it is installed; each image is counted once, your own apart from the ones VKS ships.');
+  out.push("- **Pod Security and posture:** read through each cluster's Kubernetes API (namespace labels, the cluster default, running pods, role bindings, network policies). Nothing is installed in the cluster.");
+  out.push('- **Vulnerabilities:** from the reports Trivy Operator writes in a cluster where it is installed; each image is counted once, your own apart from the ones VKS ships. A cluster without it reads "not measured".');
   out.push('- **Policy results:** from PolicyReports, where a policy engine such as Kyverno writes them.');
-  out.push('- **Accepted risks** are counted apart from open ones and return when their acceptance ends.', '');
-  out.push('## Summary', '');
-  out.push(`- Security score: ${score ? `${score.pct}% (${score.pass} of ${score.scored} scored checks pass; accepted controls count as passing)` : 'not scored'}`);
-  out.push(`- Controls failing: ${failing.length} distinct, ${rows.reduce((n, r) => n + r.failing, 0)} across clusters`);
-  out.push(`- Accepted risks: ${accepted.count}${accepted.next ? ` (the first acceptance ends ${accepted.next.until.slice(0, 10)}: ${accepted.next.label})` : ''}`);
-  out.push('', '## Clusters', '', '| Cluster | Benchmark | Compliance | Failing | Pod Security default | Privileged namespaces | Privileged pods | cluster-admin grants | Critical CVEs (yours) | High CVEs (yours) | Critical CVEs (VKS images) | Last node scan | Accepted |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|');
-  for (const r of rows) {
-    out.push(
-      `| ${cell(r.clusterName)} | ${r.benchmark ? `CIS ${r.benchmark}${r.benchmarkBeyond ? ' (cluster is newer)' : ''}` : '—'} | ${r.compliance.scored ? `${r.compliance.pct}%` : '—'} | ${r.failing} | ${cell(r.psaDefault)} | ${r.privilegedNamespaces} of ${r.namespaces} | ${r.privilegedPods} | ${r.adminGrants} | ${cell(r.vulns?.critical)} | ${cell(r.vulns?.high)} | ${cell(r.vulns?.vksCritical)} | ${
-        r.nodeScanDays === undefined ? 'never' : r.nodeScanDays === 0 ? 'today' : `${r.nodeScanDays} days ago`
-      } | ${r.accepted} |`
-    );
+  out.push('- **Accepted risks** are counted apart from open ones and return when their acceptance ends.');
+  if (cis) {
+    const used = Array.from(new Set(input.scans.map(s => s.benchmark).filter(Boolean))).sort();
+    const cover = cisCoverage();
+    out.push(`- **Generic CIS Kubernetes Benchmark checks (switched on in the settings):** ${GENERIC_CIS_NOTICE}`);
+    out.push(`  - Each cluster is aligned with the benchmark written for its Kubernetes version${used.length ? ` (here: ${used.map(v => `v${v}`).join(', ')})` : ''}; v2.0 covers Kubernetes 1.34 to 1.35, and a newer cluster is measured against it and marked.`);
+    out.push(`  - Of the ${cover.total} recommendations in v2.0, ${cover.assessed} are assessed automatically through the Kubernetes API and ${cover.manual} are listed for a person to review (file permissions on the nodes are not visible through the API). Not covered: ${cover.notAssessed.join(', ')}.`);
+  } else {
+    out.push('- **No benchmark score:** VMware does not publish or support a CIS benchmark for VKS, so this document makes no benchmark claim. Generic CIS checks can be switched on in the plugin settings as a reference.');
   }
-  out.push('', '## Controls failing across the fleet', '');
-  if (!failing.length) out.push('None.');
-  else {
-    out.push('| Control | Reference | Owner | Clusters | Remediation |', '|---|---|---|---|---|');
-    for (const f of failing) out.push(`| ${cell(f.title)} | ${cell(f.ref)} | ${f.owner === 'vks' ? 'VKS' : f.owner === 'you' ? 'Cluster owner' : 'Shared'} | ${cell(f.clusters.join(', '))} | ${cell(f.remediation)} |`);
+  out.push('', '## Summary', '');
+  if (cis) {
+    out.push(`- Generic CIS benchmark result: ${score ? `${score.pct}% (${score.pass} of ${score.scored} scored checks pass; accepted controls count as passing)` : 'not scored'}`);
+    out.push(`- Benchmark controls failing: ${failing.length} distinct, ${rows.reduce((n, r) => n + (r.failing ?? 0), 0)} across clusters`);
+  }
+  out.push(`- Privileged namespaces: ${rows.reduce((n, r) => n + r.privilegedNamespaces, 0)} of ${rows.reduce((n, r) => n + r.namespaces, 0)} user namespaces`);
+  out.push(`- Privileged or host-level pods: ${rows.reduce((n, r) => n + r.privilegedPods, 0)}; cluster-admin grants: ${rows.reduce((n, r) => n + r.adminGrants, 0)}`);
+  out.push(`- Accepted risks: ${accepted.count}${accepted.next ? ` (the first acceptance ends ${accepted.next.until.slice(0, 10)}: ${accepted.next.label})` : ''}`);
+  const cols = ['Cluster', ...(cis ? ['Benchmark', 'Benchmark result', 'Failing'] : []), 'Pod Security default', 'Privileged namespaces', 'Privileged pods', 'cluster-admin grants', 'Critical CVEs (yours)', 'High CVEs (yours)', 'Critical CVEs (VKS images)', 'Accepted'];
+  out.push('', '## Clusters', '', `| ${cols.join(' | ')} |`, `|${cols.map(() => '---').join('|')}|`);
+  for (const r of rows) {
+    const cells = [
+      cell(r.clusterName),
+      ...(cis ? [r.benchmark ? `CIS ${r.benchmark}${r.benchmarkBeyond ? ' (cluster is newer)' : ''}` : '—', r.compliance?.scored ? `${r.compliance.pct}%` : '—', String(r.failing ?? 0)] : []),
+      cell(r.psaDefault),
+      `${r.privilegedNamespaces} of ${r.namespaces}`,
+      String(r.privilegedPods),
+      String(r.adminGrants),
+      r.vulns ? String(r.vulns.critical) : 'not measured',
+      r.vulns ? String(r.vulns.high) : 'not measured',
+      r.vulns ? String(r.vulns.vksCritical) : 'not measured',
+      String(r.accepted),
+    ];
+    out.push(`| ${cells.join(' | ')} |`);
+  }
+  if (cis) {
+    out.push('', '## Generic CIS benchmark controls failing across the fleet', '');
+    if (!failing.length) out.push('None.');
+    else {
+      out.push('| Control | Reference | Owner | Clusters | Remediation |', '|---|---|---|---|---|');
+      for (const f of failing) out.push(`| ${cell(f.title)} | ${cell(f.ref)} | ${f.owner === 'vks' ? 'VKS' : f.owner === 'you' ? 'Cluster owner' : 'Shared'} | ${cell(f.clusters.join(', '))} | ${cell(f.remediation)} |`);
+    }
   }
   out.push('', '## Posture findings', '', '| Cluster | Severity | Check | Finding | Objects | Accepted until | Reason |', '|---|---|---|---|---|---|---|');
   for (const scan of input.scans) {
@@ -231,12 +246,11 @@ export function evidencePack(input: OverviewInput): string {
   }
   const scanned = (input.reports ?? []).filter(r => r.trivy);
   out.push('', '## Vulnerabilities', '');
-  if (!scanned.length) out.push('No cluster has a vulnerability scanner (Trivy Operator), so there is nothing to report here.');
+  if (!scanned.length) out.push('Not measured: no cluster has a vulnerability scanner (Trivy Operator).');
   else {
     out.push(`From Trivy Operator in ${scanned.length} cluster${scanned.length === 1 ? '' : 's'}. The 25 most widespread critical and high CVEs:`, '', '| CVE | Severity | Fixed in | Clusters | Images | Title |', '|---|---|---|---|---|---|');
     for (const c of topCves(scanned).slice(0, 25)) out.push(`| ${c.id} | ${c.severity} | ${cell(c.fixed)} | ${c.clusters.size} | ${c.images.size} | ${cell(c.title)} |`);
   }
-  const withRuns = input.scans.map(scan => ({ ...scan, compliance: cisResults(scan, input.nodeScans?.get(scan.clusterKey) ?? []) }));
-  out.push('', '---', '', complianceMarkdown(withRuns, input.silences, input.now));
+  if (cis) out.push('', '---', '', complianceMarkdown(input.scans, input.silences, input.now));
   return out.join('\n');
 }

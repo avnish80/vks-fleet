@@ -3,7 +3,7 @@
  * for failing controls, and evidence exports for auditors (Markdown, CSV).
  */
 import { ClusterScan } from './clusterScan';
-import { complianceIssueId, ControlResult, ControlStatus, scoreResults } from './compliance';
+import { GENERIC_CIS_NOTICE, complianceIssueId, ControlResult, ControlStatus, scoreResults } from './compliance';
 import { Issue, Silence } from './types';
 
 export const COMPLIANCE_PATH = '/vks-fleet/compliance';
@@ -21,7 +21,7 @@ export interface DriftItem {
   worse: boolean;
 }
 
-const rank: Record<ControlStatus, number> = { pass: 0, review: 1, 'node-scan': 1, unknown: 1, fail: 2 };
+const rank: Record<ControlStatus, number> = { pass: 0, review: 1, unknown: 1, fail: 2 };
 
 export function snapshot(results: ControlResult[], now: Date = new Date()): Baseline {
   return { at: now.toISOString(), statuses: Object.fromEntries(results.map(r => [r.id, r.status])) };
@@ -51,7 +51,7 @@ export function complianceIssues(
   for (const s of scans) {
     const c = clusters.find(x => x.key === s.clusterKey);
     if (!c) continue;
-    const cis = s.compliance.filter(r => (r.frameworks ?? ['cis']).includes('cis'));
+    const cis = s.compliance;
     const failing = cis.filter(r => r.status === 'fail' && !isWaived(silences, c.key, r.id));
     const base = {
       supervisorId: c.supervisorId,
@@ -108,21 +108,21 @@ export function complianceCsv(scans: ClusterScan[], silences: Silence[]): string
 
 export function complianceMarkdown(scans: ClusterScan[], silences: Silence[], now: Date = new Date()): string {
   const out: string[] = [
-    '# VKS compliance evidence (CIS-aligned)',
+    '# VKS clusters: generic CIS Kubernetes Benchmark checks',
     '',
     `Generated ${now.toISOString().replace('T', ' ').slice(0, 16)} UTC by the vks-fleet Headlamp plugin.`,
     '',
-    '> Checks aligned with the CIS Kubernetes Benchmark, evaluated through the Kubernetes API. This is not a certified CIS assessment. File-permission controls need a node-level scan and are marked as such.',
+    `> ${GENERIC_CIS_NOTICE} Evaluated through the Kubernetes API; file permissions on the nodes are not visible there and are listed for manual review.`,
     '',
     '## Summary',
     '',
-    '| Cluster | Score | Scored | Pass | Fail | Waived | Review | Not readable | Needs node scan | Scanned |',
+    '| Cluster | Benchmark | Score | Scored | Pass | Fail | Waived | Review | Not readable | Scanned |',
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const s of scans) {
     const sc = scoreResults(s.compliance);
     const waived = s.compliance.filter(r => r.status === 'fail' && isWaived(silences, s.clusterKey, r.id)).length;
-    out.push(`| ${s.clusterName} | ${sc.scored ? `${sc.pct}%` : '—'} | ${sc.scored} of ${sc.total} | ${sc.pass} | ${sc.fail - waived} | ${waived} | ${sc.review} | ${sc.unknown} | ${sc.nodeScan} | ${s.at.slice(0, 16).replace('T', ' ')} |`);
+    out.push(`| ${s.clusterName} | ${s.benchmark ? `CIS ${s.benchmark}${s.benchmarkBeyond ? ' (cluster is newer)' : ''}` : '—'} | ${sc.scored ? `${sc.pct}%` : '—'} | ${sc.scored} of ${sc.total} | ${sc.pass} | ${sc.fail - waived} | ${waived} | ${sc.review} | ${sc.unknown} | ${s.at.slice(0, 16).replace('T', ' ')} |`);
   }
   for (const s of scans) {
     out.push('', `## ${s.clusterName}`, '', '| Control | Ref | Owner | Level | Result | Evidence |', '|---|---|---|---|---|---|');
@@ -151,13 +151,13 @@ const uuid = () =>
  * failures as risks with an approved deviation. Controls that couldn't be
  * checked stay observations only.
  */
-export function complianceOscal(scans: ClusterScan[], silences: Silence[], framework: 'cis' | 'nsa', now: Date = new Date()): string {
+export function complianceOscal(scans: ClusterScan[], silences: Silence[], now: Date = new Date()): string {
   const results = scans.map(s => {
     const component = uuid();
     const observations: any[] = [];
     const findings: any[] = [];
     const risks: any[] = [];
-    for (const r of s.compliance.filter(x => x.frameworks.includes(framework))) {
+    for (const r of s.compliance) {
       const obs = uuid();
       observations.push({
         uuid: obs,
@@ -171,7 +171,7 @@ export function complianceOscal(scans: ClusterScan[], silences: Silence[], frame
         props: [
           { name: 'result', value: r.status },
           { name: 'owner', value: r.owner },
-          { name: 'reference', value: framework === 'nsa' ? r.nsa ?? r.ref : r.ref },
+          { name: 'reference', value: r.ref },
         ],
       });
       if (r.status !== 'pass' && r.status !== 'fail') continue;
@@ -192,8 +192,8 @@ export function complianceOscal(scans: ClusterScan[], silences: Silence[], frame
     }
     return {
       uuid: uuid(),
-      title: `${s.clusterName} (${framework === 'nsa' ? 'NSA/CISA hardening' : 'CIS-aligned'})`,
-      description: 'Checks evaluated through the Kubernetes API by the vks-fleet Headlamp plugin; node file permissions from kube-bench when a node scan was run.',
+      title: `${s.clusterName} (generic CIS Kubernetes Benchmark${s.benchmark ? ` v${s.benchmark}` : ''})`,
+      description: 'Checks evaluated through the Kubernetes API by the vks-fleet Headlamp plugin. File permissions on the nodes are not assessed.',
       start: s.at,
       end: s.at,
       'reviewed-controls': { 'control-selections': [{ 'include-all': {} }] },
@@ -208,11 +208,11 @@ export function complianceOscal(scans: ClusterScan[], silences: Silence[], frame
       'assessment-results': {
         uuid: uuid(),
         metadata: {
-          title: `VKS fleet compliance: ${framework === 'nsa' ? 'NSA/CISA Kubernetes hardening' : 'CIS-aligned'} checks`,
+          title: 'VKS fleet: generic CIS Kubernetes Benchmark checks',
           'last-modified': now.toISOString(),
           version: '1',
           'oscal-version': '1.1.2',
-          remarks: 'Not a certified assessment. Generated by the vks-fleet Headlamp plugin.',
+          remarks: `${GENERIC_CIS_NOTICE} Generated by the vks-fleet Headlamp plugin.`,
         },
         'import-ap': { href: '#vks-fleet-assessment-plan' },
         results,
