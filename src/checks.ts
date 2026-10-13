@@ -97,12 +97,15 @@ export function scorecard(
       'version',
       'Lifecycle',
       'Kubernetes version current',
-      c.minorsBehind === undefined ? 'unknown' : c.minorsBehind >= 2 ? 'fail' : c.minorsBehind === 1 ? 'warn' : 'pass',
+      // One minor behind the newest is ordinary (and what the baseline allows by default): two is worth planning, more is overdue.
+      c.minorsBehind === undefined ? 'unknown' : c.minorsBehind >= 3 ? 'fail' : c.minorsBehind === 2 ? 'warn' : 'pass',
       c.minorsBehind === undefined
         ? 'Release list not readable.'
         : c.minorsBehind === 0
         ? `${c.kubernetesVersion} is the newest minor on the Supervisor.`
-        : `${c.minorsBehind} minor version${c.minorsBehind === 1 ? '' : 's'} behind.`,
+        : c.minorsBehind === 1
+        ? '1 minor version behind the newest: current enough.'
+        : `${c.minorsBehind} minor versions behind.`,
       'Upgrade one minor version at a time with Upgrade on the cluster page.',
       2
     )

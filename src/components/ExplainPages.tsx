@@ -12,6 +12,8 @@ import { fleetTimeline } from '../timeline';
 import { FleetCluster } from '../types';
 import { useObservability } from '../useObservability';
 import { useSupervisorHealth } from '../useSupervisorHealth';
+import { useVcenterStatus } from '../useVcenterStatus';
+import { supervisorScoreOf } from '../vcenterStatus';
 import { useWorkloadHealth } from '../useWorkload';
 
 
@@ -152,10 +154,11 @@ export function IncidentPage() {
 const STATE_COLOUR: Record<Layer['state'], string> = { ok: '#10b981', warn: '#f59e0b', bad: '#ef4444', unknown: '#94a3b8' };
 
 export function WalkDownPage() {
-  const { results, all, inventoryAll, limitsAll, persona } = useFleetData();
+  const { config, results, all, inventoryAll, limitsAll, persona } = useFleetData();
   const { q, set } = useSelection();
   const clusters = React.useMemo(() => (results ?? []).flatMap(r => r.clusters), [results]);
   const cluster = clusters.find(c => c.key === q.get('cluster'));
+  const vcenter = useVcenterStatus(config);
   const workload = useWorkloadHealth(cluster ? [cluster] : [], 60);
   const operator = !!persona && ['operator', 'readonly', 'unknown'].includes(persona.persona);
   const health = useSupervisorHealth(all, inventoryAll, operator && !!cluster);
@@ -179,7 +182,7 @@ export function WalkDownPage() {
           hosts: h?.nodes.filter(n => n.role === 'host').map(n => ({ name: n.name, ready: n.ready })),
           limits: limitsAll.get(cluster.namespace),
           configured: configuredByNamespace(all ?? [], inventoryAll).get(cluster.namespace),
-          supervisorScore: h?.score,
+          supervisorScore: h ? supervisorScoreOf(h, vcenter?.status, (all ?? []).map(r => r.supervisor)) : undefined,
         })
       : undefined;
   return (

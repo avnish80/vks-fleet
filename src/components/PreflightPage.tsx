@@ -11,6 +11,8 @@ import { upgradeTargets } from '../releases';
 import { useObservability } from '../useObservability';
 import { usePolling } from '../usePolling';
 import { useSupervisorHealth } from '../useSupervisorHealth';
+import { useVcenterStatus } from '../useVcenterStatus';
+import { supervisorScoreOf } from '../vcenterStatus';
 import { useWorkloadHealth } from '../useWorkload';
 import { ActionDialog } from './ActionDialog';
 import { ChartStyles, KpiTile } from './charts';
@@ -32,7 +34,7 @@ const VERDICT = {
  * whether it's safe.
  */
 export function PreflightPage() {
-  const { results, all, inventoryAll, limitsAll, persona, canWrite, refresh } = useFleetData();
+  const { config, results, all, inventoryAll, limitsAll, persona, canWrite, refresh } = useFleetData();
   const location = useLocation();
   const history = useHistory();
   const q = new URLSearchParams(location.search);
@@ -49,6 +51,7 @@ export function PreflightPage() {
   const live = usePolling(ctx ? `preflight|${ctx}` : null, () => fetchLive(headlampClient(ctx!)), 60);
   const operator = !!persona && ['operator', 'readonly', 'unknown'].includes(persona.persona);
   const health = useSupervisorHealth(all, inventoryAll, operator && !!cluster);
+  const vcenter = useVcenterStatus(config);
   const [applying, setApplying] = React.useState(false);
   if (results === null) return <Loader title="Loading clusters" />;
 
@@ -81,7 +84,8 @@ export function PreflightPage() {
           configured: configuredByNamespace(all ?? [], inventoryAll).get(cluster.namespace),
           deprecated: summary?.stack.prometheus ? summary.deprecatedApis : undefined,
           live: live ?? undefined,
-          supervisorScore: h?.score,
+          // The score the Supervisor page shows: its own API's, less what vCenter reports.
+          supervisorScore: h ? supervisorScoreOf(h, vcenter?.status, (all ?? []).map(r => r.supervisor)) : undefined,
           staleControllers: h?.leases.filter(l => l.state !== 'ok').map(l => l.controller),
         })
       : undefined;
@@ -91,7 +95,7 @@ export function PreflightPage() {
       columns={[
         { label: 'Resource', getter: (x: ImpactRow) => x.resource },
         { label: 'Now', getter: (x: ImpactRow) => x.before },
-        { label: 'With the change', getter: (x: ImpactRow) => <b>{x.after}</b> },
+        { label: kind === 'upgrade' ? 'At its peak (old and new nodes together)' : 'With the change', getter: (x: ImpactRow) => <b>{x.after}</b> },
         { label: 'Limit', getter: (x: ImpactRow) => x.limit || '—' },
         {
           label: '',

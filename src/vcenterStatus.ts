@@ -292,3 +292,19 @@ export function supervisorScore(apiScore: number, vc: VcSupervisor | undefined, 
   return Math.max(0, apiScore - (vc ? vcenterPenalty(vc) + utilisationPenalty(entitiesFor(metrics, vc.id)) : 0));
 }
 
+
+/**
+ * A Supervisor's health score as every page shows it: the score from its own
+ * API, less what vCenter reports about it (when the collector's status is there).
+ * One place, so the dashboard, Supervisor health, Pre-flight and Investigate
+ * never show different numbers for the same Supervisor.
+ */
+export function supervisorScoreOf(
+  h: { supervisorId: string; score: number; nodes: { role: string; name: string }[] },
+  status: VcenterStatus | undefined,
+  supervisors: SupervisorConfig[]
+): number {
+  const config = supervisors.find(s => s.id === h.supervisorId);
+  const vc = status && config ? matchSupervisor(status, config, supervisors.length, h.nodes.filter(n => n.role === 'host').map(n => n.name)) : undefined;
+  return supervisorScore(h.score, vc ?? undefined, status?.metrics);
+}

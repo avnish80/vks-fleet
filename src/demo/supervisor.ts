@@ -224,10 +224,11 @@ export function buildSupervisor(now: Date): Store {
       'virtualmachines',
       machines.map(m => ({
         metadata: { namespace: c.ns, name: m.name, labels: { 'capv.vmware.com/cluster.name': c.name, ...(m.cp ? { 'capv.vmware.com/cluster.role': 'controlplane' } : { 'capv.vmware.com/cluster.role': 'node' }) } },
-        spec: { className: m.cp ? 'best-effort-large' : c.pools.find(p => p.name === m.pool)?.vmClass ?? 'best-effort-medium', powerState: 'PoweredOn', storageClass: 'vsan-default-storage-policy' },
+        spec: { className: m.cp ? 'best-effort-large' : c.pools.find(p => p.name === m.pool)?.vmClass ?? 'best-effort-medium', imageName: `ubuntu-2404-amd64-${c.version.replace('+', '---')}-vkr.1`, powerState: 'PoweredOn', storageClass: 'vsan-default-storage-policy' },
         // checkout's workers all landed on esx-02 (where its problems are); the rest spread out.
         status: {
           powerState: 'PoweredOn',
+          zone: `zone-${(machines.indexOf(m) % 3) + 1}`,
           // Clusters start on different hosts, so control-plane nodes spread out as they would for real.
           host: c.name === 'checkout' && !m.cp ? 'esx-02.demo.local' : `esx-0${((machines.indexOf(m) + clusterList.indexOf(c)) % 4) + 1}.demo.local`,
           network: { primaryIP4: `172.16.${clusterList.indexOf(c) + 1}.${10 + machines.indexOf(m)}` },

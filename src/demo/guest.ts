@@ -58,6 +58,11 @@ export function buildGuest(c: C, now: Date): Store {
   const machines = machineNames(c);
   const cp = machines.find(m => m.cp)!;
   const workers = machines.filter(m => !m.cp);
+  // A node is as large as its VM class: the same sizes the Supervisor's VM classes have.
+  const SIZES: Record<string, [number, number]> = { 'best-effort-medium': [2, 8], 'best-effort-large': [4, 16], 'best-effort-xlarge': [8, 32] };
+  const sizeOf = (m: { cp: boolean; pool?: string }): [number, number] => SIZES[m.cp ? 'best-effort-large' : c.pools.find(p => p.name === m.pool)?.vmClass ?? 'best-effort-medium'] ?? [2, 8];
+  // The node Cluster API is stuck deleting (the Supervisor side names the same one): the last node of np-1.
+  const stuckNode = c.stuck ? workers.filter(m => m.pool === 'np-1').slice(-1)[0] : undefined;
   const apps = APPS[baseName(c)] ?? [];
 
   // Nodes, with each kubelet's live configuration.
@@ -71,8 +76,8 @@ export function buildGuest(c: C, now: Date): Store {
         conditions: [{ type: 'Ready', status: 'True' }],
         nodeInfo: { kubeletVersion: c.version, osImage: 'Ubuntu 24.04.4 LTS' },
         addresses: [{ type: 'InternalIP', address: `172.16.${DEMO_CLUSTERS.indexOf(c)}.${10 + i}` }],
-        capacity: { cpu: m.cp ? '4' : '4', memory: '16Gi' },
-        allocatable: { cpu: '3900m', memory: '15Gi' },
+        capacity: { cpu: String(sizeOf(m)[0]), memory: `${sizeOf(m)[1]}Gi` },
+        allocatable: { cpu: `${sizeOf(m)[0] * 1000 - 100}m`, memory: `${sizeOf(m)[1] - 1}Gi` },
       },
     }))
   );
@@ -162,7 +167,9 @@ export function buildGuest(c: C, now: Date): Store {
     (a.kind === 'Deployment' ? deployments : statefulsets).push(obj);
     for (let i = 0; i < a.replicas; i++) {
       const crashing = a.crash && i >= a.ready;
-      const node = workers[i % workers.length]?.name ?? cp.name;
+      // The healthy cart replica sits on the node that is stuck deleting: with the other replica crash-looping, its
+      // disruption budget refuses the eviction, which is what holds the drain.
+      const node = (stuckNode && a.name === 'cart' && !crashing ? stuckNode.name : undefined) ?? workers[i % workers.length]?.name ?? cp.name;
       pods.push({
         metadata: {
           namespace: a.ns,
@@ -185,6 +192,14 @@ export function buildGuest(c: C, now: Date): Store {
     }
   }
   add(s, '', 'pods', pods);
+  add(
+    s,
+    'networking.k8s.io',
+    'ingresses',
+    apps.some(a => a.name === 'api')
+      ? [{ metadata: { namespace: apps.find(a => a.name === 'api')!.ns, name: 'api', labels: { app: 'api' } }, spec: { ingressClassName: 'contour', rules: [{ host: `api.${baseName(c)}.acme.example`, http: { paths: [{ path: '/', pathType: 'Prefix', backend: { service: { name: 'api', port: { number: 80 } } } }] } }] }, status: { loadBalancer: { ingress: [{ ip: `10.20.${DEMO_CLUSTERS.indexOf(c)}.40` }] } } }]
+      : []
+  );
   add(s, 'apps', 'deployments', deployments);
   add(s, 'apps', 'statefulsets', statefulsets);
   add(s, 'apps', 'daemonsets', [
@@ -239,6 +254,7 @@ export function buildGuest(c: C, now: Date): Store {
     pkgi('vmware-system-tkg', `${c.name}-antrea`, 'antrea.tanzu.vmware.com', '2.3.0+vmware.1-tkg.1'),
     pkgi('tkg-system', 'cert-manager', 'cert-manager.tanzu.vmware.com', baseName(c) === 'sandbox' ? '1.15.3+vmware.1-tkg.1' : '1.16.1+vmware.1-tkg.1'),
     ...(baseName(c) === 'checkout' ? [pkgi('tkg-system', 'fluent-bit', 'fluent-bit.tanzu.vmware.com', '3.1.9+vmware.1-tkg.1', { failed: 'kapp: Error: waiting on reconcile daemonset/fluent-bit: timed out' })] : []),
+    ...(baseName(c) === 'sandbox' ? [] : [pkgi('tkg-system', 'prometheus', 'prometheus.tanzu.vmware.com', '2.54.1+vmware.1-tkg.1')]),
     ...(baseName(c) === 'analytics' ? [pkgi('tkg-system', 'contour', 'contour.tanzu.vmware.com', '1.30.1+vmware.1-tkg.1')] : []),
   ]);
   add(s, 'packaging.carvel.dev', 'packagerepositories', [{ metadata: { namespace: 'tkg-system', name: 'vks-standard-packages' }, spec: { fetch: { imgpkgBundle: { image: `${VKS_IMAGE.replace('/vks-addons', '')}/repo:v3.7.0` } } }, status: { conditions: [{ type: 'ReconcileSucceeded', status: 'True' }] } }]);
@@ -320,7 +336,7 @@ export function buildGuest(c: C, now: Date): Store {
   );
 
   // Metrics (utilisation)
-  add(s, 'metrics.k8s.io', 'nodes', machines.map((m, i) => ({ metadata: { name: m.name }, usage: { cpu: `${m.cp ? 900 : 1200 + i * 350}m`, memory: `${m.cp ? 5 : 7 + i}Gi` } })));
+  add(s, 'metrics.k8s.io', 'nodes', machines.map((m, i) => ({ metadata: { name: m.name }, usage: { cpu: `${Math.round((sizeOf(m)[0] * 1000 - 100) * (m.cp ? 0.23 : 0.31 + i * 0.09))}m`, memory: `${Math.round((sizeOf(m)[1] - 1) * 1024 * (m.cp ? 0.33 : 0.47 + i * 0.066))}Mi` } })));
   add(s, 'metrics.k8s.io', 'pods', pods.filter(p => !p.metadata.namespace.startsWith('kube')).map(p => ({ metadata: { namespace: p.metadata.namespace, name: p.metadata.name }, containers: [{ name: 'c', usage: podUsage(p) }] })));
 
   // Backups (Velero) on the acme production clusters.

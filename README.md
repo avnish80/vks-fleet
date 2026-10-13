@@ -2,7 +2,7 @@
 
 **Operations and reliability for vSphere Kubernetes Service (VKS) fleets.** A [Headlamp](https://headlamp.dev) plugin that brings health, investigation, capacity forecasting and change planning together across your Supervisors and their VKS clusters: understand what needs attention, trace a problem from a workload down to the ESXi host, and see what a change will do before you start it. Built for VCF platform operators, with a demo that needs no VMware lab.
 
-> **Release candidate.** Tested on a real VCF 9.1 lab and in demo mode; some write paths aren't yet confirmed on a live system (see [Validation status](#validation-status)).
+> **Tested on a real VCF 9.1 lab** (one Supervisor, two VKS clusters) and in demo mode. Some write paths aren't yet confirmed on a live system: see [Validation status](#validation-status) before relying on them.
 >
 > **A personal open-source project.** Not affiliated with, endorsed by, or supported by Broadcom or VMware. Product names are used only to describe what it works with (see [NOTICE](NOTICE)). [Apache 2.0](LICENSE).
 
@@ -44,7 +44,7 @@ The same plugin serves everyone; what it shows and allows follows the RBAC of th
 - **In a cluster, with Helm** (Headlamp, the plugin, and a job that keeps sign-ins fresh):
 
   ```bash
-  VERSION=1.42.0
+  VERSION=1.43.0
   SUPERVISOR=10.0.0.2                 # your Supervisor's address
   VCENTER=vcenter.example.com         # the vCenter it belongs to
   kubectl create namespace vks-fleet

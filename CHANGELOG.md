@@ -2,6 +2,23 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.43.0
+
+A regular release again, the first since 1.33.4, after a page-by-page review in which every page was rendered and every button clicked.
+
+- **A regular release:** it is published as the latest release on GitHub instead of a pre-release. Everything from 1.34.0 to 1.42.0 was a release candidate.
+- **What that does and doesn't mean:** every read and view, the vCenter collector, and changes through the VKS admission webhooks are confirmed on a live system. Deletes through the plugin, drain timeouts on machines already deleting, and some links into Headlamp's own pages are not yet: the README's *Validation status* keeps the list. A real fleet has been tested at two clusters; demo mode exercises the pages at up to fifty.
+- **One Supervisor score everywhere.** Pre-flight and the walk down the layers used the Supervisor's score without what vCenter reports, so Pre-flight could say 86 and pass while the Supervisor page said 66. They now show the same score as the dashboard and Supervisor health, and Pre-flight warns below 70 as it was meant to.
+- **Kubernetes version check agrees with the clusters table:** one minor behind the newest passes (it is what the baseline allows by default), two is a warning, three or more fails. It was a warning at one and a failure at two. Scores of clusters one minor behind rise a little.
+- **Pre-flight:** for an upgrade, the capacity table's column is headed *At its peak (old and new nodes together)* instead of *With the change*.
+- **Demo mode no longer contradicts itself:**
+  - The pod that blocks the stuck node's drain runs on that node, and the node's page shows it as *Blocked by cart*.
+  - Nodes are as large as their VM class; node VMs have an image and a zone.
+  - Prometheus is an installed package in the clusters that are monitored.
+  - A search no longer reports missing results (the demo clusters now serve Ingresses).
+- **README:** the release-candidate banner gives way to a line on where it has been tested.
+- **Docs:** the install commands use this version.
+
 ## 1.42.0 (release candidate)
 
 Look and feel, from the same page-by-page review.
