@@ -205,7 +205,7 @@ function securityBlock(issues: Issue[]): DashboardBlock {
     label: 'Security',
     value: String(open.length),
     tone: critical ? 'bad' : open.length ? 'warn' : 'ok',
-    reason: !open.length ? 'No open security findings' : critical ? `open ${open.length === 1 ? 'finding' : 'findings'}, ${critical} critical` : `open ${open.length === 1 ? 'finding' : 'findings'} (posture and compliance)`,
+    reason: !open.length ? 'No open security findings' : critical ? `open ${open.length === 1 ? 'finding' : 'findings'}, ${critical} critical` : `open ${open.length === 1 ? 'finding' : 'findings'} (posture, policies and vulnerabilities)`,
     path: SECURITY_OVERVIEW_ROUTE,
     n: open.length,
     metric: 'security',

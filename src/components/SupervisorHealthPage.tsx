@@ -4,7 +4,7 @@ import React from 'react';
 import { requestStats } from '../api/limiter';
 import { supervisorWriter } from '../api/headlampClient';
 import { useFleetData } from '../fleetContext';
-import { BacklogRow, healthTone, LeaseInfo, leftoverCleanupPlan, responsiveness, ServiceState, SupervisorHealth } from '../supervisorHealth';
+import { BacklogRow, diskTone, healthTone, LeaseInfo, leftoverCleanupPlan, responsiveness, ServiceState, SupervisorHealth } from '../supervisorHealth';
 import { SupervisorResult } from '../types';
 import { useSupervisorHealth } from '../useSupervisorHealth';
 import { useVcenterStatus } from '../useVcenterStatus';
@@ -322,7 +322,7 @@ function UtilisationSection({ entities, metrics }: { entities: VcEntity[]; metri
                 <StatusLabel status={tone(e.memPct)}>{`Mem ${pct(e.memPct)}`}</StatusLabel>
                 {d && (
                   <span title={`${d.path}${eta !== undefined ? `; full in about ${humanDuration(eta)} at this rate` : ''}`}>
-                    <StatusLabel status={tone(d.pct, 80, 90)}>{`Disk ${pct(d.pct)}${eta !== undefined && eta < 7 * 86400 ? ` · full in ${humanDuration(eta)}` : ''}`}</StatusLabel>
+                    <StatusLabel status={diskTone(d.pct, eta)}>{`Disk ${pct(d.pct)}${eta !== undefined && eta < 7 * 86400 ? ` · full in ${humanDuration(eta)}` : ''}`}</StatusLabel>
                   </span>
                 )}
               </Box>

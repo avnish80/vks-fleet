@@ -45,6 +45,15 @@ const VKS_IMAGE = 'projects.packages.broadcom.com/vsphere/supervisor/vks-standar
 
 export function buildGuest(c: C, now: Date): Store {
   const iso = (hoursAgo: number) => new Date(now.getTime() - hoursAgo * 3600e3).toISOString();
+  // What a pod uses: steady per pod, different between pods (by its app), so the busiest ones stand out.
+  const podUsage = (p: any) => {
+    const app = String(p.metadata.name).replace(/-[a-z0-9]+-[a-z0-9]+$/, '');
+    let h = 0;
+    for (const ch of `${p.metadata.namespace}/${p.metadata.name}`) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+    const base: Record<string, [number, number]> = { api: [310, 420], cart: [180, 260], 'sync-agent': [90, 610], 'debug-shell': [5, 12], notebook: [740, 2900], kafka: [420, 1800] };
+    const [cpu, mem] = base[app] ?? [60 + (h % 5) * 35, 110 + (h % 7) * 60];
+    return { cpu: `${Math.round(cpu * (0.85 + (h % 30) / 100))}m`, memory: `${Math.round(mem * (0.9 + (h % 20) / 100))}Mi` };
+  };
   const s: Store = { objects: new Map(), special: new Map() };
   const machines = machineNames(c);
   const cp = machines.find(m => m.cp)!;
@@ -312,7 +321,7 @@ export function buildGuest(c: C, now: Date): Store {
 
   // Metrics (utilisation)
   add(s, 'metrics.k8s.io', 'nodes', machines.map((m, i) => ({ metadata: { name: m.name }, usage: { cpu: `${m.cp ? 900 : 1200 + i * 350}m`, memory: `${m.cp ? 5 : 7 + i}Gi` } })));
-  add(s, 'metrics.k8s.io', 'pods', pods.filter(p => !p.metadata.namespace.startsWith('kube')).map(p => ({ metadata: { namespace: p.metadata.namespace, name: p.metadata.name }, containers: [{ name: 'c', usage: { cpu: '120m', memory: '300Mi' } }] })));
+  add(s, 'metrics.k8s.io', 'pods', pods.filter(p => !p.metadata.namespace.startsWith('kube')).map(p => ({ metadata: { namespace: p.metadata.namespace, name: p.metadata.name }, containers: [{ name: 'c', usage: podUsage(p) }] })));
 
   // Backups (Velero) on the acme production clusters.
   if (baseName(c) === 'payments' || baseName(c) === 'checkout') {

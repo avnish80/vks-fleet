@@ -122,12 +122,32 @@ export function buildSupervisor(now: Date): Store {
   ]);
   // One list for the whole build: demoClusters() makes fresh objects each call, so positions must come from this list.
   const clusterList = demoClusters();
+  // Who last changed each Cluster (the change audit), from its managed fields.
+  const managed = (c: DemoCluster) => [
+    { manager: 'kubectl-client-side-apply', operation: 'Update', time: iso(24 * 40), fieldsV1: { 'f:spec': { 'f:topology': { 'f:class': {}, 'f:version': {}, 'f:workers': {} } } } },
+    { manager: 'vcf-automation', operation: 'Apply', time: iso(24 * 12), fieldsV1: { 'f:spec': { 'f:topology': { 'f:version': {} } } } },
+    ...(baseName(c) === 'checkout' ? [{ manager: 'Mozilla/5.0 (Headlamp)', operation: 'Update', time: iso(60), fieldsV1: { 'f:spec': { 'f:topology': { 'f:workers': {} } }, 'f:metadata': { 'f:annotations': { 'f:vks-fleet.io/changed-by': {} } } } }] : []),
+    { manager: 'manager', operation: 'Update', time: iso(1), fieldsV1: { 'f:status': { 'f:conditions': {}, 'f:phase': {} } } },
+  ];
   for (const c of clusterList) {
     const machines = machineNames(c);
+    // The add-ons VKS installs with the cluster.
+    add(s, 'run.tanzu.vmware.com', 'clusterbootstraps', [
+      {
+        metadata: { namespace: c.ns, name: c.name },
+        spec: {
+          cni: { refName: 'antrea.tanzu.vmware.com.2.3.0+vmware.1-tkg.1' },
+          csi: { refName: 'vsphere-pv-csi.tanzu.vmware.com.3.4.0+vmware.1-tkg.1' },
+          cpi: { refName: 'vsphere-cpi.tanzu.vmware.com.1.36.0+vmware.1-tkg.1' },
+          kapp: { refName: 'kapp-controller.tanzu.vmware.com.0.55.1+vmware.1-tkg.1' },
+          additionalPackages: [{ refName: 'metrics-server.tanzu.vmware.com.0.7.2+vmware.1-tkg.1' }],
+        },
+      },
+    ]);
     add(s, 'cluster.x-k8s.io', 'clusters', [
       {
         apiVersion: 'cluster.x-k8s.io/v1beta1',
-        metadata: { namespace: c.ns, name: c.name, creationTimestamp: iso(24 * 40), labels: { env: ({ payments: 'prod', checkout: 'prod', sandbox: 'dev', analytics: 'ml' } as Record<string, string>)[baseName(c)] ?? 'dev' } },
+        metadata: { namespace: c.ns, name: c.name, creationTimestamp: iso(24 * 40), managedFields: managed(c), labels: { env: ({ payments: 'prod', checkout: 'prod', sandbox: 'dev', analytics: 'ml' } as Record<string, string>)[baseName(c)] ?? 'dev' } },
         spec: {
           controlPlaneRef: { name: `${c.name}-cp` },
           controlPlaneEndpoint: { host: c.host, port: 6443 },
@@ -170,7 +190,7 @@ export function buildSupervisor(now: Date): Store {
             namespace: c.ns,
             name: m.name,
             creationTimestamp: iso(stuck ? 60 : 24 * 20),
-            ...(stuck ? { deletionTimestamp: iso(26) } : {}),
+            ...(stuck ? { deletionTimestamp: iso(26.3) } : {}),
             labels: { 'cluster.x-k8s.io/cluster-name': c.name, ...(m.cp ? { 'cluster.x-k8s.io/control-plane': '' } : { 'cluster.x-k8s.io/deployment-name': `${c.name}-${m.pool}-${suffix(c.name + m.pool, 4)}` }) },
           },
           spec: { clusterName: c.name, version: c.version, failureDomain: `zone-${(i % 3) + 1}` },
@@ -234,9 +254,41 @@ export function buildSupervisor(now: Date): Store {
   }
   // Standalone VMs (VM Service)
   add(s, 'vmoperator.vmware.com', 'virtualmachines', [
-    { metadata: { namespace: 'acme-prod-7kq2p', name: 'reporting-db', labels: { app: 'reporting-db' }, creationTimestamp: iso(24 * 30) }, spec: { className: 'best-effort-medium', powerState: 'PoweredOn', storageClass: 'vsan-default-storage-policy', network: { interfaces: [{ name: 'eth0', network: { kind: 'Subnet', name: 'db-net' } }] } }, status: { powerState: 'PoweredOn', network: { primaryIP4: '172.20.4.5' }, conditions: [{ type: 'VirtualMachineCreated', status: 'True' }] } },
-    { metadata: { namespace: 'globex-ml-9w4tz', name: 'jupyter-gpu', creationTimestamp: iso(24 * 9) }, spec: { className: 'best-effort-xlarge', powerState: 'PoweredOff' }, status: { powerState: 'PoweredOff', network: { primaryIP4: '172.30.8.4' }, conditions: [] } },
+    { metadata: { namespace: 'acme-prod-7kq2p', name: 'reporting-db', labels: { app: 'reporting-db' }, creationTimestamp: iso(24 * 30) }, spec: { className: 'best-effort-medium', imageName: 'vmi-9a8b7c6d5e4f', volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'reporting-db-data' } }], powerState: 'PoweredOn', storageClass: 'vsan-default-storage-policy', network: { interfaces: [{ name: 'eth0', network: { kind: 'Subnet', name: 'db-net' } }] } }, status: { powerState: 'PoweredOn', network: { primaryIP4: '172.20.4.5' }, conditions: [{ type: 'VirtualMachineCreated', status: 'True' }] } },
+    { metadata: { namespace: 'globex-ml-9w4tz', name: 'jupyter-gpu', creationTimestamp: iso(24 * 9) }, spec: { className: 'best-effort-xlarge', imageName: 'vmi-0a1b2c3d4e5f', volumes: [{ name: 'scratch', persistentVolumeClaim: { claimName: 'jupyter-gpu-scratch' } }], powerState: 'PoweredOff' }, status: { powerState: 'PoweredOff', network: { primaryIP4: '172.30.8.4' }, conditions: [] } },
   ]);
+  // Volumes on the Supervisor: VM disks, and the persistent volumes of the first four clusters' workloads.
+  const pvc = (ns: string, name: string, gi: number, cluster?: string) => ({
+    metadata: { namespace: ns, name, creationTimestamp: iso(24 * 18), labels: cluster ? { 'cluster.x-k8s.io/cluster-name': cluster } : {} },
+    spec: { storageClassName: 'vsan-default-storage-policy', resources: { requests: { storage: `${gi}Gi` } } },
+    status: { phase: 'Bound', capacity: { storage: `${gi}Gi` } },
+  });
+  const has = (name: string) => clusterList.some(c => c.name === name);
+  add(s, '', 'persistentvolumeclaims', [
+    pvc('acme-prod-7kq2p', 'reporting-db-data', 100),
+    pvc('globex-ml-9w4tz', 'jupyter-gpu-scratch', 30),
+    ...(has('payments') ? [pvc('acme-prod-7kq2p', 'payments-7c1d-ledger-postgres-0', 40, 'payments'), pvc('acme-prod-7kq2p', 'payments-7c1d-ledger-postgres-1', 40, 'payments')] : []),
+    ...(has('checkout') ? [pvc('acme-prod-7kq2p', 'checkout-2e9a-shop-redis-0', 20, 'checkout')] : []),
+    ...(has('sandbox') ? [pvc('acme-dev-3xm9d', 'sandbox-5b0f-scratch', 20, 'sandbox')] : []),
+    ...(has('analytics') ? [pvc('globex-ml-9w4tz', 'analytics-9f3c-streaming-data-kafka-1', 20, 'analytics'), pvc('globex-ml-9w4tz', 'analytics-9f3c-streaming-data-kafka-2', 20, 'analytics')] : []),
+  ]);
+  // Who can reach each namespace (the Access page): the org's groups, and the platform's own accounts.
+  add(
+    s,
+    'rbac.authorization.k8s.io',
+    'rolebindings',
+    spaces.flatMap(ns => {
+      const org = ns.split('-')[0];
+      const rb = (name: string, role: string, kind: string, subject: string) => ({ metadata: { namespace: ns, name }, roleRef: { kind: 'ClusterRole', name: role }, subjects: [{ kind, name: subject }] });
+      return [
+        rb('wcp:edit-group', 'edit', 'Group', `sso:${org}-platform@demo.local`),
+        rb('wcp:view-group', 'view', 'Group', `sso:${org}-developers@demo.local`),
+        ...(ns.includes('prod') ? [rb('wcp:edit-user', 'edit', 'User', `sso:oncall@${org}.example`)] : []),
+        rb('wcp:owner-user', 'admin', 'User', 'sso:demo@vsphere.local'),
+        { metadata: { namespace: ns, name: 'vmware-system-capv-sa' }, roleRef: { kind: 'ClusterRole', name: 'vmware-system-capv-role' }, subjects: [{ kind: 'ServiceAccount', namespace: 'vmware-system-capv', name: 'default' }] },
+      ];
+    })
+  );
   for (const ns of spaces) {
     add(
       s,

@@ -25,13 +25,18 @@ function list(items: string[], max = 3): string {
   return items.length <= max ? items.join(', ') : `${items.slice(0, max).join(', ')} and ${items.length - max} more`;
 }
 
+/** Without a baseline that says otherwise, a backup is expected daily (with two hours' grace). */
+export const DEFAULT_BACKUP_WITHIN_HOURS = 26;
+
 export function scorecard(
   c: FleetCluster,
   workload: WorkloadHealth | undefined,
   fleetZones: number,
   now: Date = new Date(),
   packages?: ClusterPackages,
-  backups?: BackupStatus
+  backups?: BackupStatus,
+  /** How recent the last successful backup must be: the baseline's value, the same one the backup issue uses. */
+  backupWithinHours: number = DEFAULT_BACKUP_WITHIN_HOURS
 ): Scorecard {
   const checks: CheckResult[] = [];
   const cp = c.controlPlane?.desired;
@@ -163,21 +168,23 @@ export function scorecard(
   const wc = workload?.checks;
   const signedIn = !!wc;
   const bh = hoursSinceSuccess(backups, now);
+  // The same threshold as the "no successful backup" issue, so the two never disagree. Stale is a warning; a week without one fails.
+  const within = backupWithinHours > 0 ? backupWithinHours : DEFAULT_BACKUP_WITHIN_HOURS;
   checks.push(
     backups && !backups.error
       ? check(
           'backup',
           'Operations',
           'Backups running',
-          backups.missing ? 'warn' : bh !== undefined && bh <= 7 * 24 ? 'pass' : backups.schedules.length ? 'fail' : 'warn',
+          backups.missing ? 'warn' : bh !== undefined && bh <= within ? 'pass' : bh !== undefined && bh <= 7 * 24 ? 'warn' : backups.schedules.length ? 'fail' : 'warn',
           backups.missing
             ? 'Velero is not installed.'
             : bh !== undefined
-            ? `Last successful backup ${Math.round(bh)} hours ago.`
+            ? `Last successful backup ${Math.round(bh)} hours ago${bh > within ? ` (expected within ${within})` : ''}.`
             : backups.schedules.length
             ? 'Scheduled, but no backup has completed.'
             : 'Velero is installed but nothing is scheduled.',
-          'Install Velero (a VKS standard package) and schedule regular backups.',
+          backups.missing ? 'Install Velero (a VKS standard package) and schedule regular backups.' : 'Open Backups on the cluster page: check the schedule and why the last run did not complete.',
           2
         )
       : check(

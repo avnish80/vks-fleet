@@ -248,7 +248,7 @@ export function FleetView() {
   const fleetZones = new Set(allClusters.flatMap(c => c.machines.map(m => m.failureDomain)).filter(Boolean)).size;
   const scores = tenantClusters.map(c => ({
     cluster: c,
-    card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key), backups?.get(c.key)),
+    card: scorecard(c, workload.byKey.get(c.key), fleetZones, new Date(), packages?.get(c.key), backups?.get(c.key), config.baseline?.backupWithinHours),
   }));
   const baselineRows = config.baseline
     ? tenantClusters.map(c => ({

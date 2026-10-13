@@ -2,6 +2,21 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.41.0 (release candidate)
+
+Figures that contradicted each other, and a fuller demo. From a page-by-page review before publishing.
+
+- **The backup check agrees with the backup issue.** *Backups running* passed anything under a week, so a cluster could pass it beside a warning that it had no backup for 146 hours. The check now uses the baseline's *Backup within* (26 hours unless you changed it), the same value the issue uses: older than that is a warning, a week without a backup fails. Scores of clusters with stale backups drop a little.
+- **A disk that fills soon is never green.** On Supervisor health, the control-plane disk's colour follows the time left as well as the space used: full within a week is a warning, within about three days red.
+- **Dashboard Security block:** its line no longer mentions compliance (off by default since 1.40.0).
+- **Org cards:** memory overcommit below 2× is shown without a colour instead of green, and reads *Memory configured: 1.1× the limit*.
+- **Demo mode:**
+  - Access lists the people and groups of each namespace instead of an error.
+  - Clusters have add-ons and a change audit; VMs have an image and a disk; Showback has volumes.
+  - Pods use different amounts of CPU and memory, so *Busiest pods* shows a real order.
+  - A machine stuck deleting reads the same number of hours everywhere on the page.
+- **Docs:** the install commands use this version.
+
 ## 1.40.0 (release candidate)
 
 No benchmark by default. VMware does not publish or support a CIS benchmark for VKS, and a generic CIS Kubernetes Benchmark flags settings that VKS manages, so presenting its score gave the wrong impression of a cluster.

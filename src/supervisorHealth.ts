@@ -393,3 +393,14 @@ export function leftoverCleanupPlan(h: SupervisorHealth): ActionPlan {
 
 /** Used by the Supervisor list and the fleet page: a one-line state. */
 export const healthTone = (score: number) => (score >= 90 ? 'success' : score >= 70 ? 'warning' : 'error');
+
+/**
+ * A disk's colour follows how soon it fills as well as how full it is: one that
+ * fills within a week is never shown as fine, however much space is left today.
+ */
+export function diskTone(usedPct?: number, etaSeconds?: number): 'success' | 'warning' | 'error' | '' {
+  const byUse = usedPct === undefined ? '' : usedPct > 90 ? 'error' : usedPct > 80 ? 'warning' : 'success';
+  if (etaSeconds !== undefined && etaSeconds < 3.5 * 86400) return 'error';
+  if (etaSeconds !== undefined && etaSeconds < 7 * 86400 && byUse !== 'error') return 'warning';
+  return byUse;
+}

@@ -205,8 +205,8 @@ export function OrgCards({ attention }: { attention?: Map<string, number> } = {}
               )}
               {mem !== undefined && (
                 <Box sx={{ mt: 0.5 }}>
-                  <StatusLabel status={mem > 4 ? 'error' : mem > 2 ? 'warning' : 'success'}>
-                    {`Memory ${mem.toFixed(1)}× the limit`}
+                  <StatusLabel status={mem > 4 ? 'error' : mem > 2 ? 'warning' : ''}>
+                    {`Memory configured: ${mem.toFixed(1)}× the limit`}
                   </StatusLabel>
                 </Box>
               )}

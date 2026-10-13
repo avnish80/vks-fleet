@@ -370,7 +370,7 @@ export function ClusterDetail() {
   ).filter(
     i => i.clusterKey === cluster.key || (!i.clusterKey && i.namespace === cluster.namespace && i.supervisorId === cluster.supervisorId)
   );
-  const card = scorecard(cluster, health, fleetZones, new Date(), clusterPackages, clusterBackups);
+  const card = scorecard(cluster, health, fleetZones, new Date(), clusterPackages, clusterBackups, config.baseline?.backupWithinHours);
   const clusterMap = new Map([[cluster.key, cluster]]);
   const supervisorNames = new Map([[supervisor.id, supervisorLabel(supervisor)]]);
   const vksNamespace = results.flatMap(r => r.services ?? []).find(s => s.namespace.startsWith('svc-tkg-'))?.namespace;
