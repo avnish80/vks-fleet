@@ -61,7 +61,7 @@ function Row({ rec, done, first }: { rec: Recommendation; done: boolean; first: 
   );
 }
 
-export function RecommendationsCard({ recs, simulated = false, limit = 5 }: { recs: Recommendation[]; /** Simulate is showing the recommended steps as done. */ simulated?: boolean; limit?: number }) {
+export function RecommendationsCard({ recs, simulated = false, limit = 3 }: { recs: Recommendation[]; /** Simulate is showing the recommended steps as done. */ simulated?: boolean; limit?: number }) {
   const [all, setAll] = React.useState(false);
   if (!recs.length) return null;
   const shown = all ? recs : recs.slice(0, limit);

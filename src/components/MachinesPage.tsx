@@ -30,20 +30,20 @@ export function MachinesPage() {
   const problems = rows.filter(r => r.problem);
   const [onlyProblems, setOnlyProblems] = React.useState<boolean | null>(null);
   const only = onlyProblems ?? problems.length > 0;
-  if (results === null) return <Loader title="Loading machines" />;
+  if (results === null) return <Loader title="Loading nodes" />;
   const shown = (only ? problems : rows).sort(
     (a, b) => Number(!!b.problem) - Number(!!a.problem) || a.cluster.name.localeCompare(b.cluster.name) || a.name.localeCompare(b.name)
   );
   return (
-    <SectionBox title="Machines">
+    <SectionBox title="Nodes">
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 1 }}>
         <Typography>
-          {rows.length} machine{rows.length === 1 ? '' : 's'} across the fleet; {problems.length} need
+          {rows.length} node{rows.length === 1 ? '' : 's'} (machines) across the fleet; {problems.length} need
           {problems.length === 1 ? 's' : ''} a look.
         </Typography>
         <FormControlLabel
           control={<Switch checked={only} onChange={e => setOnlyProblems(e.target.checked)} />}
-          label="Only machines that need a look"
+          label="Only nodes that need a look"
         />
       </Box>
       {shown.length === 0 ? (

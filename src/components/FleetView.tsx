@@ -552,7 +552,11 @@ export function FleetView() {
           <Box sx={{ px: 2 }}>
             <SinceLastVisit issues={tenantIssues} ready={ready} />
           </Box>
+          {/* What to do first, then the list itself; the 30-day timeline follows the list (the dashboard's block links to it). */}
           <Box sx={{ display: 'grid', gap: 2, px: 2, mb: 2 }}>
+            <Guard name="Recommendations">
+              <RecommendationsCard recs={recs} simulated={simulateRecommended} />
+            </Guard>
             <Guard name="Simulate fixes">
               <SimulatePanel counts={counts} mode={simulateMode} score={score} fixedScore={fleetScore(cards, true)} recommendedScore={fleetScore(cards, true, recommendedChecks(recs))} onMode={setSimulateMode} />
               {simulate && (
@@ -561,16 +565,6 @@ export function FleetView() {
                 </Paper>
               )}
             </Guard>
-            <Guard name="Recommendations">
-              <RecommendationsCard recs={recs} simulated={simulateRecommended} />
-            </Guard>
-            <Box id="next-30-days" sx={{ scrollMarginTop: 72 }}>
-              <Guard name="Next 30 days">
-                <Paper variant="outlined" sx={card}>
-                  <HorizonTimeline horizon={coming} now={now} />
-                </Paper>
-              </Guard>
-            </Box>
           </Box>
           <IssuesSection
             silenced={silenced}
@@ -585,6 +579,15 @@ export function FleetView() {
             simulate={simulate}
             simulateRecommended={simulateRecommended}
           />
+          <Box sx={{ px: 2, mt: 2, mb: 2 }}>
+          <Box id="next-30-days" sx={{ scrollMarginTop: 72 }}>
+            <Guard name="Next 30 days">
+              <Paper variant="outlined" sx={card}>
+                <HorizonTimeline horizon={coming} now={now} />
+              </Paper>
+            </Guard>
+          </Box>
+          </Box>
         </>
       )}
 

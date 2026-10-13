@@ -52,10 +52,13 @@ function BlockTrend({ block, series, today }: { block: DashboardBlock; series: S
         </Typography>
       )}
       {line && (
-        <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} aria-hidden="true" style={{ display: 'block' }}>
-          <polyline points={line} fill="none" stroke="currentColor" strokeOpacity={0.55} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-          {last && <circle cx={last.x} cy={last.y} r={2.5} fill={tone ?? 'currentColor'} />}
-        </svg>
+        // On a narrow block (measured on the block itself, whatever the window or sidebar) the line gives way to the figure; the change stays.
+        <Box component="span" aria-hidden="true" sx={{ display: 'block', '@container (max-width: 250px)': { display: 'none' } }}>
+          <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} style={{ display: 'block' }}>
+            <polyline points={line} fill="none" stroke="currentColor" strokeOpacity={0.55} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+            {last && <circle cx={last.x} cy={last.y} r={2.5} fill={tone ?? 'currentColor'} />}
+          </svg>
+        </Box>
       )}
     </Box>
   );
@@ -70,6 +73,7 @@ function Block({ block, series, today }: { block: DashboardBlock; series: Series
       title={`${block.label}: ${block.value}${block.unit ? ` ${block.unit}` : ''}. ${block.reason}. Click to open.`}
       sx={{
         p: 1.5,
+        containerType: 'inline-size',
         borderRadius: 3,
         border: 1,
         borderColor: 'divider',

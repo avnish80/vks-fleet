@@ -224,7 +224,7 @@ export function VmsPage() {
     <SectionBox title="VMs">
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 1 }}>
         <Typography>
-          {vms.length} VM Service VM{vms.length === 1 ? '' : 's'} (cluster nodes are on the Machines page).
+          {vms.length} VM Service VM{vms.length === 1 ? '' : 's'} (cluster nodes are on the Nodes tab).
         </Typography>
         <FormControlLabel control={<Switch checked={onlyProblems} onChange={e => setOnlyProblems(e.target.checked)} />} label="Only VMs that are off or not ready" />
       </Box>

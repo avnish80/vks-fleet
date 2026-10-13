@@ -5,7 +5,7 @@ import {
   SimpleTable,
   StatusLabel,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button, Typography } from '@mui/material';
+import { Alert, Box, Button, Tab, Tabs, Typography } from '@mui/material';
 import { useFleetData } from '../fleetContext';
 import React from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
@@ -22,6 +22,7 @@ import { usePackages } from '../usePackages';
 import { useBackups } from '../useBackups';
 import { BackupRecord } from '../types';
 import { formatBytes } from '../quantity';
+import { clusterTabOf, CLUSTER_TABS, ClusterTab } from '../clusterTabs';
 import { FLEET_PATH, headlampClusterObjectPath, headlampClusterPath, headlampPodsPath, machinePath } from '../routes';
 import {
   ClusterCondition,
@@ -288,6 +289,7 @@ export function ClusterDetail() {
   // Deep links from issues: ?focus=<row>&action=<dialog>&pool=<pool>#<section>
   const location = useLocation();
   const handled = React.useRef('');
+  const [tab, setTab] = React.useState<ClusterTab>('overview');
   const focus = new URLSearchParams(location.search).get('focus') ?? undefined;
   React.useEffect(() => {
     if (!cluster) return;
@@ -306,6 +308,9 @@ export function ClusterDetail() {
     else if (act === 'pause' && !cluster.paused) setAction({ kind: 'pause' });
     else if (act === 'timeouts' && pool) setAction({ kind: 'timeouts', pool });
     else if (act === 'scale' && pool) setAction({ kind: 'scale', pool });
+    // Open the tab the link's section or row is on, then scroll to it.
+    const linked = clusterTabOf(location.search, location.hash, { machines: cluster.machines.map(m => m.name), pools: cluster.nodePools.map(p => p.name) });
+    if (linked) setTab(linked);
     const timer = window.setTimeout(() => {
       const row = q.get('focus') ? document.getElementById(`row-${q.get('focus')}`) : null;
       const anchor = location.hash ? document.getElementById(location.hash.slice(1)) : null;
@@ -445,6 +450,12 @@ export function ClusterDetail() {
             <IssuesList issues={clusterIssues} clusters={clusterMap} supervisorNames={supervisorNames} showCluster={false} />
           </Box>
         )}
+        <Tabs value={tab} onChange={(_e: unknown, v: ClusterTab) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ borderBottom: 1, borderColor: 'divider', mb: tab === 'overview' ? 2 : 0 }}>
+          {CLUSTER_TABS.map(t => (
+            <Tab key={t.id} label={t.label} value={t.id} sx={{ textTransform: 'none', fontWeight: 600 }} />
+          ))}
+        </Tabs>
+        <Box sx={{ display: tab === 'overview' ? 'block' : 'none' }}>
         <NameValueTable
           rows={[
             { name: 'Status', value: <HealthLabel cluster={cluster} /> },
@@ -519,8 +530,11 @@ export function ClusterDetail() {
             { name: 'Created', value: when(cluster.createdAt) },
           ]}
         />
+        </Box>
       </SectionBox>
 
+      {/* Every tab stays mounted (hidden), so anchors, dialogs and loaded data survive a tab change. */}
+      <Box sx={{ display: tab === 'overview' ? 'block' : 'none' }}>
       <Box id="anatomy" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Anatomy">
         <AnatomyDiagram cluster={cluster} />
@@ -551,6 +565,9 @@ export function ClusterDetail() {
         <ChecksPanel card={card} />
       </Box>
 
+      </Box>
+
+      <Box sx={{ display: tab === 'workloads' ? 'block' : 'none' }}>
       <Box id="inside" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Workloads inside the cluster">
         <InsideCluster cluster={cluster} health={health} supervisorHost={supervisorHost} />
@@ -569,6 +586,9 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      </Box>
+
+      <Box sx={{ display: tab === 'nodes' ? 'block' : 'none' }}>
       <Box id="node-pools" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Node pools">
         {cluster.nodePools.length === 0 ? (
@@ -736,6 +756,9 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      </Box>
+
+      <Box sx={{ display: tab === 'packages' ? 'block' : 'none' }}>
       <Box id="packages" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Packages">
         {!ctxName ? (
@@ -758,6 +781,21 @@ export function ClusterDetail() {
               { label: 'Message', getter: (p: PackageInstallInfo) => (p.state === 'ok' ? '—' : p.message ?? '—') },
             ]}
             data={clusterPackages.items}
+          />
+        )}
+      </SectionBox>
+
+      <Box id="addons" sx={{ scrollMarginTop: 72 }} />
+      <SectionBox title="Add-ons">
+        {addons.length === 0 ? (
+          <Typography>{extras ? 'No add-ons reported.' : 'Loading…'}</Typography>
+        ) : (
+          <SimpleTable
+            columns={[
+              { label: 'Role', getter: (a: AddonInfo) => a.role },
+              { label: 'Package', getter: (a: AddonInfo) => a.name },
+            ]}
+            data={addons}
           />
         )}
       </SectionBox>
@@ -809,6 +847,9 @@ export function ClusterDetail() {
         )}
       </SectionBox>
 
+      </Box>
+
+      <Box sx={{ display: tab === 'history' ? 'block' : 'none' }}>
       <Box id="access" sx={{ scrollMarginTop: 72 }} />
       <SectionBox title="Access">
         <NamespaceAccess supervisor={supervisor} namespace={cluster.namespace} clusters={[cluster]} />
@@ -838,21 +879,6 @@ export function ClusterDetail() {
             </li>
           )}
         </Box>
-      </SectionBox>
-
-      <Box id="addons" sx={{ scrollMarginTop: 72 }} />
-      <SectionBox title="Add-ons">
-        {addons.length === 0 ? (
-          <Typography>{extras ? 'No add-ons reported.' : 'Loading…'}</Typography>
-        ) : (
-          <SimpleTable
-            columns={[
-              { label: 'Role', getter: (a: AddonInfo) => a.role },
-              { label: 'Package', getter: (a: AddonInfo) => a.name },
-            ]}
-            data={addons}
-          />
-        )}
       </SectionBox>
 
       <Box id="conditions" sx={{ scrollMarginTop: 72 }} />
@@ -982,6 +1008,7 @@ export function ClusterDetail() {
           </details>
         </SectionBox>
       )}
+      </Box>
     </>
   );
 }

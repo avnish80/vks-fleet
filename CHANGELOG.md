@@ -2,6 +2,20 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## 1.42.0 (release candidate)
+
+Look and feel, from the same page-by-page review.
+
+- **The cluster page has tabs:** Overview, Workloads, Nodes, Packages and backups, Access and history, under the cluster's open issues. It was one scroll of about twenty sections. Every existing link (from an issue, a check, another page) opens the tab its section or row is on and scrolls to it. Add-ons moved beside Packages.
+- **Issues tab: the list comes sooner.** *Do these first* shows its top three steps (the rest one click away), Simulate sits under it, and the 30-day timeline follows the issue list instead of preceding it.
+- **Clusters at a glance, calmer:** one minor version behind carries no colour (two is amber, more is red), and a backup is green up to 26 hours, amber up to a week, the same thresholds as the backup check.
+- **Dashboard blocks on a narrow screen:** a block that is too narrow drops its trend line, so the figure and its change no longer collide.
+- **Baseline:** its figure and matrix are called *Matches the baseline* and *Each cluster against the baseline*, so "Compliance" means one thing (the Security tab); a hint says the matrix scrolls sideways.
+- **Compute:** the tab and its heading are both *Nodes*.
+- **Observability:** *Running out* (the forecasts) is open by default.
+- **Settings:** the generic CIS switch has its own *Security* group, away from the demo options.
+- **Docs:** the install commands use this version.
+
 ## 1.41.0 (release candidate)
 
 Figures that contradicted each other, and a fuller demo. From a page-by-page review before publishing.

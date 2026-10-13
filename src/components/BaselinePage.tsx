@@ -178,14 +178,14 @@ export function BaselinePage() {
           </Typography>
         )}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 2, mb: 3 }}>
-          <KpiTile label="Compliance" value={`${overall}%`} sub="average across clusters" tone={overall >= 90 ? 'success' : overall >= 70 ? 'warning' : 'error'} meter={{ value: overall, max: 100 }} />
+          <KpiTile label="Matches the baseline" value={`${overall}%`} sub="average across clusters" tone={overall >= 90 ? 'success' : overall >= 70 ? 'warning' : 'error'} meter={{ value: overall, max: 100 }} />
           <KpiTile label="Drifting clusters" value={drifting} sub={`of ${rows.length}`} tone={drifting ? 'warning' : 'success'} />
           <KpiTile label="Rules" value={ruleIds.length} sub="checked per cluster" tone="info" />
         </Box>
         <ProfilesEditor baseline={baseline} profiles={profiles} counts={counts} />
       </SectionBox>
 
-      <SectionBox title="Compliance">
+      <SectionBox title="Each cluster against the baseline">
         <Box sx={{ overflowX: 'auto' }}>
           <Box component="table" sx={{ borderCollapse: 'separate', borderSpacing: '4px', minWidth: '100%', fontSize: '0.85rem' }}>
             <thead>
@@ -248,7 +248,7 @@ export function BaselinePage() {
           </Box>
         </Box>
         <Typography variant="caption" color="text.secondary">
-          Click a cluster for desired vs actual. "?" means it couldn't be checked (for example, backups need a sign-in to the
+          Scroll sideways for every rule. Click a cluster for desired vs actual. "?" means it couldn't be checked (for example, backups need a sign-in to the
           cluster).
         </Typography>
       </SectionBox>

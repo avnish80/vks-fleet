@@ -46,11 +46,12 @@ function cells(r: ScoreRow, now: number): Record<string, Cell> {
       ? { text: 'no Velero', tone: 'warning' }
       : hours === undefined
       ? { text: 'never', tone: 'error' }
-      : { text: `${hours}h ago`, tone: hours > 26 ? 'error' : hours > 12 ? 'warning' : 'success' },
+      : { text: `${hours}h ago`, tone: hours > 7 * 24 ? 'error' : hours > 26 ? 'warning' : 'success', title: 'Since the last successful backup. A daily backup is fine up to 26 hours; a week without one is red.' },
     certs: { text: certDays === undefined ? '—' : `${certDays}d`, tone: certDays === undefined ? '' : certDays < 30 ? 'error' : certDays < 60 ? 'warning' : 'success', title: 'Days left on control-plane certificates' },
     version: {
       text: `${(c.kubernetesVersion ?? '?').replace(/\+.*/, '')}${c.minorsBehind ? ` (${c.minorsBehind} behind)` : ''}`,
-      tone: c.minorsBehind ? (c.minorsBehind > 1 ? 'error' : 'warning') : 'success',
+      // One minor behind the newest is ordinary, so it carries no colour; two is worth planning, more is overdue.
+      tone: !c.minorsBehind ? 'success' : c.minorsBehind === 1 ? '' : c.minorsBehind === 2 ? 'warning' : 'error',
       title: c.kubernetesVersion,
     },
     nodes: { text: `${ready}/${c.machines.length}`, tone: ready < c.machines.length ? 'warning' : 'success' },

@@ -40,7 +40,7 @@ export function ObservabilityPage() {
   const [serverFor, setServerFor] = React.useState<ObservabilitySummary | null>(null);
   const [compareOn, setCompareOn] = React.useState(false);
   const [showUnmonitored, setShowUnmonitored] = React.useState(false);
-  const [showForecasts, setShowForecasts] = React.useState(false);
+  const [showForecasts, setShowForecasts] = React.useState(true);
   const comparisons = usePolling<AppComparison[]>(
     compareOn && summaries ? `compare|${summaries.filter(s => s.reachable).map(s => s.clusterKey).join(',')}` : null,
     async () =>

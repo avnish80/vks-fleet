@@ -527,10 +527,6 @@ export function SettingsPanel() {
             control={<Checkbox checked={raw.demo === true} onChange={e => settingsStore.update({ demo: e.target.checked })} />}
             label="Demo mode: a fictional fleet instead of your Supervisors (nothing is ever changed; dry runs work). For trying it out, screenshots and talks."
           />
-          <FormControlLabel
-            control={<Checkbox checked={raw.cisBenchmark === true} onChange={e => settingsStore.update({ cisBenchmark: e.target.checked })} />}
-            label="Show generic CIS Kubernetes Benchmark checks (Security → Compliance, and a score on the Security overview). Off by default: VMware does not publish or support a CIS benchmark for VKS, and a generic one flags settings that VKS manages. Use it as a reference only."
-          />
           {raw.demo === true && (
             <TextField
               select
@@ -549,6 +545,13 @@ export function SettingsPanel() {
             </TextField>
           )}
         </Box>
+      </Section>
+
+      <Section title="Security" blurb="VMware does not publish or support a CIS benchmark for VKS, so no benchmark is shown unless you switch one on here.">
+        <FormControlLabel
+          control={<Checkbox checked={raw.cisBenchmark === true} onChange={e => settingsStore.update({ cisBenchmark: e.target.checked })} />}
+          label="Show generic CIS Kubernetes Benchmark checks (Security → Compliance, and a result on the Security overview). A generic benchmark flags settings that VKS manages: use it as a reference only."
+        />
       </Section>
 
       <Box sx={{ mt: 3 }}>
