@@ -208,6 +208,8 @@ Failing packages become issues (critical for core packages such as the CNI, CSI 
 
 Results link to the plugin's cluster and machine pages, or to Headlamp's own page for the object. The query stays in the URL, so searches can be shared.
 
+![A cluster page: its open issues, each with its fix, above the five tabs](images/cluster.png)
+
 **Cluster page:** five tabs under the cluster's open issues (Overview, Workloads, Nodes, Packages and backups, Access and history); a link from an issue or a check opens the right tab and scrolls to its section.
 
 - summary: tenant, versions, upgrade, class (and whether a newer one exists), OS, VM and storage class, API endpoint, pod and service networks, certificate expiry and rotation, automatic node repair status, node capacity

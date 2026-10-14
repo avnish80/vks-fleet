@@ -10,27 +10,33 @@
 
 **Try it in two minutes without a lab:** install the plugin, open *VKS fleet*, and choose **Try the demo**: a fictional fleet with realistic problems, where nothing is ever changed.
 
+![A one-minute walk through the demo: the dashboard, investigating a node, a fix with its dry run, pre-flight, Supervisor health, security and what to do first](docs/images/demo.gif)
+
 ## What it does
 
 Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, each cluster's API and its Prometheus. vks-fleet reads all of them through their public APIs (Cluster API, VM Operator, NSX VPC, Carvel, Prometheus, and vCenter through a small collector) and follows the way an operator works:
 
 **Observe.** The fleet page opens on a one-screen **dashboard**: the fleet score with its 30-day trend, **Needs you now**, and eight blocks (clusters, Supervisor, capacity, the next 30 days, lifecycle, security, governance, network), each one number that opens the page behind it, above a wall with a tile per cluster. Its **Clusters** tab compares clusters row by row (health, issues, best-practice score, baseline, backup, certificates, version and nodes); its **Issues** tab lists what to do. **Supervisor health** shows the platform itself: its controllers, services, control-plane VM and hosts, with vCenter's own view and 24 hours of utilisation. [Features](docs/features.md) · [The Supervisor](docs/supervisor.md)
 
-![Supervisor health: hosts, what runs where, and what esx-01 failing would take down](docs/images/supervisor.png)
+![Supervisor health: its score, the ESXi hosts and what runs on each, what vCenter reports, and the controllers](docs/images/supervisor.png)
 
 **Detect.** Issues are ranked, time-bound problems first, each with its cause and what to do: stuck nodes, drains blocked by PodDisruptionBudgets, crash loops, certificates, quota and overcommit, controllers that stopped reconciling, services running on a single host, Pod Security and privileged workloads, vulnerabilities from Trivy, and drift from your own baseline profiles.
 
+![Issues: the steps to do first, ranked by effect, then every open issue with its fix or the decision it needs](docs/images/issues.png)
+
 **Explain.** **Investigate** puts one cluster's timeline (changes, alerts, events, anomalies) beside a **walk down the layers** under a node: pod, node, Machine, VM, ESXi host, namespace, Supervisor, with the deepest unhealthy layer named. It drafts the post-mortem too. [Observability and investigation](docs/observability.md)
 
-![Investigate: what happened in checkout beside the layers under its troubled node](docs/images/investigate.png)
+![Investigate: what happened in checkout beside the layers under its stuck node, down to the ESXi host](docs/images/investigate.png)
 
 **Predict.** Prometheus forecasts (disks, memory, volumes), the Supervisor's control-plane disk, and certificate expiries land on a 30-day timeline. **Pre-flight** answers *what will this change do?* before an upgrade, a scale or a VM class change: capacity while it runs, the pods and workloads that move, what would block, and a verdict. [Making changes safely](docs/making-changes.md)
 
-![Pre-flight for upgrading checkout: a blocker, the nodes and pods affected, and the namespace's capacity](docs/images/preflight.png)
+![Pre-flight for scaling checkout's pool down by one: a blocker, the nodes and pods affected, and each check](docs/images/preflight.png)
 
 **Remediate.** Upgrades, scaling, node replacement, timeouts, packages, VMs and clusters, each from a dialog with its checks, a server-side dry run and a confirmation. With **read by default, elevate to change**, changes need a time-limited elevation with a reason.
 
 **Audit.** Every change is stamped on what it changed and shows in the change audit and the activity heatmap. Security exports an evidence pack (Markdown).
+
+![Security overview: what is open in every cluster (privileged namespaces and pods, cluster-admin grants, image vulnerabilities) and how each figure is measured](docs/images/security-overview.png)
 
 ## Who it's for
 

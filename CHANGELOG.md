@@ -2,6 +2,10 @@
 
 Newest first. Versions are git tags; each release carries `vks-fleet.tar.gz` (the plugin) and `vks-fleet-plugin-configmap.yaml` (the same plugin for in-cluster deployments).
 
+## Unreleased
+
+- **README and docs:** new screenshots from demo mode (the dashboard, Issues, Investigate, Pre-flight, Supervisor health, the Security overview and a cluster page) and a one-minute walk-through GIF near the top.
+
 ## 1.43.0
 
 A regular release again, the first since 1.33.4, after a page-by-page review in which every page was rendered and every button clicked.
