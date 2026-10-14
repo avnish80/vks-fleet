@@ -36,7 +36,7 @@ Operating a fleet of VKS clusters means moving between the Supervisor, vCenter, 
 
 **Audit.** Every change is stamped on what it changed and shows in the change audit and the activity heatmap. Security exports an evidence pack (Markdown).
 
-![Security overview: what is open in every cluster (privileged namespaces and pods, cluster-admin grants, image vulnerabilities) and how each figure is measured](docs/images/security-overview.png)
+![Security overview: what is open in every cluster (privileged namespaces and pods, cluster-admin grants, image vulnerabilities), then one row per cluster](docs/images/security-overview.png)
 
 ## Who it's for
 
